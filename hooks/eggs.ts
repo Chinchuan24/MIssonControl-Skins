@@ -5,15 +5,18 @@
 // Three flavours, one per cast: `runners` (Night City yellow), `netrun` (Lucy's
 // pink and the moon), `corpo` (Arasaka red).
 
+import { inkOn, textW } from './extras'
+
 export type Egg = 'runners' | 'netrun' | 'corpo' | 'samurai'
 
-export type EggColors = { a: string; b: string; c: string; text: string; dim: string }
+// `bg` is the card ground: each skin's tile colour.
+export type EggColors = { a: string; b: string; c: string; text: string; dim: string; bg: string }
 
 const COLORS: Record<Egg, EggColors> = {
-  runners: { a: '#FCEE0A', b: '#00F0FF', c: '#FF003C', text: '#F4F4F4', dim: '#5A6270' },
-  netrun: { a: '#FF5CF0', b: '#5CE1FF', c: '#B8F2E0', text: '#F4F0FF', dim: '#6A5E80' },
-  corpo: { a: '#E3001B', b: '#F2F2F2', c: '#8A0A24', text: '#F2F2F2', dim: '#55565C' },
-  samurai: { a: '#E10600', b: '#EDEDED', c: '#FFD400', text: '#F4F4F4', dim: '#5E5252' },
+  runners: { a: '#FCEE0A', b: '#00F0FF', c: '#FF003C', text: '#F4F4F4', dim: '#7E8696', bg: '#0B0C10' },
+  netrun: { a: '#FF5CF0', b: '#5CE1FF', c: '#B8F2E0', text: '#F4F0FF', dim: '#8A7EA0', bg: '#100B1A' },
+  corpo: { a: '#E3001B', b: '#F2F2F2', c: '#8A0A24', text: '#F2F2F2', dim: '#7E7F86', bg: '#0A0A0B' },
+  samurai: { a: '#E10600', b: '#EDEDED', c: '#FFD400', text: '#F4F4F4', dim: '#8A7A7A', bg: '#0E0909' },
 }
 export const eggColors = (egg: Egg): EggColors => COLORS[egg]
 
@@ -37,7 +40,7 @@ export const EGG_CSS = `.rg{animation:rgx 4.2s steps(1) infinite}.rg2{animation:
 .rise{animation:rise 2.4s cubic-bezier(.2,.8,.2,1) both}@keyframes rise{from{transform:translateY(40px);opacity:0}}
 .flash{animation:flash .9s steps(1) 3}@keyframes flash{33%{opacity:.15}66%{opacity:.9}}
 .tick{animation:tick 1.6s ease-in-out infinite}
-@media (prefers-reduced-motion: reduce){.rg,.rg2,.rgs,.bx,.bslot,.heat,.psy,.sandy,.win,.av,.beacon,.moon,.rise,.flash{animation:none}}`
+@media (prefers-reduced-motion: reduce){.rg,.rg2,.rgs,.bx,.bslot,.heat,.psy,.sandy,.win,.av,.beacon,.moon,.rise,.flash,.tick{animation:none}}`
 
 // The Relic's malfunction on a line of text: a red and a cyan copy that tear
 // sideways for a moment every few seconds, over a white core that jumps a slice.
@@ -55,21 +58,21 @@ const CODES = ['1C', 'BD', '55', 'E9', '7A', 'FF']
 export const breachTicker = (x: number, y: number, isWorking: boolean, done: number, total: number, egg: Egg, font: string): string => {
   const c = COLORS[egg]
   const cell = 17
-  const cells = CODES.map((code, i) => `<text x="${x + 40 + i * cell + cell / 2}" y="${y}" text-anchor="middle" font-family="${font}" font-size="9.5" font-weight="700" fill="${isWorking ? c.a : c.dim}" fill-opacity="${isWorking ? 0.9 : 0.6}">${code}</text>`).join('')
+  const cells = CODES.map((code, i) => `<text x="${x + 44 + i * cell + cell / 2}" y="${y}" text-anchor="middle" font-family="${font}" font-size="9.5" font-weight="700" fill="${isWorking ? c.a : c.dim}" fill-opacity="${isWorking ? 0.9 : 0.6}">${code}</text>`).join('')
   const band = isWorking
-    ? `<rect class="bx" style="--bw:${cell * 6}px" x="${x + 40}" y="${y - 9}" width="${cell}" height="12" fill="${c.a}" fill-opacity=".18" stroke="${c.a}" stroke-opacity=".7" stroke-width=".8"/>`
+    ? `<rect class="bx" style="--bw:${cell * 6}px" x="${x + 44}" y="${y - 9}" width="${cell}" height="12" fill="${c.a}" fill-opacity=".18" stroke="${c.a}" stroke-opacity=".7" stroke-width=".8"/>`
     : ''
   const slots = Math.max(1, Math.min(6, total || 6))
   const filled = total ? Math.min(slots, Math.round((done / total) * slots)) : 0
   const buf = Array.from({ length: slots }, (_, i) => {
-    const bx = x + 40 + cell * 6 + 10 + i * 7
+    const bx = x + 44 + cell * 6 + 10 + i * 7
     return i < filled
       ? `<rect x="${bx}" y="${y - 7}" width="5" height="8" fill="${c.a}"/>`
       : `<rect${i === filled && isWorking ? ' class="bslot"' : ''} x="${bx + 0.5}" y="${y - 6.5}" width="4" height="7" fill="none" stroke="${c.a}" stroke-opacity=".6"/>`
   }).join('')
   return `<text x="${x}" y="${y}" font-family="${font}" font-size="9" font-weight="800" letter-spacing=".6" fill="${c.dim}">BREACH</text>${band}${cells}${buf}`
 }
-export const BREACH_W = 40 + 17 * 6 + 10 + 6 * 7
+export const BREACH_W = 44 + 17 * 6 + 10 + 6 * 7
 
 // NCPD heat: up to five stars, lit by how hot the run is; five flash red and blue.
 export const heatStars = (x: number, y: number, level: number, egg: Egg): string => {
@@ -85,10 +88,10 @@ export const heatStars = (x: number, y: number, level: number, egg: Egg): string
 export const psychoChip = (x: number, y: number, ctxPct: number, font: string): { svg: string; w: number } => {
   if (ctxPct < 85) return { svg: '', w: 0 }
   const label = ctxPct >= 95 ? 'MAXTAC INBOUND' : 'CYBERPSYCHOSIS RISK'
-  const w = label.length * 6.1 + 14
+  const w = textW(label, 9.5, 0.5) + 14
   return {
     w,
-    svg: `<g class="psy"><rect x="${x}" y="${y - 10}" width="${w}" height="13" rx="1" fill="#FF003C"/><text x="${x + w / 2}" y="${y - 0.5}" text-anchor="middle" font-family="${font}" font-size="9.5" font-weight="800" letter-spacing=".5" fill="#0B0B0E">${label}</text></g>`,
+    svg: `<g class="psy"><rect x="${x}" y="${y - 10}" width="${w}" height="13" rx="1" fill="#FF003C"/><text x="${x + w / 2}" y="${y - 0.5}" text-anchor="middle" font-family="${font}" font-size="9.5" font-weight="800" letter-spacing=".5" fill="${inkOn('#FF003C')}">${label}</text></g>`,
   }
 }
 
@@ -133,8 +136,11 @@ export const skyline = (W: number, y0: number, h: number, egg: Egg): string => {
     const sx = Math.round(W * 0.7)
     extra = `<path d="M${sx} ${y0 - 4}l-26 ${h + 4}h20z" fill="#FFD400" fill-opacity=".18"/><path d="M${sx + 40} ${y0 - 4}l26 ${h + 4}h-20z" fill="#E10600" fill-opacity=".22"/><rect x="${sx - 30}" y="${y0 + h - 4}" width="100" height="4" fill="#2A0A0A"/>`
   } else if (egg === 'netrun') {
-    const mx = Math.round(W * 0.82)
-    extra = `<g class="moon"><circle cx="${mx}" cy="${y0 + 4}" r="${h * 0.42}" fill="#FFD6F2" fill-opacity=".55"/><circle cx="${mx - 3}" cy="${y0 + 2}" r="${h * 0.12}" fill="#E6A8D8" fill-opacity=".5"/></g>`
+    // Clear of the CACHE readout on the right, and small enough for a 14px band.
+    const mx = Math.round(W * 0.55)
+    const r = Math.min(h * 0.36, 8)
+    const my = y0 + r + 1
+    extra = `<g class="moon"><circle cx="${mx}" cy="${my.toFixed(1)}" r="${r.toFixed(1)}" fill="#FFD6F2" fill-opacity=".55"/><circle cx="${(mx - r * 0.3).toFixed(1)}" cy="${(my - r * 0.25).toFixed(1)}" r="${(r * 0.3).toFixed(1)}" fill="#E6A8D8" fill-opacity=".5"/></g>`
   }
   const av = `<g class="av" style="--sw:${W + 60}px"><rect x="0" y="${y0 + 3}" width="9" height="2" rx="1" fill="${c.dim}"/><rect x="8" y="${y0 + 3}" width="2" height="2" fill="${c.c}"/></g>`
   return `<g opacity=".22" fill="${egg === 'corpo' ? '#2A0A0F' : egg === 'samurai' ? '#2A0C0C' : egg === 'netrun' ? '#2A1A3A' : '#1A2230'}">${extra}${towers.join('')}</g><g opacity=".5">${windows.join('')}</g>${av}`
@@ -148,11 +154,10 @@ export const celebration = (W: number, H: number, egg: Egg, font: string): strin
 <text class="rise" x="${W - 130}" y="${H / 2 + 5}" text-anchor="end" font-family="${font}" font-size="15" font-weight="800" letter-spacing="1.5" fill="${c.a}">TO THE MOON ☾</text>`
   }
   const label = egg === 'corpo' ? 'PROTOCOL COMPLETE · 任務完了' : egg === 'samurai' ? 'NEVER FADE AWAY' : 'PREEM. JOB DONE, CHOOM'
-  // CJK glyphs are about twice as wide as Latin ones.
-  const w = [...label].reduce((n, ch) => n + (ch.charCodeAt(0) > 0x2e80 ? 16 : 9), 0) + 30
+  const w = textW(label, 15, 1.5) + 30
   if (egg === 'corpo') font = `${font.replace(/,?sans-serif$/, '')},${CJK_FONT}`
   return `<g class="flash"><rect x="${(W - w) / 2}" y="${H / 2 - 13}" width="${w}" height="24" fill="${c.a}" transform="rotate(-2 ${W / 2} ${H / 2})"/>
-<text x="${W / 2}" y="${H / 2 + 5}" text-anchor="middle" font-family="${font}" font-size="15" font-weight="900" letter-spacing="1.5" fill="#0B0B0E" transform="rotate(-2 ${W / 2} ${H / 2})">${esc(label)}</text></g>`
+<text x="${W / 2}" y="${H / 2 + 5}" text-anchor="middle" font-family="${font}" font-size="15" font-weight="900" letter-spacing="1.5" fill="${inkOn(c.a)}" transform="rotate(-2 ${W / 2} ${H / 2})">${esc(label)}</text></g>`
 }
 
 // A tiny code tag for a corner: SYS.2077 // 0x3F, and a katakana line.
@@ -162,7 +167,7 @@ export const sysTag = (x: number, y: number, egg: Egg, font: string, anchor = 'e
   return `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="${font}" font-size="7" letter-spacing=".8" fill="${c.dim}" fill-opacity=".8">${code}</text>`
 }
 // Japanese text needs a Japanese face: macOS, Windows, then Linux's Noto.
-export const CJK_FONT = "'Hiragino Sans','Yu Gothic UI','Meiryo','Noto Sans CJK JP',sans-serif"
+export const CJK_FONT = "'Hiragino Sans','Hiragino Kaku Gothic ProN','PingFang SC','Yu Gothic UI','Meiryo','Noto Sans CJK JP',sans-serif"
 export const KATAKANA: Record<Egg, string> = { runners: 'ミッション・コントロール', netrun: 'ネットランナー', corpo: 'アラサカ', samurai: 'サムライ' }
 
 // Night City radio, one station an hour (names only).
@@ -200,17 +205,17 @@ export const breachCard = (W: number, done: number, total: number, isWorking: bo
   const hasDaemons = W - bx >= 130
   const buf = Array.from({ length: slots }, (_, i) =>
     i < fill
-      ? `<rect x="${bx + i * 26}" y="${y0}" width="22" height="16" fill="${c.a}" fill-opacity=".9"/><text x="${bx + i * 26 + 11}" y="${y0 + 12}" text-anchor="middle" font-family="${font}" font-size="10" font-weight="800" fill="#0B0B0E">${(MATRIX[i % 5] as string[])[i % 5]}</text>`
+      ? `<rect x="${bx + i * 26}" y="${y0}" width="22" height="16" fill="${c.a}" fill-opacity=".9"/><text x="${bx + i * 26 + 11}" y="${y0 + 12}" text-anchor="middle" font-family="${font}" font-size="10" font-weight="800" fill="${inkOn(c.a)}">${(MATRIX[i % 5] as string[])[i % 5]}</text>`
       : `<rect${i === fill && isWorking ? ' class="bslot"' : ''} x="${bx + i * 26 + 0.5}" y="${y0 + 0.5}" width="21" height="15" fill="none" stroke="${c.a}" stroke-opacity=".6" stroke-dasharray="3 2"/>`,
   ).join('')
   const daemons = (hasDaemons ? ['DATAMINE_V1', 'DATAMINE_V2', 'DATAMINE_V3'] : [])
     .map((d, i) => {
       const ok = total > 0 && done >= Math.ceil(((i + 1) * total) / 3)
-      return `<text x="${bx}" y="${y0 + 42 + i * 18}" font-family="${font}" font-size="11.5" font-weight="700" letter-spacing=".6" fill="${ok ? c.a : c.dim}">${ok ? '✓ ' : '▫ '}${d}</text>`
+      return `<text x="${bx}" y="${y0 + 42 + i * 18}" font-family="${font}" font-size="11.5" font-weight="700" letter-spacing=".6" fill="${ok ? c.a : c.dim}">${ok ? '✓ ' : '▫\uFE0E '}${d}</text>`
     })
     .join('')
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${BREACH_H}" viewBox="0 0 ${W} ${BREACH_H}"><style>${EGG_CSS}.cur{}@keyframes cur{50%{opacity:0}}.bslot{animation:cur 1s steps(1) infinite}</style>
-${frame(0.5, 0.5, W - 1, BREACH_H - 1, `fill="#0B0D12" fill-opacity=".85" stroke="${c.a}" stroke-opacity=".35"`, 10)}
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${BREACH_H}" viewBox="0 0 ${W} ${BREACH_H}"><style>${EGG_CSS}.cur{}@keyframes cur{50%{opacity:0}}.bslot{animation:cur 1s steps(1) infinite}@media (prefers-reduced-motion: reduce){.bslot{animation:none}}</style>
+${frame(0.5, 0.5, W - 1, BREACH_H - 1, `fill="${c.bg}" fill-opacity=".85" stroke="${c.a}" stroke-opacity=".35"`, 10)}
 <rect x="16" y="11" width="3" height="14" fill="${c.a}"/>
 <text x="25" y="23" font-family="${font}" font-size="14" font-weight="800" letter-spacing=".8" fill="${c.text}">BREACH PROTOCOL</text>
 ${sysTag(W - 14, 22, egg, font)}
@@ -234,7 +239,7 @@ export const legendsCard = (W: number, list: Legend[], egg: Egg, font: string, m
     ? list
         .map((l, i) => {
           const y = 52 + i * LEGENDS_ROW
-          const name = egg === 'corpo' ? `ENGRAM ${String(i + 1).padStart(3, '0')} — ${l.task}` : `The ${l.task}`
+          const name = egg === 'corpo' ? `ENGRAM ${String(i + 1).padStart(3, '0')} — ${l.task}` : l.task
           const room = Math.max(10, Math.floor((W - 160) / 6.6))
           const chars = [...name]
           const clipped = chars.length > room ? `${chars.slice(0, room - 1).join('')}…` : name
@@ -245,7 +250,7 @@ export const legendsCard = (W: number, list: Legend[], egg: Egg, font: string, m
         .join('')
     : `<text x="18" y="52" font-family="${font}" font-size="12" fill="${c.dim}">${egg === 'corpo' ? 'No engrams yet. Finish a job.' : 'No legends yet. Finish a job, choom.'}</text>`
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-${frame(0.5, 0.5, W - 1, H - 1, `fill="#0B0D12" fill-opacity=".85" stroke="${c.a}" stroke-opacity=".3"`, 10)}
+${frame(0.5, 0.5, W - 1, H - 1, `fill="${c.bg}" fill-opacity=".85" stroke="${c.a}" stroke-opacity=".3"`, 10)}
 <rect x="16" y="11" width="3" height="14" fill="${c.a}"/>
 <text x="25" y="23" font-family="${font}" font-size="14" font-weight="800" letter-spacing=".8" fill="${c.text}">${title}</text>
 ${sysTag(W - 14, 22, egg, font)}

@@ -2,7 +2,7 @@
 
 Skins for the **Mission Control** mod: the band above the prompt, the Mission Control pane, its cards and the hierarchy.
 
-Skins load from, in order: the folder you used last, a `Custom Claude Skins/` folder in your working folder (on Linux the name must match exactly), then the `skins/` examples shipped with the mod. The JSON files here are copies of the built-in skins: copy one to start your own.
+Skins load from, in order: the folder you used last, a `Custom Claude Skins/` folder in your working folder (on Linux, or a case-sensitive Mac drive, the name must match exactly), then the `skins/` examples shipped with the mod. The JSON files here are copies of the built-in skins: copy one to start your own. The cyberpunk ones live in `addons/cyberpunk/skins/` (Cyberpunk Skins add-on).
 
 > Unofficial, non-commercial fan project. Cyberpunk 2077, Cyberpunk: Edgerunners and all related names and characters belong to their respective owners (CD PROJEKT S.A., Studio Trigger, Netflix) and are used as fan homage only.
 
@@ -10,7 +10,7 @@ Skins load from, in order: the folder you used last, a `Custom Claude Skins/` fo
 
 - `/skins`: open the skin picker panel
 - `/skin`: list skins (▸ marks the one that's on)
-- `/skin cyberpunk-2077`: switch, live
+- `/skin crab-classic`: switch, live
 - `/skin off`: back to Default (no skin)
 - `/skin reload`: re-read this folder after you edit or add a file
 

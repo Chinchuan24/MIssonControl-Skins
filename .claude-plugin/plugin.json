@@ -1,6 +1,6 @@
 {
   "name": "crab-progress",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Mission Control for Claude Code: a HUD band above the prompt, a live agents pane (/crew), skins, pixel-art casts and Night City easter eggs. Based on savvy-progress from johnnyvizz/claude-kit (MIT).",
   "author": { "name": "Chinchuan24", "url": "https://github.com/Chinchuan24" },
   "homepage": "https://github.com/Chinchuan24/MIssonControl-Skins",

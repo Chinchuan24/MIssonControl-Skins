@@ -1,3 +1,4 @@
 # Generated on each machine by the Claude Code CLI: they list your own installed
 # apps, connectors and paths. Regenerate them locally; never commit them.
 .claude-plugin/types/
+dist/

@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import { CASTS, CAST_CSS, hashOf, spriteMarkup } from './cast'
 import { BREACH_H, BREACH_W, CJK_FONT, EGG_CSS, EGG_TOOLS, EGG_WORDS, GREETING, KATAKANA, breachCard, breachTicker, celebration, heatStars, legendsCard, legendsHeight, psychoChip, radio, relicText, sandevistan, skyline, sysTag } from './eggs'
 import type { Egg, Legend } from './eggs'
-import { BD_H, BEATS_KEPT, BLANK_CRED, BOOT_H, award, rockerRankOf, bootStrip, braindanceCard, cleanCred, credCard, credHeight, levelOf, rankOf, shiftPick, stepPick } from './extras'
+import { BEATS_KEPT, BLANK_CRED, BOOT_H, award, rockerRankOf, bdHeight, bootStrip, braindanceCard, cleanCred, credCard, credHeight, levelOf, rankOf, shiftPick, stepPick } from './extras'
 import type { Beat, Cred } from './extras'
 import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, unifiedDiff } from './richtext'
 import type { AgentRun, AgentStatus, AllTime, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Today, Watch } from '../types'
@@ -341,7 +341,7 @@ const CRAB_SKIN: Skin = {
     meter: '#3B82F6',
     text: '#ececec',
     subtext: '#a8a8a4',
-    muted: '#7d7d79',
+    muted: '#9A9A96',
     tile: '#262625',
     track: '#2c2c2b',
     line: '#333331',
@@ -364,19 +364,19 @@ const CYBER_SKIN: Skin = {
   cast: 'runners',
   name: 'Cyberpunk 2077',
   description: 'Night City HUD: neon yellow, hot red, electric cyan, cut corners, scanlines.',
-  font: "Rajdhani,Orbitron,-apple-system,'SF Pro Display','Helvetica Neue',Bahnschrift,'Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  font: "Rajdhani,Orbitron,-apple-system,BlinkMacSystemFont,'SF Pro Display','Helvetica Neue',Bahnschrift,'Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
   corners: 'chamfer',
   dark: true,
   colors: {
     accent: '#FCEE0A',
     accent2: '#00F0FF',
     done: '#00FF9F',
-    warn: '#FCEE0A',
+    warn: '#FF8A00',
     alert: '#FF003C',
     meter: '#00F0FF',
     text: '#F3EFE0',
     subtext: '#9FB4BA',
-    muted: '#5E6A72',
+    muted: '#74808A',
     tile: '#0B0C10',
     track: '#1A1D24',
     line: '#2B2F38',
@@ -398,7 +398,7 @@ const ARASAKA_SKIN: Skin = {
   cast: 'corpo',
   name: 'Arasaka',
   description: 'Corporate steel: blood red on black, hard edges, no noise.',
-  font: "Rajdhani,-apple-system,'SF Pro Display','Helvetica Neue',Bahnschrift,'Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  font: "Rajdhani,-apple-system,BlinkMacSystemFont,'SF Pro Display','Helvetica Neue',Bahnschrift,'Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
   corners: 'chamfer',
   dark: true,
   colors: {
@@ -410,7 +410,7 @@ const ARASAKA_SKIN: Skin = {
     meter: '#E3001B',
     text: '#F2F2F2',
     subtext: '#9A9EA6',
-    muted: '#5A5E66',
+    muted: '#7A7E86',
     tile: '#0A0A0B',
     track: '#1B1C1F',
     line: '#2A2C31',
@@ -432,7 +432,7 @@ const LUCY_SKIN: Skin = {
   cast: 'netrun',
   name: 'Lucy · Edgerunners',
   description: 'Moonlit netrunner: rose-pink and cyan on deep violet, soft glow.',
-  font: "Rajdhani,-apple-system,'SF Pro Display','Helvetica Neue',Bahnschrift,'Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  font: "Rajdhani,-apple-system,BlinkMacSystemFont,'SF Pro Display','Helvetica Neue',Bahnschrift,'Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
   corners: 'round',
   dark: true,
   colors: {
@@ -444,7 +444,7 @@ const LUCY_SKIN: Skin = {
     meter: '#B79CFF',
     text: '#F4ECFF',
     subtext: '#B9A9D9',
-    muted: '#6E6290',
+    muted: '#8A7DB0',
     tile: '#100B1A',
     track: '#1E1530',
     line: '#2C2244',
@@ -478,7 +478,7 @@ const DEFAULT_SKIN: Skin = {
     meter: '#8C8C88',
     text: '#ececec',
     subtext: '#a8a8a4',
-    muted: '#7d7d79',
+    muted: '#9A9A96',
     tile: '#262625',
     track: '#2c2c2b',
     line: '#333331',
@@ -502,7 +502,7 @@ const SAMURAI_SKIN: Skin = {
   hidden: true,
   name: 'SAMURAI',
   description: "Johnny's band: red on black, stage lights, never fade away.",
-  font: "Rajdhani,Orbitron,-apple-system,'SF Pro Display','Helvetica Neue',Bahnschrift,'Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  font: "Rajdhani,Orbitron,-apple-system,BlinkMacSystemFont,'SF Pro Display','Helvetica Neue',Bahnschrift,'Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
   corners: 'chamfer',
   dark: true,
   colors: {
@@ -514,7 +514,7 @@ const SAMURAI_SKIN: Skin = {
     meter: '#D9D9D9',
     text: '#F4F4F4',
     subtext: '#B3A5A5',
-    muted: '#6E5E5E',
+    muted: '#8A7878',
     tile: '#0E0909',
     track: '#241515',
     line: '#3A2020',
@@ -591,7 +591,8 @@ const timeline = atom({ plugin: 'crab-progress', key: 'timeline' } as const, [] 
 const bdPick = atom({ plugin: 'crab-progress', key: 'bdPick' } as const, -1)
 const readSettings = async ($: EngineInterface) => {
   const saved = (await $.store.get('currency').catch(() => undefined)) as { code?: string; rate?: number } | undefined
-  CURRENCY = currencyOf(saved?.code ?? 'AUTO', saved?.rate)
+  // A store written by hand or by an older build may hold anything: a bad code is Auto.
+  CURRENCY = currencyOf(typeof saved?.code === 'string' ? saved.code : 'AUTO', typeof saved?.rate === 'number' ? saved.rate : undefined)
   return {
     openOnStart: (await $.store.get('openOnStart').catch(() => undefined)) !== false,
     crewMode: (await readAutoCrew($)).on,
@@ -635,7 +636,7 @@ async function bumpCredNow($: EngineInterface, change: (c: Cred) => Cred, quiet:
   if (now > was) $.ui.toast(`${eggOf() === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED'} ↑ ${now} · ${eggOf() === 'samurai' ? rockerRankOf(now) : rankOf(now)}`)
   for (const b of fresh) $.ui.toast(`${b.icon} Badge unlocked: ${b.name}`)
   const isCheer = now > was || fresh.length > 0
-  if (!quiet && isCheer) void play($, 'assets/levelup.wav')
+  if (!quiet && isCheer) void play($, `${ADDON}/assets/levelup.wav`)
   return isCheer
 }
 // The next currency in the list; a custom rate is kept only for the one it was set on.
@@ -645,6 +646,19 @@ const setCurrency = async ($: EngineInterface, c: Currency) => {
   await update($, settings, prev => ({ ...prev, currency: c.code }))
 }
 const SKINS = new Map<string, Skin>(BUILT_IN_SKINS.map(k => [k.id, k]))
+// The Cyberpunk Skins add-on: its skins (and their sounds) ship in addons/cyberpunk/.
+// Without that folder Mission Control is the core edition: default and Crab Classic.
+const ADDON = 'addons/cyberpunk'
+const ADDON_URL = 'https://github.com/Chinchuan24/MIssonControl-Skins#-choose-your-edition'
+const ADDON_CASTS = new Set(['runners', 'netrun', 'corpo', 'samurai'])
+let HAS_CYBER = false
+const checkAddon = async ($: EngineInterface): Promise<boolean> => {
+  HAS_CYBER = await $.fs.exists(`${$.plugin.root}/${ADDON}/addon.json`).catch(() => false)
+  return HAS_CYBER
+}
+const isAddonSkin = (k: Skin): boolean => ADDON_CASTS.has(String(k.cast ?? ''))
+const canWear = (k: Skin): boolean => HAS_CYBER || !isAddonSkin(k)
+const ADDON_PITCH = `Cyberpunk Skins add-on: Cyberpunk 2077, Lucy · Edgerunners and Arasaka. Get it: ${ADDON_URL}`
 let SKIN: Skin = CRAB_SKIN
 const SKINS_FOLDER = 'Custom Claude Skins'
 
@@ -655,7 +669,7 @@ async function loadSkins($: EngineInterface): Promise<{ folder: string; loaded: 
   const remembered = await $.store.get('skinsFolder').catch(() => undefined)
   const cwd = await $.session.cwd().catch(() => '')
   const bundled = `${$.plugin.root}/skins`
-  const candidates = [typeof remembered === 'string' ? remembered : '', cwd ? `${cwd}/${SKINS_FOLDER}` : '', bundled].filter(Boolean)
+  const candidates = [typeof remembered === 'string' ? remembered : '', cwd ? `${cwd.replace(/[\\/]+$/, '')}/${SKINS_FOLDER}` : '', bundled].filter(Boolean)
   for (const folder of candidates) {
     if (!(await $.fs.exists(folder).catch(() => false))) continue
     if (folder !== remembered && folder !== bundled) await $.store.set('skinsFolder', folder).catch(() => undefined)
@@ -666,7 +680,8 @@ async function loadSkins($: EngineInterface): Promise<{ folder: string; loaded: 
       return []
     })
     for (const f of files) {
-      if (f.kind !== 'file' || !f.name.toLowerCase().endsWith('.json')) continue
+      // Dotfiles are skipped: macOS leaves `._name.json` beside files copied from other disks.
+      if (f.kind !== 'file' || f.name.startsWith('.') || !f.name.toLowerCase().endsWith('.json')) continue
       try {
         const k = readSkin(parseJson(await $.fs.read(`${folder}/${f.name}`)), f.name.replace(/\.json$/i, '').toLowerCase())
         if (k) {
@@ -934,6 +949,22 @@ const xml = (s: string): string =>
 
 const clip = (s: string, max: number): string => (s.length > max ? s.slice(0, Math.max(1, max - 1)) + '…' : s)
 
+// A coordinate to two decimals: 7.348837209302325 is 7.35 in the markup.
+const r2 = (n: number): number => Math.round(n * 100) / 100
+
+// Text drawn on a coloured fill: near-black on a light fill, white on a dark one,
+// by the fill's relative luminance (WCAG). A colour it cannot read gets white.
+const inkOn = (color: string): string => {
+  const hex = /^#([0-9a-f]{3,8})$/i.exec(color.trim())?.[1] ?? ''
+  const full = hex.length === 3 || hex.length === 4 ? [...hex.slice(0, 3)].map(ch => ch + ch).join('') : hex.slice(0, 6)
+  if (full.length !== 6) return '#FFFFFF'
+  const lin = (i: number) => {
+    const v = parseInt(full.slice(i, i + 2), 16) / 255
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * lin(0) + 0.7152 * lin(2) + 0.0722 * lin(4) > 0.18 ? '#111111' : '#FFFFFF'
+}
+
 // CJK, fullwidth forms and emoji advance about 1em; at 0.56em a Chinese title was sized at half its width and the bar drew over it.
 // 中日韩文字、全角标点和 emoji 约占 1em；按 0.56em 算时中文标题宽度被低估近一半，进度条会压到标题上。
 const WIDE =
@@ -943,7 +974,8 @@ const WIDE =
 const charEm = (ch: string): number =>
   WIDE.test(ch) ? 1 : /[\s.,:;'|!il1()[\]]/.test(ch) ? 0.3 : /[A-ZА-ЯЁmwшщжюМШЩЖЮ@%]/.test(ch) ? 0.72 : 0.56
 
-const textWidth = (s: string, size: number): number => [...s].reduce((w, ch) => w + charEm(ch) * size, 0)
+// U+FE0E (text presentation, after a glyph macOS would draw as an emoji) has no width.
+const textWidth = (s: string, size: number): number => [...s].reduce((w, ch) => (ch === '\uFE0E' ? w : w + charEm(ch) * size), 0)
 
 // Cuts `s` to fit `maxW` pixels, with an ellipsis when it had to cut.
 const fitText = (s: string, size: number, maxW: number): string => {
@@ -1018,7 +1050,7 @@ const rowSvg = (f: Flow, W: number, isWorking: boolean, idleText?: string, ctxPc
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
 <style>
-${SKIN.dark ? `.t{fill:${SKIN.colors.text}}.m{fill:${SKIN.colors.subtext}}.k{fill:${SKIN.colors.track}}.tk{fill:${SKIN.colors.line}}` : `.t{fill:#1f1f1f}.m{fill:#8a8a8a}.k{fill:#e4e4e2}.tk{fill:#b4b4b0}
+${SKIN.dark ? `.t{fill:${SKIN.colors.text}}.m{fill:${SKIN.colors.subtext}}.k{fill:${SKIN.colors.track}}.tk{fill:${SKIN.colors.line}}` : `.t{fill:#1f1f1f}.m{fill:#6e6e6a}.k{fill:#e4e4e2}.tk{fill:#b4b4b0}
 @media (prefers-color-scheme: dark){.t{fill:#ececec}.m{fill:#9a9a9a}.k{fill:#2c2c2c}.tk{fill:#5a5a5a}}`}
 /* Pixels twinkle in four out-of-phase groups; a finished bar settles to a slow glow. */
 .t0,.t1,.t2,.t3{animation:tw ${f.isFinished ? 3.2 : 2.2}s ease-in-out infinite}
@@ -1036,7 +1068,7 @@ ${SKIN.dark ? `.t{fill:${SKIN.colors.text}}.m{fill:${SKIN.colors.subtext}}.k{fil
 <g class="tk">${ticks.join('')}</g>
 </g>
 <rect x="${pillX}" width="${pillW}" height="${BAR_H}" rx="${BAR_H / 2}" fill="${color}"/>
-<text x="${pillX + pillW / 2}" y="${BAR_H / 2 + 4}" text-anchor="middle"${rtl ? ' direction="rtl"' : ''} font-family="${FONT}" font-size="11" font-weight="600" fill="#ffffff">${xml(text)}</text>
+<text x="${pillX + pillW / 2}" y="${BAR_H / 2 + 4}" text-anchor="middle"${rtl ? ' direction="rtl"' : ''} font-family="${FONT}" font-size="11" font-weight="600" fill="${inkOn(color)}">${xml(text)}</text>
 </g>
 <text class="m" ${percentAt} font-family="${FONT}" font-size="12.5" font-variant-numeric="tabular-nums">${percent}</text>
 ${CRAB_CSS}${crab(rx(0, crabW), 0, 'boss', false, isWorking, 0.8, rtl)}
@@ -1255,10 +1287,13 @@ ${bd.fill ? `<rect width="${W}" height="${H}" fill="${bd.fill}"/>` : ''}${moon}
 // the classic follows the system scheme.
 const paneCss = (k: Skin): string => {
   const c = k.colors
-  const dark = `.t{fill:${c.text}}.s{fill:${c.subtext}}.m{fill:${c.muted}}.k{fill:${c.track}}.ln{stroke:${c.line}}.tile{fill:${c.tile}}`
+  const dark = `.t{fill:${c.text}}.s{fill:${c.subtext}}.m{fill:${c.muted}}.k{fill:${c.track}}.ln{stroke:${c.line}}.tile{fill:${c.tile}}.tr{stroke:${c.text}}.ac{fill:${c.accent}}`
+  // On a light background the classic violet (and Default's grey) is too faint to
+  // read as text: light mode writes it darker.
+  const lightAccent = k.id === CRAB_SKIN.id ? '#5B57D6' : k.id === DEFAULT_SKIN.id ? '#6e6e6a' : c.accent
   const scheme = k.dark
     ? dark
-    : `.t{fill:#1f1f1f}.s{fill:#6b6b68}.m{fill:#9a9a96}.k{fill:#ecebe8}.ln{stroke:#e4e4e1}.tile{fill:#f4f3f0}
+    : `.t{fill:#1f1f1f}.s{fill:#6b6b68}.m{fill:#6e6e6a}.k{fill:#ecebe8}.ln{stroke:#e4e4e1}.tile{fill:#f4f3f0}.tr{stroke:#1f1f1f}.ac{fill:${lightAccent}}
 @media (prefers-color-scheme: dark){${dark}}`
   const glitch = k.effects.glitch
     ? `.gl{animation:gl 3.6s steps(1) infinite}@keyframes gl{0%,90%,100%{transform:none}91%{transform:translate(2px,-1px)}93%{transform:translate(-2px,1px)}95%{transform:translate(1px,0)}}`
@@ -1438,11 +1473,84 @@ const CRAB_SCALE = 1.1
 const CAST_GROW = 1.3
 let castGrow = 1
 
+// While the hierarchy draws, each distinct figure (sprite and motion) is defined
+// once and every copy is a <use>: a big crew stays under the size limit. A figure's
+// class wrappers stay inside its definition, so its CSS still matches; its pixels
+// are shared again one level down, so a walking and a standing copy cost one set.
+let figureDefs: Map<string, string> | null = null
+const placeFigure = (markup: string): string => {
+  if (!figureDefs) return markup
+  let id = figureDefs.get(markup)
+  if (!id) {
+    id = `fg${figureDefs.size}`
+    figureDefs.set(markup, id)
+  }
+  return `<use href="#${id}"/>`
+}
+
+// A sprite path is one `M x y h w v1 h-w z` per run of pixels: runs that touch
+// merge into larger boxes, written with relative moves. The same pixels, shorter.
+const PIXEL_RUN = /M(-?\d+) (-?\d+)h(\d+)v1h-\d+z/g
+const mergeRuns = (d: string): string => {
+  if (d.replace(PIXEL_RUN, '') !== '') return d
+  const rows = new Map<number, [number, number][]>()
+  for (const m of d.matchAll(PIXEL_RUN)) {
+    const y = Number(m[2])
+    rows.set(y, [...(rows.get(y) ?? []), [Number(m[1]), Number(m[3])]])
+  }
+  const flat: [number, number, number][] = []
+  for (const [y, runs] of rows) {
+    let cur: [number, number, number] | null = null
+    for (const [x, w] of runs.sort((a, b) => a[0] - b[0])) {
+      if (cur && cur[0] + cur[2] === x) cur[2] += w
+      else {
+        if (cur) flat.push(cur)
+        cur = [x, y, w]
+      }
+    }
+    if (cur) flat.push(cur)
+  }
+  flat.sort((a, b) => a[0] - b[0] || a[2] - b[2] || a[1] - b[1])
+  const boxes: [number, number, number, number][] = []
+  for (const [x, y, w] of flat) {
+    const last = boxes.at(-1)
+    if (last && last[0] === x && last[2] === w && last[1] + last[3] === y) last[3] += 1
+    else boxes.push([x, y, w, 1])
+  }
+  boxes.sort((a, b) => a[1] - b[1] || a[0] - b[0])
+  let px = 0
+  let py = 0
+  return boxes
+    .map(([x, y, w, h], i) => {
+      const move = i ? `m${x - px} ${y - py}` : `M${x} ${y}`
+      px = x
+      py = y
+      return `${move}h${w}v${h}h${-w}z`
+    })
+    .join('')
+}
+
+const SHAPE_RUN = /(?:<(?:path|rect) [^>]*\/>)+/g
+const figureDefsMarkup = (figures: Map<string, string>): string => {
+  const shapes = new Map<string, string>()
+  const shapeOf = (run: string): string => {
+    let id = shapes.get(run)
+    if (!id) {
+      id = `sh${shapes.size}`
+      shapes.set(run, id)
+    }
+    return `<use href="#${id}"/>`
+  }
+  const drawn = [...figures].map(([markup, id]) => markup.replace(SHAPE_RUN, shapeOf).replace(/^<g /, `<g id="${id}" `)).join('')
+  const pixels = [...shapes].map(([run, id]) => `<g id="${id}">${run.replace(/ d="([^"]*)"/g, (_, d: string) => ` d="${mergeRuns(d)}"`)}</g>`).join('')
+  return pixels + drawn
+}
+
 // Body and props nest inside `bd` so a prop rides the bob and adds its own motion;
 // legs stay outside it and step on their own. `mirror` flips the crab inside its
 // own box (x .. x + CRAB_BOX * scale) so it faces left.
 const crab = (x: number, y: number, costume: string, dim = false, isWalking = false, scale = CRAB_SCALE, mirror = false): string => {
-  const place = mirror ? `translate(${x + CRAB_BOX * scale},${y}) scale(${-scale},${scale})` : `translate(${x},${y}) scale(${scale})`
+  const place = mirror ? `translate(${r2(x + CRAB_BOX * scale)},${r2(y)}) scale(${-scale},${scale})` : `translate(${r2(x)},${r2(y)}) scale(${scale})`
   const cast = SKIN.cast ? CASTS[SKIN.cast] : undefined
   if (cast) {
     // The boss leads; a role is one of the main crew; any other agent is a worker,
@@ -1453,11 +1561,12 @@ const crab = (x: number, y: number, costume: string, dim = false, isWalking = fa
       costume === 'boss' ? cast.boss : role ? (cast.roles[role] ?? cast.roles.other ?? cast.boss) : (cast.crew[pick % cast.crew.length] ?? cast.boss)
     const tint = SKIN.roles[pick % SKIN.roles.length] ?? SKIN.colors.accent
     // A character is slimmer than a crab: drawn larger, growing up from the crab's floor.
-    const k = scale * castGrow
-    const gx = x - (CRAB_BOX * (k - scale)) / 2
-    const gy = y - 27 * (k - scale)
-    const grown = mirror ? `translate(${gx + CRAB_BOX * k},${gy}) scale(${-k},${k})` : `translate(${gx},${gy}) scale(${k})`
-    return `<g transform="${grown}" opacity="${dim ? 0.45 : 1}" shape-rendering="crispEdges"><g class="ch${isWalking ? ' run' : ''}${sprite.float ? ' fl' : ''}">${spriteMarkup(sprite, tint, CRAB_BOX)}</g></g>`
+    const k = r2(scale * castGrow)
+    const gx = r2(x - (CRAB_BOX * (k - scale)) / 2)
+    const gy = r2(y - 27 * (k - scale))
+    const grown = mirror ? `translate(${r2(gx + CRAB_BOX * k)},${gy}) scale(${-k},${k})` : `translate(${gx},${gy}) scale(${k})`
+    // The tint rides in as the inherited `color`: one drawing serves every tint.
+    return `<g transform="${grown}" color="${tint}"${dim ? ' opacity="0.45"' : ''} shape-rendering="crispEdges">${placeFigure(`<g class="ch${isWalking ? ' run' : ''}${sprite.float ? ' fl' : ''}">${spriteMarkup(sprite, 'currentColor', CRAB_BOX)}</g>`)}</g>`
   }
   if (costume === 'boss') costume = 'other'
   else if (costume.startsWith('role:')) costume = costume.slice(5)
@@ -1471,7 +1580,7 @@ const crab = (x: number, y: number, costume: string, dim = false, isWalking = fa
   const group = (cls: string) => `<g class="${cls}">${(groups.get(cls) ?? []).join('')}</g>`
   const props = [...groups.keys()].filter(k => k !== 'bd' && k !== 'la' && k !== 'lb')
   const body = `<g class="bd">${(groups.get('bd') ?? []).join('')}${props.map(group).join('')}</g>`
-  return `<g transform="${place}" opacity="${dim ? 0.45 : 1}" shape-rendering="crispEdges"><g class="c-${costume}${isWalking ? ' run' : ''}">${body}${group('la')}${group('lb')}</g></g>`
+  return `<g transform="${place}"${dim ? ' opacity="0.45"' : ''} shape-rendering="crispEdges">${placeFigure(`<g class="c-${costume}${isWalking ? ' run' : ''}">${body}${group('la')}${group('lb')}</g>`)}</g>`
 }
 
 const statusMark = (x: number, y: number, status: string, color: string): string => {
@@ -1563,8 +1672,16 @@ const statRows = (n: number): number => Math.ceil(n / STAT_COLS)
 const statGridHeight = (n: number): number => statRows(n) * (STAT_H + STAT_GAP)
 
 // Model families read by colour wherever a model is named.
-const modelColor = (name: string): string =>
-  /fable/i.test(name) ? '#F5C542' : /opus/i.test(name) ? '#B58BE5' : /sonnet/i.test(name) ? '#6FD39A' : /haiku/i.test(name) ? '#5EC8D8' : '#E6E6E3'
+// The classic skins keep their own four; every other skin names them in its colours.
+const modelColor = (name: string): string => {
+  const c = SKIN.colors
+  const isClassic = SKIN.id === CRAB_SKIN.id || SKIN.id === DEFAULT_SKIN.id
+  if (/fable/i.test(name)) return isClassic ? '#F5C542' : c.accent
+  if (/opus/i.test(name)) return isClassic ? '#B58BE5' : c.accent2
+  if (/sonnet/i.test(name)) return isClassic ? '#6FD39A' : c.done
+  if (/haiku/i.test(name)) return isClassic ? '#5EC8D8' : c.meter
+  return isClassic ? '#E6E6E3' : c.text
+}
 
 const EFFORT_LEVEL: Record<string, number> = { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 }
 const PIP_COLORS = ['#5EC8D8', '#7FB6F0', '#B58BE5', '#E9B44C', '#E5675E']
@@ -1650,7 +1767,7 @@ const agentSvg = (W: number, a: AgentRun, at: number, hasRule = true): string =>
   const textW = W - 42 - 22
   const H = AGENT_INNER_H
   const sub = [tier === 'other' ? a.type : tierWord(tier)]
-  if (a.isStuck) sub.push(`⚠ quiet ${fmtTime(at - (a.lastProgressAt ?? a.startedAt))}`)
+  if (a.isStuck) sub.push(`⚠\uFE0E quiet ${fmtTime(at - (a.lastProgressAt ?? a.startedAt))}`)
   else if (a.status === 'running' && a.activity) sub.push(`▸ ${a.activity}`)
   if (a.round > 1) sub.push(`${s.round} ${a.round}`)
   if (a.status === 'failed') sub.push(s.failed)
@@ -1888,7 +2005,7 @@ const foldedSvg = (W: number, a: AgentRun, at: number): string => {
     H,
     `${crab(4, 2, costumeFor(a), true, false, 0.82)}
 <circle cx="40" cy="${H / 2}" r="7" fill="${ok ? DONE : '#D0453F'}"/>
-${ok ? `<path d="M36.5 ${H / 2}l2.5 2.5 4.5-5" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>` : `<path d="M37 ${H / 2 - 3}l6 6M43 ${H / 2 - 3}l-6 6" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>`}
+${ok ? `<path d="M36.5 ${H / 2}l2.5 2.5 4.5-5" fill="none" stroke="${inkOn(DONE)}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>` : `<path d="M37 ${H / 2 - 3}l6 6M43 ${H / 2 - 3}l-6 6" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>`}
 <text class="s" x="54" y="${H / 2 + 4.5}" font-family="${FONT}" font-size="12.5" font-weight="600">${xml(fitText(a.description || a.type, 12.5, W - 54 - metaW - 8))}</text>
 <text class="m" x="${W - 4}" y="${H / 2 + 4}" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${xml(meta)}</text>`,
   )
@@ -2217,8 +2334,8 @@ const managerSvg = (
 ${dancing(`${crab(14, 26, 'boss', false, m.isWorking, 1.45)}${crown(14, 26, 1.45)}`, isParty)}
 ${isParty ? confetti(W, H) : ''}
 <text x="68" y="24" font-family="${FONT}" font-size="11.5" font-weight="700" fill="${SKIN.boss[0]}" class="gl">Manager<tspan class="s" font-weight="400">${m.isWorking && m.activity ? `  ▸ ${xml(fitText(m.activity, 11.5, textW - pillW - 80))}` : flowTitle ? `  ·  ${xml(fitText(flowTitle, 11.5, textW - pillW - 80))}` : ''}</tspan></text>
-<rect x="${W - 18 - pillW}" y="13" width="${pillW}" height="18" rx="9" fill="${m.isWorking ? ACCENT : '#8a8a86'}" fill-opacity="${m.isWorking ? 0.9 : 0.25}"/>
-<text x="${W - 18 - pillW / 2}" y="25.5" text-anchor="middle" font-family="${FONT}" font-size="11" font-weight="600" fill="#ffffff">${status}</text>
+<rect x="${W - 18 - pillW}" y="13" width="${pillW}" height="18" rx="9" fill="${m.isWorking ? ACCENT : '#8a8a86'}" fill-opacity="${m.isWorking ? 1 : 0.25}"/>
+<text${m.isWorking ? '' : ' class="t"'} x="${W - 18 - pillW / 2}" y="25.5" text-anchor="middle" font-family="${FONT}" font-size="11" font-weight="600"${m.isWorking ? ` fill="${inkOn(ACCENT)}"` : ''}>${status}</text>
 <text class="${m.task ? 't' : 'm'}" x="68" y="50" font-family="${FONT}" font-size="14" font-weight="600">${xml(fitText(m.task || 'Waiting for your next request', 14, textW))}</text>
 ${statGrid(68, 66, W - 68 - 18, managerStats(info, t, crew, m, at))}
 ${progressBar(68, 66 + statGridHeight(6), W - 68 - 18, progress, '#F5C542', m.isWorking, 'Overall progress')}`,
@@ -2459,22 +2576,25 @@ const orgLayout = (root: OrgNode, W: number): number => {
   const place = (n: OrgNode, depth: number) => {
     n.depth = depth
     if (!n.children.length) {
-      n.x = (cursor + 0.5) * slot
+      n.x = Math.round((cursor + 0.5) * slot * 10) / 10
       cursor += 1
       return
     }
     n.children.forEach(c => place(c, depth + 1))
-    n.x = ((n.children[0]?.x ?? 0) + (n.children.at(-1)?.x ?? 0)) / 2
+    n.x = Math.round(((n.children[0]?.x ?? 0) + (n.children.at(-1)?.x ?? 0)) * 5) / 10
   }
   place(root, 0)
   return slot
 }
 
 // Sparks thrown off a working crab: three pixels that rise and fade, out of step.
-const sparks = (x: number, y: number, color: string): string =>
-  [0, 1, 2]
-    .map(i => `<rect class="spark s${i}" x="${(x + i * 6 - 6).toFixed(1)}" y="${y}" width="3" height="3" fill="${i === 1 ? '#F5C542' : color}"/>`)
-    .join('')
+// Drawn once in the hierarchy's defs (ORG_MARKS) and placed, in the crab's colour.
+const sparks = (x: number, y: number, color: string): string => `<use href="#spk" x="${r2(x)}" y="${r2(y)}" color="${color}"/>`
+// The marks every crab of the hierarchy shares: its sparks and its done or failed badge.
+const orgMarks = (): string =>
+  `<g id="spk">${[0, 1, 2].map(i => `<rect class="spark s${i}" x="${i * 6 - 6}" width="3" height="3" fill="${i === 1 ? '#F5C542' : 'currentColor'}"/>`).join('')}</g>
+<g id="bok"><circle r="6" fill="${DONE}"/><path d="M-3 0l2 2 4-4.5" fill="none" stroke="${inkOn(DONE)}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+<g id="bno"><circle r="6" fill="#D0453F"/><path d="M-2.5 -2.5l5 5M2.5 -2.5l-5 5" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></g>`
 
 const orgSvg = (W: number, root: OrgNode, isLight = false): string => {
   const isParty = Boolean(root.party)
@@ -2484,7 +2604,7 @@ const orgSvg = (W: number, root: OrgNode, isLight = false): string => {
   // The crab's box per kind: the boss is drawn larger.
   const crabSize = (n: OrgNode) => {
     const sc = n.kind === 'manager' ? BOSS_SCALE : slot < 46 ? 0.8 : CREW_SCALE
-    return { sc, w: CRAB_BOX * sc, h: 28 * sc }
+    return { sc, w: r2(CRAB_BOX * sc), h: r2(28 * sc) }
   }
   const bottomOf = (n: OrgNode) => yOf(n) + crabSize(n).h + (n.kind === 'role' || n.kind === 'manager' || n.kind === 'tokens' ? 30 : 22)
   const edges: string[] = []
@@ -2499,7 +2619,7 @@ const orgSvg = (W: number, root: OrgNode, isLight = false): string => {
       const midY = (y0 + cy) / 2
       const path = `M${x.toFixed(1)} ${y0}C${x.toFixed(1)} ${midY.toFixed(1)} ${cx.toFixed(1)} ${midY.toFixed(1)} ${cx.toFixed(1)} ${cy}`
       const isLive = c.status === 'running'
-      edges.push(`<path d="${path}" fill="none" stroke="${c.color}" stroke-opacity="${isLive ? 0.7 : 0.28}" stroke-width="${isLive ? 2 : 1.3}"${isLive ? ' stroke-dasharray="6 5" class="flow"' : ''}/>`)
+      edges.push(`<path class="${isLive ? 'oe flow' : 'oe'}" d="${path}" stroke="${c.color}"/>`)
       // Work travels down the line: a glowing packet from boss to worker.
       if (isLive && !isLight) {
         const delay = ((packet++ % 4) * 0.3).toFixed(1)
@@ -2509,7 +2629,7 @@ const orgSvg = (W: number, root: OrgNode, isLight = false): string => {
     }
     const { sc, w, h } = crabSize(n)
     const y = yOf(n)
-    const left = x - w / 2
+    const left = r2(x - w / 2)
     const isWorking = n.status === 'running'
 
     if (n.kind === 'manager') {
@@ -2524,57 +2644,61 @@ ${(() => {
   const sv = sandevistan(figure, egg)
   return `<defs>${sv.defs}</defs>${sv.svg}${dancing(figure, isParty)}`
 })()}
-<text x="${x}" y="${y + h + 20}" text-anchor="middle" font-family="${FONT}" font-size="13" font-weight="800" fill="${SKIN.boss[0]}" letter-spacing=".3" class="gl">Manager</text>`)
+<text x="${x}" y="${y + h + 20}" text-anchor="middle" font-size="13" font-weight="800" fill="${SKIN.boss[0]}" letter-spacing=".3" class="gl">Manager</text>`)
       return
     }
     if (n.kind === 'more') {
-      nodes.push(`<text class="m" x="${x}" y="${y + 20}" text-anchor="middle" font-family="${FONT}" font-size="11" font-weight="600">${xml(n.label)}</text>`)
+      nodes.push(`<text class="m" x="${x}" y="${y + 20}" text-anchor="middle" font-size="11" font-weight="600">${xml(n.label)}</text>`)
       return
     }
-    // A role stands on a lit plinth in its colour, its name on a banner.
-    if ((n.kind === 'role' || n.kind === 'tokens') && !isLight) {
+    // A role stands on a lit plinth in its colour, its name on a banner. Drawn
+    // light, a dot stands in for the figure; the banner stays.
+    if (n.kind === 'role' || n.kind === 'tokens') {
       const label = fitText(n.label, 12, Math.max(30, slot * Math.max(1, n.children.length) - 30))
       const bw = Math.round(textWidth(label, 12) + 22)
       // The banner is centred on its role but never past the drawing's edges.
       const bx = Math.max(bw / 2 + 2, Math.min(W - bw / 2 - 2, x))
-      nodes.push(`<ellipse cx="${x}" cy="${y + h + 1}" rx="${w * 0.7}" ry="4" fill="${n.color}" fill-opacity="${isWorking ? 0.55 : 0.25}"${isWorking ? ' class="live"' : ''}/>
-${dancing(crab(left, y, `role:${n.costume ?? 'other'}`, !isWorking && n.status !== 'done', isWorking, sc), isParty)}
-<rect x="${(bx - bw / 2).toFixed(1)}" y="${y + h + 7}" width="${bw}" height="20" rx="10" fill="${n.color}" fill-opacity=".9"/>
-<text x="${bx}" y="${y + h + 21}" text-anchor="middle" font-family="${FONT}" font-size="12" font-weight="800" fill="#141414">${xml(label)}</text>`)
+      const figure = isLight
+        ? `<circle cx="${x}" cy="${y + h / 2}" r="10" fill="${n.color}" fill-opacity="${isWorking ? 1 : 0.45}"${isWorking ? ' class="live"' : ''}/>`
+        : `<ellipse cx="${x}" cy="${y + h + 1}" rx="${r2(w * 0.7)}" ry="4" fill="${n.color}" fill-opacity="${isWorking ? 0.55 : 0.25}"${isWorking ? ' class="live"' : ''}/>
+${dancing(crab(left, y, `role:${n.costume ?? 'other'}`, !isWorking && n.status !== 'done', isWorking, sc), isParty)}`
+      nodes.push(`${figure}
+<rect x="${(bx - bw / 2).toFixed(1)}" y="${y + h + 7}" width="${bw}" height="20" rx="10" fill="${n.color}"/>
+<text x="${bx}" y="${y + h + 21}" text-anchor="middle" font-size="12" font-weight="800" fill="${inkOn(n.color)}">${xml(label)}</text>`)
       return
     }
+    // A worker drawn light: its dot and its task.
     if (isLight) {
-      nodes.push(`<circle cx="${x}" cy="${y + h / 2}" r="${n.kind === 'role' ? 10 : 7}" fill="${n.color}" fill-opacity="${isWorking ? 1 : 0.45}"${isWorking ? ' class="live"' : ''}/>
-${n.kind === 'role' ? `<text class="t" x="${x}" y="${y + h + 21}" text-anchor="middle" font-family="${FONT}" font-size="12" font-weight="800">${xml(fitText(n.label, 12, Math.max(40, slot - 8)))}</text>` : ''}`)
+      nodes.push(`<circle cx="${x}" cy="${y + h / 2}" r="7" fill="${n.color}" fill-opacity="${isWorking ? 1 : 0.45}"${isWorking ? ' class="live"' : ''}/>
+${slot >= 46 ? `<text${isWorking ? ' class="t"' : ' class="s"'} x="${x}" y="${y + h + 15}" text-anchor="middle" font-size="11" font-weight="${isWorking ? 700 : 500}">${xml(fitText(n.label, 11, Math.max(30, slot - 8)))}</text>` : ''}`)
       return
     }
     // A worker (or the token manager): its crab, sparks while it works, a badge once
     // it is done, its task under it.
     const label = fitText(n.label, 11, Math.max(30, slot - 8))
-    const badge =
-      n.status === 'done'
-        ? `<circle cx="${left + w - 2}" cy="${y + 4}" r="6" fill="${DONE}"/><path d="M${left + w - 5} ${y + 4}l2 2 4-4.5" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`
-        : n.status === 'failed'
-          ? `<circle cx="${left + w - 2}" cy="${y + 4}" r="6" fill="#D0453F"/><path d="M${left + w - 4.5} ${y + 1.5}l5 5M${left + w + 0.5} ${y + 1.5}l-5 5" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>`
-          : ''
-    nodes.push(`<ellipse cx="${x}" cy="${y + h + 1}" rx="${w * 0.45}" ry="2.5" fill="#000" fill-opacity=".25"/>
+    const badge = n.status === 'done' || n.status === 'failed' ? `<use href="#${n.status === 'done' ? 'bok' : 'bno'}" x="${r2(left + w - 2)}" y="${y + 4}"/>` : ''
+    nodes.push(`<ellipse cx="${x}" cy="${y + h + 1}" rx="${r2(w * 0.45)}" ry="2.5" fill="#000" fill-opacity=".25"/>
 ${dancing(crab(left, y, n.costume ?? 'other', n.status === 'done' && n.kind !== 'tokens', isWorking, sc), isParty)}${n.isStuck ? `<circle class="live" cx="${x}" cy="${y + h / 2}" r="${(w * 0.62).toFixed(1)}" fill="none" stroke="#E5675E" stroke-width="2"/><path d="M${left + 4} ${y + 6}q-2 4 0 5q2 -1 0 -5z" fill="#5EC8D8"/>` : ''}
 ${isWorking ? sparks(x + w * 0.25, y + 2, n.color) : ''}${badge}
-${slot >= 46 ? `<text${isWorking ? ' class="t"' : ' class="s"'} x="${x}" y="${y + h + 15}" text-anchor="middle" font-family="${FONT}" font-size="11" font-weight="${isWorking ? 700 : 500}">${xml(label)}</text>` : ''}`)
+${slot >= 46 ? `<text${isWorking ? ' class="t"' : ' class="s"'} x="${x}" y="${y + h + 15}" text-anchor="middle" font-size="11" font-weight="${isWorking ? 700 : 500}">${xml(label)}</text>` : ''}`)
   }
   castGrow = CAST_GROW
+  const figures = new Map<string, string>()
+  figureDefs = figures
   try {
     walk(root)
   } finally {
     castGrow = 1
+    figureDefs = null
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${PANE_CSS}${CRAB_CSS}${eggOf() ? `<style>${EGG_CSS}</style>` : ''}
-<defs>
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${FONT}">${PANE_CSS}${CRAB_CSS}${eggOf() ? `<style>${EGG_CSS}</style>` : ''}
+<defs>${figureDefsMarkup(figures)}${isLight ? '' : orgMarks()}
 <radialGradient id="aura"><stop offset="0" stop-color="${SKIN.boss[0]}" stop-opacity=".45"/><stop offset=".6" stop-color="${SKIN.boss[0]}" stop-opacity=".12"/><stop offset="1" stop-color="${SKIN.boss[0]}" stop-opacity="0"/></radialGradient>
 <linearGradient id="ring" x1="0" x2="1"><stop offset="0" stop-color="${SKIN.boss[0]}"/><stop offset=".5" stop-color="${SKIN.boss[2]}" stop-opacity=".2"/><stop offset="1" stop-color="${SKIN.boss[3]}"/></linearGradient>
 <filter id="pglow" x="-150%" y="-150%" width="400%" height="400%"><feGaussianBlur stdDeviation="1.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
 </defs>
-<style>.flow{animation:flow .9s linear infinite}@keyframes flow{to{stroke-dashoffset:-22}}
+<style>.oe{fill:none;stroke-opacity:.28;stroke-width:1.3}.oe.flow{stroke-opacity:.7;stroke-width:2;stroke-dasharray:6 5}
+.flow{animation:flow .9s linear infinite}@keyframes flow{to{stroke-dashoffset:-22}}
 .aura{animation:aura 2.4s ease-in-out infinite;transform-box:fill-box;transform-origin:center}@keyframes aura{50%{opacity:.55;transform:scale(1.08)}}
 .spark{animation:spark 1.1s ease-out infinite;opacity:0}.s1{animation-delay:-.37s}.s2{animation-delay:-.74s}
 @keyframes spark{0%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-12px)}}
@@ -2632,6 +2756,32 @@ const tokenReport = (info: Env, list: AgentRun[], boss: Manager, w: Watch, at: n
 
 let MOOD_COLOR: readonly [string, string, string] = ['#5fbf8f', '#E9B44C', '#E5675E']
 const MOOD_WORD = ['Healthy', 'Watch it', 'Act now'] as const
+// The band's HEAT stars and its burn readout both read the burn rate: none while
+// nothing burns, five past 150k tokens a minute, the token manager's own line.
+const burnStars = (perMin: number): number => (perMin <= 0 ? 0 : perMin < 20_000 ? 1 : perMin < 50_000 ? 2 : perMin < 100_000 ? 3 : perMin <= 150_000 ? 4 : 5)
+const burnMood = (perMin: number): 0 | 1 | 2 => (perMin > 300_000 ? 2 : perMin > 150_000 ? 1 : 0)
+
+// What the replay card shows, for a reader: the beat picked, or the live tail.
+const braindanceAlt = (beats: Beat[], pick: number): string => {
+  const b = pick >= 0 ? beats[pick] : undefined
+  if (!b) return `Replay: live, ${beats.length} tool calls`
+  const sec = Math.max(0, Math.round((b.at - (beats[0]?.at ?? b.at)) / 1000))
+  const time = [Math.floor(sec / 3600), Math.floor((sec % 3600) / 60), sec % 60].map(n => String(n).padStart(2, '0')).join(':')
+  return `Replay: beat ${pick + 1} of ${beats.length}, ${time}, ${b.who}, ${b.tool}${b.text ? `: ${b.text}` : ''}`
+}
+
+// A Mermaid chart, for a reader: its kind and its title or first nodes.
+const mermaidAlt = (src: string): string => {
+  const lines = src.trim().split('\n').map(l => l.trim()).filter(Boolean)
+  const first = lines[0] ?? ''
+  if (/^pie\b/i.test(first)) {
+    const title = /^pie\s+(?:showData\s+)?title\s+(.+)$/i.exec(first)?.[1] ?? lines.find(l => /^title\s/i.test(l))?.replace(/^title\s+/i, '')
+    const slices = lines.filter(l => /^"[^"]+"\s*:/.test(l)).map(l => l.replace(/^"([^"]+)"\s*:\s*/, '$1 '))
+    return clip(`Pie chart${title ? `: ${title}` : ''}${slices.length ? `. ${slices.join(', ')}` : ''}`, 300)
+  }
+  const names = [...new Set([...src.matchAll(/[[({]+"?([^\])}"]+)"?[\])}]+/g)].map(m => (m[1] ?? '').trim()).filter(Boolean))]
+  return clip(`Flowchart${names.length ? ` of ${names.length} steps: ${names.join(', ')}` : ''}`, 300)
+}
 const TIP_H = 21
 const tokenHeight = (r: TokenReport): number => 46 + statGridHeight(3) + Math.max(1, r.tips.length) * TIP_H + 10
 
@@ -2663,8 +2813,8 @@ ${crab(10, 4, 'role:banker', false, isWatching, 1.05)}
   const room = W - 14 - pillW - 8 - 50 - textWidth('Token Manager', 13) - 12
   return room >= 60 ? `   ${xml(fitText('watching every token, at no cost', 11.5, room))}` : ''
 })()}</tspan></text>
-<rect x="${W - 14 - pillW}" y="10" width="${pillW}" height="18" rx="9" fill="${color}" fill-opacity=".9"/>
-<text x="${W - 14 - pillW / 2}" y="22.5" text-anchor="middle" font-family="${FONT}" font-size="11" font-weight="700" fill="#141414">${word}</text>
+<rect x="${W - 14 - pillW}" y="10" width="${pillW}" height="18" rx="9" fill="${color}"/>
+<text x="${W - 14 - pillW / 2}" y="22.5" text-anchor="middle" font-family="${FONT}" font-size="11" font-weight="700" fill="${inkOn(color)}">${word}</text>
 ${statGrid(50, 38, W - 50 - 14, stats)}
 ${tips}`,
   )
@@ -2930,9 +3080,9 @@ const hudBandSvg = (OW: number, d: HudData): string => {
 ${d.limitPct === null ? `<text class="m" x="${rx + 74}" y="33" font-family="${FONT}" font-size="11">—</text>` : `${segmentBar(rx + 74, 27, 54, d.limitPct, limitTone).replace(/height="8"/g, 'height="5"').replace(/height="3"/g, 'height="0"')}<text x="${rx + 134}" y="33" font-family="${FONT}" font-size="12" font-weight="800" fill="${limitTone}" font-variant-numeric="tabular-nums">${Math.round(d.limitPct)}%</text>`}
 <line x1="${rx + 168}" y1="14" x2="${rx + 168}" y2="34" stroke="${c.line}" stroke-opacity=".6"/>
 <text class="m" x="${rx + 178}" y="20" font-family="${FONT}" font-size="9.5" letter-spacing=".4">${egg ? 'HEAT' : 'BURN/MIN'}</text>
-${egg ? heatStars(rx + 178, 43, d.isWorking ? [1, 3, 5][d.mood] ?? 1 : 0, egg) : ''}
-<path d="M${rx + 183} 24l-4 6h3l-1.5 5l5-7h-3l1.5-4z" fill="${MOOD_COLOR[d.mood]}"/>
-<text x="${rx + 188}" y="33" font-family="${FONT}" font-size="12" font-weight="800" fill="${MOOD_COLOR[d.mood]}" font-variant-numeric="tabular-nums">${fmtTokens(d.burnPerMin)}</text>`
+${egg ? heatStars(rx + 178, 43, burnStars(d.burnPerMin), egg) : ''}
+<path d="M${rx + 183} 24l-4 6h3l-1.5 5l5-7h-3l1.5-4z" fill="${MOOD_COLOR[burnMood(d.burnPerMin)]}"/>
+<text x="${rx + 188}" y="33" font-family="${FONT}" font-size="12" font-weight="800" fill="${MOOD_COLOR[burnMood(d.burnPerMin)]}" font-variant-numeric="tabular-nums">${fmtTokens(d.burnPerMin)}</text>`
   // The gauge: the real share when there is one, else a scanner sweeping while it works.
   const gaugeY = 31
   const gauge =
@@ -2947,8 +3097,7 @@ ${egg ? heatStars(rx + 178, 43, d.isWorking ? [1, 3, 5][d.mood] ?? 1 : 0, egg) :
 .brk{animation:brk 2.4s ease-in-out infinite}@keyframes brk{50%{opacity:.35}}
 .shine{animation:shine 2.2s ease-in-out infinite}@keyframes shine{from{transform:translateX(-30px);opacity:0}30%{opacity:1}to{transform:translateX(${Math.max(40, Math.round((barW * (pct ?? 0)) / 100))}px);opacity:0}}
 .cur{animation:cur 1.1s steps(1) infinite}@keyframes cur{50%{opacity:0}}
-.tick{animation:tick 1.6s ease-in-out infinite}@keyframes tick{0%,100%{opacity:.15}50%{opacity:1}}
-@media (prefers-reduced-motion: reduce){.ekg,.scan,.hedge,.beam,.brk,.shine,.cur,.tick{animation:none}}
+@media (prefers-reduced-motion: reduce){.ekg,.scan,.hedge,.beam,.brk,.shine,.cur{animation:none}}
 ${egg ? EGG_CSS : ''}
 </style>`
   // A beam of light that crosses the card, clipped to its shape.
@@ -2975,7 +3124,7 @@ ${egg ? EGG_CSS : ''}
     `${css}
 ${cardShape(0.5, 0.5, OW - 1, OH - 1, `class="tile"`, 10)}
 ${cardShape(0.5, 0.5, OW - 1, OH - 1, `fill="none" stroke="${edge}" stroke-opacity="${d.isWorking ? 0.45 : 0.6}" stroke-width="1.2"${d.isWorking ? ' class="hedge"' : ''}`, 10)}
-${egg && !d.lite ? `<g clip-path="url(#hudclip)">${skyline(OW, OH - 34, 30, egg)}</g>` : ''}
+${egg && !d.lite ? `<g clip-path="url(#hudclip)">${skyline(OW, OH - 16, 14, egg).replace('<g opacity=".5">', '<g opacity=".25">')}</g>` : ''}
 ${beam}
 ${brackets}
 <rect x="0.5" y="12" width="3" height="${OH - 24}" rx="1.5" fill="${edge}"/>
@@ -2989,9 +3138,9 @@ ${(() => {
   const sv = sandevistan(figure, egg)
   return `<defs>${sv.defs}</defs>${sv.svg}${dancing(figure, d.isParty)}`
 })()}
-${egg ? relicText(left, 20, fitText(d.title, 13, titleW), `font-family="${FONT}" font-size="13" font-weight="800" fill="${c.accent}"`, egg) : `<text x="${left}" y="20" font-family="${FONT}" font-size="13" font-weight="800" fill="${c.accent}" class="gl">${xml(fitText(d.title, 13, titleW))}</text>`}
+${egg ? relicText(left, 20, fitText(d.title, 13, titleW), `font-family="${FONT}" font-size="13" font-weight="800" fill="${c.accent}"`, egg) : `<text x="${left}" y="20" font-family="${FONT}" font-size="13" font-weight="800" class="ac gl">${xml(fitText(d.title, 13, titleW))}</text>`}
 <rect x="${left + titleW + 8}" y="9" width="${pillW}" height="15" rx="7.5" fill="${statusTone}" fill-opacity="${d.isWorking || d.isParty ? 0.95 : 0.25}"/>
-<text x="${left + titleW + 8 + pillW / 2}" y="20" text-anchor="middle" font-family="${FONT}" font-size="10.5" font-weight="800" fill="${d.isWorking || d.isParty ? '#111111' : c.text}">${xml(d.status)}</text>
+<text x="${left + titleW + 8 + pillW / 2}" y="20" text-anchor="middle" font-family="${FONT}" font-size="10.5" font-weight="800" fill="${d.isWorking || d.isParty ? inkOn(statusTone) : c.text}">${xml(d.status)}</text>
 <text class="s" x="${left + titleW + pillW + 18}" y="20" font-family="${FONT}" font-size="11.5">${xml(fitText(d.activity ? `▸ ${d.activity}` : '', 11.5, Math.max(0, W - right - (left + titleW + pillW + 18) - 8)))}</text>
 ${gauge}
 ${shine}
@@ -3026,7 +3175,7 @@ const hudHead = (W: number, d: HudData): string => {
   const psy = egg ? psychoChip(mx, y, d.ctxPct, FONT) : { svg: '', w: 0 }
   const mx2 = mx + (psy.w ? psy.w + 10 : 0)
   const model = [d.model, d.effort].filter(Boolean).join(' · ')
-  const clock = d.taskMs > 0 ? `⏱ ${fmtTime(d.taskMs)}` : ''
+  const clock = d.taskMs > 0 ? `⏱\uFE0E ${fmtTime(d.taskMs)}` : ''
   const parts = [egg ? `♪ ${radio(d.at)}` : '', d.folder ? `▤ ${d.folder}` : '', clock].filter(Boolean)
   const widthOf = (xs: string[]) => (xs.length ? textWidth(xs.join('   '), 11) + 8 : 0)
   while (parts.length > (clock ? 1 : 0) && W - 14 - widthOf(parts) < mx2 + 60) parts.shift()
@@ -3039,11 +3188,11 @@ const hudHead = (W: number, d: HudData): string => {
   return `<rect x="14" y="${y - 7}" width="5" height="5" fill="${c.accent2}" transform="rotate(45 16.5 ${y - 4.5})"/>
 <text x="24" y="${y}" font-family="${FONT}" font-size="10.5" font-weight="800" letter-spacing=".9" fill="${c.accent2}">${name}<tspan class="cur">▮</tspan></text>
 ${egg ? `<text x="24" y="${y + 7}" font-family="${FONT.replace(/,?sans-serif$/, '')},${CJK_FONT}" font-size="7" letter-spacing="1.2" fill="${c.accent2}" fill-opacity=".5">${KATAKANA[egg]}</text>` : ''}
-${hasBreach && egg ? breachTicker(breachX, y, d.isWorking, done, d.steps.length, egg, FONT) : [0, 1, 2].map(i => `<rect class="tick" style="animation-delay:${i * 0.25}s" x="${W - 14 - rightW - 30 + i * 7}" y="${y - 7}" width="4" height="7" fill="${c.accent2}"/>`).join('')}
+${hasBreach && egg ? breachTicker(breachX, y, d.isWorking, done, d.steps.length, egg, FONT) : ''}
 ${psy.svg}
 ${hasSkinChip ? `<rect x="${sx}" y="${y - 10}" width="${skinW}" height="13" rx="2" fill="none" stroke="${c.accent2}" stroke-opacity=".55"/>
 <text x="${sx + skinW / 2}" y="${y - 0.5}" text-anchor="middle" font-family="${FONT}" font-size="9.5" font-weight="700" letter-spacing=".4" fill="${c.accent2}">${xml(skin)}</text>` : ''}
-${crewW ? `<rect class="live" x="${cx}" y="${y - 10}" width="${crewW}" height="13" rx="2" fill="${c.accent}"/><text x="${cx + crewW / 2}" y="${y - 0.5}" text-anchor="middle" font-family="${FONT}" font-size="9.5" font-weight="800" letter-spacing=".4" fill="#111111"><title>${xml(d.crewMode)}</title>${crewLabel}</text>` : ''}
+${crewW ? `<rect class="live" x="${cx}" y="${y - 10}" width="${crewW}" height="13" rx="2" fill="${c.accent}"/><text x="${cx + crewW / 2}" y="${y - 0.5}" text-anchor="middle" font-family="${FONT}" font-size="9.5" font-weight="800" letter-spacing=".4" fill="${inkOn(c.accent)}"><title>${xml(d.crewMode)}</title>${crewLabel}</text>` : ''}
 <text class="s" x="${mx2}" y="${y}" font-family="${FONT}" font-size="11">${xml(fitText(model, 11, Math.max(0, (hasBreach ? breachX : W - rightW - 14) - mx2 - 16)))}</text>
 <text class="m" x="${W - 14}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${xml(right)}</text>
 <line x1="12" y1="${HUD_HEAD + 0.5}" x2="${W - 12}" y2="${HUD_HEAD + 0.5}" stroke="${c.line}"/>`
@@ -3103,11 +3252,17 @@ const hudLines = (W: number, d: HudData): string => {
     const pips = Math.max(0, Math.min(16, Math.floor((W - crabX - 50) / 13)))
     d.steps.slice(0, pips).forEach((st, i) => {
       const cx = crabX + 5 + i * 13
-      const tone = st === 'done' ? c.done : st === 'running' ? c.accent : st === 'failed' ? c.alert : c.muted
+      const cy = y4 + 10
+      // Shape tells them apart, not colour alone: done filled, running a ring with a
+      // live dot, failed a cross, waiting an empty ring.
       out.push(
-        st === 'waiting'
-          ? `<circle cx="${cx}" cy="${y4 + 10}" r="4" fill="none" stroke="${tone}" stroke-width="1.3"/>`
-          : `<circle cx="${cx}" cy="${y4 + 10}" r="4.2" fill="${tone}"${st === 'running' ? ' class="live"' : ''}/>`,
+        st === 'done'
+          ? `<circle cx="${cx}" cy="${cy}" r="4.2" fill="${c.done}"/>`
+          : st === 'running'
+            ? `<circle class="tr" cx="${cx}" cy="${cy}" r="3.9" fill="none" stroke-width="1.3"/><circle class="live" cx="${cx}" cy="${cy}" r="1.9" fill="${c.accent}"/>`
+            : st === 'failed'
+              ? `<path d="M${cx - 3.2} ${cy - 3.2}l6.4 6.4M${cx + 3.2} ${cy - 3.2}l-6.4 6.4" stroke="${c.alert}" stroke-width="1.8" stroke-linecap="round"/>`
+              : `<circle cx="${cx}" cy="${cy}" r="4" fill="none" stroke="${c.muted}" stroke-width="1.3"/>`,
       )
     })
     const done = d.steps.filter(st => st === 'done').length
@@ -3117,7 +3272,7 @@ const hudLines = (W: number, d: HudData): string => {
   // The tip on the left, today's totals on the right.
   const y5 = HUD_TOP + 60
   out.push(label(y5 + 14, 'TOKENS'))
-  const fullToday = `today ${d.today.tasks} tasks · ${fmtTokens(d.today.tokens)} · ≈${fmtCost(d.today.costUsd)}`
+  const fullToday = `today ${d.today.tasks} ${d.today.tasks === 1 ? 'task' : 'tasks'} · ${fmtTokens(d.today.tokens)} · ≈${fmtCost(d.today.costUsd)}`
   const todayText = W - crabX - 14 - (textWidth(fullToday, 11) + 8) - 20 >= 120 ? fullToday : ''
   const todayW = todayText ? textWidth(todayText, 11) + 8 : 0
   out.push(`<circle cx="${crabX + 4}" cy="${y5 + 10}" r="3.5" fill="${MOOD_COLOR[d.tip.level]}"${d.tip.level === 2 ? ' class="live"' : ''}/>
@@ -3149,7 +3304,7 @@ const hudLines = (W: number, d: HudData): string => {
   for (const [k, v, tone] of keep) {
     if (!hasCache && cx + cellW([k, v, tone]) - 22 > W - 14) break
     out.push(`<text class="m" x="${cx}" y="${y6 + 14}" font-family="${FONT}" font-size="9.5" letter-spacing=".4">${xml(k)}</text>
-<text x="${cx + textWidth(k, 9.5) + 6}" y="${y6 + 14}" font-family="${FONT}" font-size="12" font-weight="800" fill="${tone}" font-variant-numeric="tabular-nums">${xml(v)}</text>`)
+<text x="${cx + textWidth(k, 9.5) + 6}" y="${y6 + 14}" font-family="${FONT}" font-size="12" font-weight="800" ${tone === c.text ? 'class="t"' : `fill="${tone}"`} font-variant-numeric="tabular-nums">${xml(v)}</text>`)
     cx += cellW([k, v, tone])
   }
   if (!hasCache) return out.join('\n')
@@ -3260,7 +3415,7 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
   void $.ui.notify(`Claude finished: ${clip(boss.task, 80)}`).catch(() => undefined)
   // One chime, not two cut short: the level-up's when the job earned one, else the skin's.
   const isCheer = await paid.catch(() => false)
-  void play($, !egg ? 'assets/done.wav' : isCheer ? 'assets/levelup.wav' : `assets/done-${egg}.wav`)
+  void play($, !egg ? 'assets/done.wav' : isCheer ? `${ADDON}/assets/levelup.wav` : `${ADDON}/assets/done-${egg}.wav`)
 }
 
 export const register: Register = (on, options) => {
@@ -3328,6 +3483,15 @@ export const register: Register = (on, options) => {
     const rules = await loadRules($)
     await update($, memory, () => rules)
     await refreshEnv($)
+    // A reload, or a resumed session, starts counting mid-conversation: the turn count
+    // picks up from the prompts already sent, and the turn's cost from what is already
+    // spent. Left at zero, the band read "TURN 0" beside the whole session's cost.
+    const spentAtLoad = (await read($, env)).costUsd
+    const promptsSoFar = await $.session
+      .messages()
+      .then(ms => (Array.isArray(ms) ? ms.filter(m => m.role === 'user' && !m.toolResults?.length && m.text.trim() !== '').length : 0))
+      .catch(() => 0)
+    await update($, session, prev => (prev.turn ? prev : { ...prev, turn: promptsSoFar, costAtStart: spentAtLoad }))
     await $.command.register({
       name: 'skins',
       description: 'Open the skin picker: every skin as a live preview, one click to put it on',
@@ -3337,10 +3501,16 @@ export const register: Register = (on, options) => {
       description: 'Skins: /skin to list, /skin <name> to switch, /skin reload after editing a file in Custom Claude Skins',
     })
     await loadSkins($)
+    await checkAddon($)
     const chosen = await $.store.get('skin').catch(() => undefined)
-    if (typeof chosen === 'string' && SKINS.has(chosen)) {
-      applySkin(SKINS.get(chosen) ?? CRAB_SKIN)
-      await update($, skin, () => chosen)
+    const worn = typeof chosen === 'string' ? SKINS.get(chosen) : undefined
+    // A cyberpunk skin saved before the add-on was removed falls back to the classic.
+    if (worn && canWear(worn)) {
+      applySkin(worn)
+      await update($, skin, () => worn.id)
+    } else if (worn) {
+      applySkin(CRAB_SKIN)
+      await update($, skin, () => CRAB_SKIN.id)
     }
     const greet = eggOf()
     if (greet) $.ui.toast(GREETING[greet])
@@ -3508,7 +3678,7 @@ export const register: Register = (on, options) => {
         isStep = completed(plan) > completed(prev.plan)
         return { ...prev, plan }
       }).catch(() => undefined)
-      if (isStep && eggOf()) void play($, 'assets/step.wav')
+      if (isStep && eggOf()) void play($, `${ADDON}/assets/step.wav`)
     }
     return next(e)
   })
@@ -3637,7 +3807,7 @@ export const register: Register = (on, options) => {
       if (ctx < 90) sirenPlayed = false
       else if (egg && ctx >= 95 && !sirenPlayed) {
         sirenPlayed = true
-        void play($, 'assets/maxtac.wav')
+        void play($, `${ADDON}/assets/maxtac.wav`)
       }
       if (ctx < 80) psyWarned = false
       else if (egg && ctx >= 85 && !psyWarned) {
@@ -3826,7 +3996,7 @@ export const register: Register = (on, options) => {
       const egg = eggOf()
       const eggH = egg ? BREACH_H + 8 + legendsHeight(legends.length) + 8 : 0
       // Boot line, Street Cred and Braindance are cyberpunk add-ons.
-      const extrasH = egg ? BOOT_H + 8 + credHeight(W) + 8 + BD_H + LINE_H + 8 : 0
+      const extrasH = egg ? BOOT_H + 8 + credHeight(W) + 8 + bdHeight(beats) + LINE_H + 8 : 0
       const gridH = usageHeight(info, every) + 8 + TODAY_H + 8 + workflowHeight(steps) + 8 + eggH + managerHeight(info) + 8 + tokenHeight(report) + 8 + lines * LINE_H + treeH + orgHeight(org) + cardH + 8 * LINE_H + extrasH
       // A skin with a backdrop paints the whole pane body, edge to edge and top to
       // bottom, not just the drawn grid: no strip of the app's grey shows through.
@@ -3836,7 +4006,7 @@ export const register: Register = (on, options) => {
           {/* The grid sizes the pane; the content is placed over it, as an
               absolute Box paints over the siblings before it. */}
           {gridTiles(gridH).map((tileH, i) => (
-            <Svg key={`grid-${i}`} source={gridSvg(W, tileH)} alt="dotted grid" width={W} height={tileH} />
+            <Svg key={`grid-${i}`} source={gridSvg(W, tileH)} alt="" width={W} height={tileH} />
           ))}
           <Box flexDirection="column" position="absolute" top={0} left={0} right={0} alignItems={align}>
             {egg ? (
@@ -3864,7 +4034,7 @@ export const register: Register = (on, options) => {
               <Box key="cred" marginBottom={1}>
                 <Svg
                   source={credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
-                  alt={`Level ${levelOf(streetCred.xp)} ${rankOf(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
+                  alt={`Level ${levelOf(streetCred.xp)} ${(egg === 'samurai' ? rockerRankOf : rankOf)(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
                   width={W}
                   height={credHeight(W)}
                 />
@@ -3902,14 +4072,14 @@ export const register: Register = (on, options) => {
               <Box key="bd" flexDirection="column" marginBottom={1}>
                 <Svg
                   source={braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
-                  alt={`Replay: ${beats.length} tool calls`}
+                  alt={braindanceAlt(beats, pick)}
                   width={W}
-                  height={BD_H}
+                  height={bdHeight(beats)}
                 />
                 <Box flexDirection="row" gap={2}>
-                  <Button key="bd-first" label="⏮ First" plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, () => (n ? 0 : -1)) }} />
-                  <Button key="bd-prev" label="◀ Back" plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, i => stepPick(i, n, -1)) }} />
-                  <Button key="bd-next" label="Next ▶" plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, i => stepPick(i, n, 1)) }} />
+                  <Button key="bd-first" label={'⏮\uFE0E First'} plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, () => (n ? 0 : -1)) }} />
+                  <Button key="bd-prev" label={'◀\uFE0E Back'} plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, i => stepPick(i, n, -1)) }} />
+                  <Button key="bd-next" label={'Next ▶\uFE0E'} plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, i => stepPick(i, n, 1)) }} />
                   <Button key="bd-live" label="● Live" plain onPress={() => update($, bdPick, () => -1)} />
                 </Box>
               </Box>
@@ -3973,7 +4143,7 @@ export const register: Register = (on, options) => {
             <Box key="settings" flexDirection="column">
               <Button
                 key="set-open"
-                label={`${prefs.openOnStart ? '☑' : '☐'} Open Mission Control when Claude starts`}
+                label={`${prefs.openOnStart ? '☑\uFE0E' : '☐'} Open Mission Control when Claude starts`}
                 plain
                 onPress={async () => {
                   const isOn = !(await read($, settings)).openOnStart
@@ -3983,7 +4153,7 @@ export const register: Register = (on, options) => {
               />
               <Button
                 key="set-crew"
-                label={`${prefs.crewMode ? '☑' : '☐'} Crew mode: split big jobs across sub-agents`}
+                label={`${prefs.crewMode ? '☑\uFE0E' : '☐'} Crew mode: split big jobs across sub-agents`}
                 plain
                 onPress={async () => {
                   const auto = await readAutoCrew($)
@@ -4004,7 +4174,7 @@ export const register: Register = (on, options) => {
               />
               <Button
                 key="set-sounds"
-                label={`${prefs.sounds ? '☑' : '☐'} Sounds: chimes, blips and the MaxTac siren`}
+                label={`${prefs.sounds ? '☑\uFE0E' : '☐'} ${eggOf() ? 'Sounds: chimes, blips and the MaxTac siren' : 'Sounds: job-done chime'}`}
                 plain
                 onPress={async () => {
                   const isOn = !(await read($, settings)).sounds
@@ -4279,13 +4449,14 @@ export const register: Register = (on, options) => {
       await update($, skin, () => k.id)
       await retitle($)
     }
-    const skins = [...SKINS.values()].filter(k => !k.hidden || k.id === active.id)
+    const skins = [...SKINS.values()].filter(k => canWear(k) && (!k.hidden || k.id === active.id))
     if (e.surface === 'desktop' && 'Svg' in ui) {
       const { Svg } = ui
       const W = Math.max(240, Math.min(900, (e.props.bodyColumns || 40) * 8 - 8))
       return (
         <Box flexDirection="column" gap={1}>
           <Text dimColor>Pick a look for Mission Control and the band. Your own skins go in the Custom Claude Skins folder.</Text>
+          {HAS_CYBER ? null : <Text dimColor>{ADDON_PITCH}</Text>}
           {skins.map(k => (
             <Box key={`skin-${k.id}`} flexDirection="column">
               <Svg source={previewSvg(W, k, k.id === active.id)} alt={`${k.name}: ${k.description}`} width={W} height={PREVIEW_H} />
@@ -4319,9 +4490,10 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'skin' }, async ($, e) => {
     const arg = (e.args ?? '').trim().toLowerCase()
     const listing = () =>
-      [...SKINS.values()].filter(k => !k.hidden || k.id === SKIN.id).map(k => `${k.id === SKIN.id ? '▸' : ' '} ${k.id}  ${k.name}${k.description ? ` · ${k.description}` : ''}`).join('\n')
+      [...SKINS.values()].filter(k => canWear(k) && (!k.hidden || k.id === SKIN.id)).map(k => `${k.id === SKIN.id ? '▸' : ' '} ${k.id}  ${k.name}${k.description ? ` · ${k.description}` : ''}`).join('\n')
     if (arg === 'reload') {
       const { folder, loaded, skipped } = await loadSkins($)
+      await checkAddon($)
       const current = SKINS.get(SKIN.id) ?? CRAB_SKIN
       applySkin(current)
       await update($, skin, () => `${current.id}`)
@@ -4331,9 +4503,10 @@ export const register: Register = (on, options) => {
       const folder = await $.store.get('skinsFolder').catch(() => undefined)
       return { text: typeof folder === 'string' ? `Skins folder: ${folder}` : `No "${SKINS_FOLDER}" folder found yet.` }
     }
-    if (!arg || arg === 'list') return { text: `Skins (▸ is on):\n${listing()}\nSwitch with /skin <id>.` }
+    if (!arg || arg === 'list') return { text: `Skins (▸ is on):\n${listing()}\nSwitch with /skin <id>.${HAS_CYBER ? '' : `\n\n${ADDON_PITCH}`}` }
     const k = SKINS.get(arg === 'off' || arg === 'none' ? DEFAULT_SKIN.id : arg)
     if (!k) return { text: `No skin "${arg}".\n${listing()}` }
+    if (!canWear(k)) return { text: `${k.hidden ? `No skin "${arg}".` : `${k.name} comes with the Cyberpunk Skins add-on.`}\n${ADDON_PITCH}` }
     applySkin(k)
     await $.store.set('skin', k.id)
     await update($, skin, () => k.id)
@@ -4341,7 +4514,7 @@ export const register: Register = (on, options) => {
     if (k.hidden) {
       // Found the secret: a badge for the finder.
       $.ui.toast(GREETING.samurai)
-      void play($, 'assets/done-samurai.wav')
+      void play($, `${ADDON}/assets/done-samurai.wav`)
       // Quiet: the badge's chime would cut the band's own.
       await bumpCred($, c => (c.samurai ? c : { ...c, samurai: true, xp: c.xp + 50 }), true).catch(() => false)
     }
@@ -4429,7 +4602,9 @@ export const register: Register = (on, options) => {
         {rules.map((r, i) => (
           <Box key={`rule-${i}`} flexDirection="row" gap={1}>
             <Text wrap="wrap">{`${i + 1}. ${r}`}</Text>
-            <Button key={`forget-${i}`} label="✕" plain onPress={() => saveRules($, rules.filter((_, j) => j !== i))} />
+            <Button key={`forget-${i}`} label={`Forget rule ${i + 1}`} plain onPress={() => saveRules($, rules.filter((_, j) => j !== i))}>
+              ✕
+            </Button>
           </Box>
         ))}
         <Text dimColor>Sent to Claude at the start of every session. Changes apply next session.</Text>
@@ -4553,7 +4728,7 @@ export const register: Register = (on, options) => {
               : null
           if (chart) {
             const { Svg } = ui as unknown as { Svg: (props: Record<string, unknown>) => unknown }
-            return frame(`chart-${i}`, 'chart', 'mermaid', <Svg source={chart.svg} alt="Mermaid chart" width={W} height={chart.height} />)
+            return frame(`chart-${i}`, 'chart', 'mermaid', <Svg source={chart.svg} alt={mermaidAlt(b.text)} width={W} height={chart.height} />)
           }
           return frame(`chart-${i}`, 'mermaid', 'shown as code', <Code source={b.text} language="mermaid" />)
         })}
@@ -4593,13 +4768,19 @@ export const register: Register = (on, options) => {
     const isWorking = e.props.isWorking || list.some(a => a.status === 'running')
     const idleText = reported ? undefined : isWorking ? tr().working : tr().idle
     const text = idleText ?? label(f)
+    // A glyph alone names nothing to a screen reader: the label names the control,
+    // the children are what is drawn.
     const crewButton = (
-      <Button key="crab-agents" label={`◈ ${crew}`} plain onPress={() => void togglePane($)} />
+      <Button key="crab-agents" label={`Mission Control: ${crew} agents`} plain onPress={() => void togglePane($)}>
+        {`◈ ${crew}`}
+      </Button>
     )
     const percent = idleText ? '' : `${Math.round(ratio(f) * 100)}%`
     // ✕ clears the reported flow; the row goes back to idle rather than away.
     const dismiss = reported ? (
-      <Button key="crab-dismiss" label="✕" plain onPress={() => update($, flow, () => null)} />
+      <Button key="crab-dismiss" label="Dismiss progress" plain onPress={() => update($, flow, () => null)}>
+        ✕
+      </Button>
     ) : null
 
     // The terminal's element table is completed with an `Svg` that draws nothing: test the surface too.
@@ -4665,8 +4846,8 @@ export const register: Register = (on, options) => {
               return full.length < 120_000 ? full : hudBandSvg(Math.round(width / bandScale), { ...hud, lite: true })
             })().replace(/^<svg([^>]*?) width="[^"]*" height="[^"]*"/, `<svg$1 width="${width}" height="${bandH}"`)} alt={`${hud.title}: ${hud.status}${hud.activity ? `, ${hud.activity}` : ''}${hud.progress === null ? '' : `, ${Math.round(hud.progress * 100)}%`}, context ${info.contextPct}%`} width={width} height={bandH} />
             <Box flexDirection="column" gap={1} alignItems="center">
-              {/* The app draws a Button's label as-is: keep it to a glyph and the count. */}
-              <Button key="crab-agents" label={`◈ ${crew}`} plain onPress={() => void togglePane($)} />
+              {/* The app draws a Button's children as-is: keep them to a glyph and the count. */}
+              {crewButton}
               {dismiss}
             </Box>
           </Box>

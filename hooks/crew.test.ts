@@ -6,6 +6,7 @@ const base = (on: On, context = 100_000) => {
   mock.clock(on, { now: Date.parse('2026-10-20T10:00:00Z') })
   mock.env(on, { LANG: 'en_US.UTF-8' })
   mock.store(on)
+  on('fs.exists', async (_$, e) => ({ value: /addons[\\/]cyberpunk[\\/]addon\.json$/.test(String((e as { path: string }).path)) }) as never) // the Cyberpunk Skins add-on is installed
   on('settings.read', async () => ({ value: {} }) as never)
   on('tool.register', async () => ({ value: undefined }) as never)
   on('command.register', async () => ({ value: undefined }) as never)

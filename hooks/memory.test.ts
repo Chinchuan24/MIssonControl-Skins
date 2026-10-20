@@ -9,6 +9,7 @@ async function session($: Engine, on: On) {
   mock.clock(on, { now: Date.parse('2026-10-19T02:00:00Z') })
   mock.env(on, { LANG: 'en_US.UTF-8' })
   mock.store(on)
+  on('fs.exists', async (_$, e) => ({ value: /addons[\\/]cyberpunk[\\/]addon\.json$/.test(String((e as { path: string }).path)) }) as never) // the Cyberpunk Skins add-on is installed
   on('settings.read', async () => ({ value: {} }) as never)
   on('prompt.compose', async () => ({ sections: [{ id: 'intro', text: 'base', scope: 'shared' }] }) as never)
   on('command.run', async () => ({ text: '' }) as never)

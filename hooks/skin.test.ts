@@ -22,7 +22,7 @@ const base = (on: On) => {
   on('ui.panes', async () => ({ value: [] }) as never)
   on('session.usage', async () => ({ value: { startedAt: 0, context: { window: 1_000_000, tokens: 100_000 }, rateLimits: [] } }) as never)
   on('session.cwd', async () => ({ value: '/repo' }) as never)
-  on('fs.exists', async (_$, e) => ({ value: /Custom Claude Skins$/.test(String((e as { path: string }).path)) }) as never)
+  on('fs.exists', async (_$, e) => ({ value: /Custom Claude Skins$|addons[\\/]cyberpunk[\\/]addon\.json$/.test(String((e as { path: string }).path)) }) as never)
   on('fs.list', async () => ({ value: Object.keys(FILES).map(name => ({ name, kind: 'file', size: 1, mtimeMs: 0 })) }) as never)
   on('fs.read', async (_$, e) => {
     const path = JSON.stringify(e)

@@ -29,8 +29,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(reported).toMatchObject({ result: 'ok: Tasks 0/2' })
 
     const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'AbovePrompt', props: band })
-    // Two planned tasks, none started: the crew button counts both.
-    expect((await ui.find({ key: 'crab-agents' }))?.props.label).toBe('◈ 2')
+    // Two planned tasks, none started: the crew button counts both. It draws the
+    // glyph and the count; its label names it for a screen reader.
+    const crewButton = await ui.find({ key: 'crab-agents' })
+    expect(crewButton?.props.label).toBe('Mission Control: 2 agents')
+    expect((crewButton as unknown as { text?: string })?.text).toBe('◈ 2')
 
     await $.tool.call({ tool: PROGRESS, done: 1 } as never)
     expect(opened).toEqual(['crab-agents'])
@@ -49,7 +52,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(reported).toMatchObject({ result: 'ok: Tasks 0/200' })
 
     const bar = await $.ui.mount({ plugin: PLUGIN, surface, component: 'AbovePrompt', props: band })
-    expect((await bar.find({ key: 'crab-agents' }))?.props.label).toBe('◈ 200')
+    expect((await bar.find({ key: 'crab-agents' }))?.props.label).toBe('Mission Control: 200 agents')
 
     const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', requestId: 'crab-agents', props: pane })
     const drawn = (await ui.findAll({ type: 'Svg' })).map(el => String(el.props.source)).join('')

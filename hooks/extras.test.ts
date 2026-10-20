@@ -8,6 +8,7 @@ const base = (on: On) => {
   const clock = mock.clock(on, { now: Date.parse('2026-10-20T10:00:00Z') })
   mock.env(on, { LANG: 'en_US.UTF-8' })
   mock.store(on)
+  on('fs.exists', async (_$, e) => ({ value: /addons[\\/]cyberpunk[\\/]addon\.json$/.test(String((e as { path: string }).path)) }) as never) // the Cyberpunk Skins add-on is installed
   on('settings.read', async () => ({ value: {} }) as never)
   on('tool.register', async () => ({ value: undefined }) as never)
   on('command.register', async () => ({ value: undefined }) as never)
@@ -92,7 +93,7 @@ test('samurai: hidden from the list until worn, then a badge and its own chime',
 
 // --- Regressions found in review ---
 
-import { BADGES, BD_H, BEATS_KEPT, BLANK_CRED, bootStrip, braindanceCard, credCard, credHeight, shiftPick, stepPick, textW } from './extras'
+import { BADGES, BD_H, BEATS_KEPT, BLANK_CRED, bdHeight, bootStrip, braindanceCard, cleanCred, credCard, credHeight, inkOn, layerColors, shiftPick, stepPick, textW } from './extras'
 import type { Beat } from './extras'
 
 const theme = { accent: '#f00', accent2: '#ff0', done: '#0f0', text: '#fff', subtext: '#aaa', muted: '#666', tile: '#000', track: '#111', line: '#222' }
@@ -211,4 +212,51 @@ test('default and crab-classic stay clean: no boot line, Street Cred or Braindan
     expect(svg.includes('STREET CRED') || svg.includes('LEVEL &amp; BADGES') || svg.includes('LEVEL & BADGES')).toBe(false)
     expect(svg.includes('JACKING IN') || svg.includes('BOOTING')).toBe(false)
   }
+})
+
+test('street cred: duplicate badge ids in the store count once', () => {
+  const c = cleanCred({ ...BLANK_CRED, badges: ['choom', 'choom', 'merc', 'choom', 'merc', 'nope', 7] })
+  expect(c.badges).toEqual(['choom', 'merc'])
+  expect(credCard(480, c, theme, 'sans-serif', box, 'STREET CRED')).toContain(`>2/${BADGES.length}</text>`)
+})
+
+test('braindance: the card is as tall as the lanes it shows, up to BD_H', () => {
+  const beatsOf = (who: string[]): Beat[] => who.map((w, i) => ({ at: 1000 + i * 1000, tool: i % 3 ? 'Edit' : 'Read', text: 'x', who: w }))
+  const cases: [Beat[], number][] = [
+    [[], 1],
+    [beatsOf(['Manager', 'Manager']), 1],
+    [beatsOf(['A', 'B', 'A']), 3],
+    [beatsOf(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'Manager']), 5],
+  ]
+  for (const [beats, lanes] of cases) {
+    const H = bdHeight(beats)
+    expect(H).toBe(91 + 17 * lanes)
+    expect(H).toBeLessThan(BD_H + 1)
+    const svg = braindanceCard(600, beats, -1, theme, 'sans-serif', box, 'BRAINDANCE')
+    expect(svg).toContain(`height="${H}" viewBox="0 0 600 ${H}"`)
+    // The last lane ends above the detail line, and the detail line inside the card.
+    const lastLaneBottom = 58 + (lanes - 1) * 17 + 7
+    const detailY = Number(/<text x="22" y="([\d.]+)"/.exec(svg)?.[1])
+    expect(detailY - 12).toBeGreaterThan(lastLaneBottom)
+    expect(detailY + 7).toBeLessThan(H)
+  }
+  expect(bdHeight(beatsOf(['A', 'B', 'C', 'D', 'E', 'F']))).toBe(BD_H)
+})
+
+test("braindance: layers take the skin's colours, stay apart, and differ in shape", () => {
+  const cp = { ...theme, accent: '#FCEE0A', accent2: '#00F0FF', alert: '#FF003C', text: '#F3EFE0' }
+  expect(layerColors(cp)).toEqual({ VISUAL: '#FCEE0A', AUDIO: '#00F0FF', THERMAL: '#FF003C' })
+  // SAMURAI's alert is another red: THERMAL falls back to the text colour.
+  const sam = { ...theme, accent: '#E10600', accent2: '#FFD400', alert: '#FF2E3E', text: '#F4F4F4' }
+  expect(layerColors(sam).THERMAL).toBe('#F4F4F4')
+  // No alert: accent would repeat VISUAL, so THERMAL falls back too.
+  expect(layerColors({ ...theme, accent: '#E10600', accent2: '#FFD400' }).THERMAL).toBe(theme.text)
+  const beats: Beat[] = ['Read', 'WebFetch', 'Edit'].map((tool, i) => ({ at: 1000 + i * 1000, tool, text: '', who: 'Manager' }))
+  const svg = braindanceCard(600, beats, 0, cp, 'sans-serif', box, 'BRAINDANCE')
+  expect(svg).toMatch(/<path d="M[\d.]+ 52l3 6l-3 6l-3 -6z" fill="#00F0FF"/)
+  expect(svg).toMatch(/<path d="M[\d.]+ 52l3.5 12h-7z" fill="#FF003C"/)
+  // The lit tab's word is dark on yellow.
+  expect(svg).toContain('fill="#111111">VISUAL')
+  expect(inkOn('#FCEE0A')).toBe('#111111')
+  expect(inkOn('#E3001B')).toBe('#FFFFFF')
 })

@@ -1,0 +1,7 @@
+{
+  "id": "cyberpunk",
+  "name": "Cyberpunk Skins",
+  "version": "0.3.0",
+  "skins": ["cyberpunk-2077", "lucy-edgerunners", "arasaka"],
+  "note": "Keep this folder at addons/cyberpunk/ inside your Mission Control folder. Delete it to go back to the core edition."
+}
