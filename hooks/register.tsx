@@ -3982,33 +3982,21 @@ export const register: Register = (on, options) => {
       const align = isRtl() ? 'flex-end' : undefined
       if (p.isCompact) {
         return (
-          <Box flexDirection="column" gap={1} alignItems={align} width="100%" minHeight="100%" {...(SKIN.backdrop.fill ? { backgroundColor: SKIN.backdrop.fill } : {})}>
+          <Box flexDirection="column" gap={1} alignItems={align} {...(SKIN.backdrop.fill ? { backgroundColor: SKIN.backdrop.fill } : {})}>
             <Svg source={compactSvg(W, list, planned, t)} alt={`${list.length} ${s.agentsCount}, ${summary}`} width={W} height={32} />
             {toggleCompact}
             <Svg source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} width={W} height={sessionHeight(W, info, rules)} />
           </Box>
         )
       }
-      const cardH = sessionHeight(W, info, rules)
-      // An opened finished card carries a Collapse button under it: one line more.
-      const treeH = tree.reduce((h, r) => h + rowHeight(r) + (r.kind === 'agent' && !r.folded && r.a.status !== 'running' ? LINE_H : 0), 0)
-      const lines = 3 + (finished.length > 0 ? 1 : 0)
       const egg = eggOf()
-      const eggH = egg ? BREACH_H + 8 + legendsHeight(legends.length) + 8 : 0
-      // Boot line, Street Cred and Braindance are cyberpunk add-ons.
-      const extrasH = egg ? BOOT_H + 8 + credHeight(W) + 8 + bdHeight(beats) + LINE_H + 8 : 0
-      const gridH = usageHeight(info, every) + 8 + TODAY_H + 8 + workflowHeight(steps) + 8 + eggH + managerHeight(info) + 8 + tokenHeight(report) + 8 + lines * LINE_H + treeH + orgHeight(org) + cardH + 8 * LINE_H + extrasH
-      // A skin with a backdrop paints the whole pane body, edge to edge and top to
-      // bottom, not just the drawn grid: no strip of the app's grey shows through.
+      // A skin with a backdrop paints the pane body behind the cards.
       const fill = SKIN.backdrop.fill
+      // The cards stack in plain flow: the desktop pane draws nothing for a tree that
+      // lays them over a full-height grid with an absolute Box.
       return (
-        <Box flexDirection="column" width="100%" minHeight="100%" {...(fill ? { backgroundColor: fill } : {})}>
-          {/* The grid sizes the pane; the content is placed over it, as an
-              absolute Box paints over the siblings before it. */}
-          {gridTiles(gridH).map((tileH, i) => (
-            <Svg key={`grid-${i}`} source={gridSvg(W, tileH)} alt="" width={W} height={tileH} />
-          ))}
-          <Box flexDirection="column" position="absolute" top={0} left={0} right={0} alignItems={align}>
+        <Box flexDirection="column" {...(fill ? { backgroundColor: fill } : {})}>
+          <Box flexDirection="column" alignItems={align}>
             {egg ? (
               <Box key="boot" marginBottom={1}>
                 <Svg
@@ -4138,7 +4126,7 @@ export const register: Register = (on, options) => {
               {toggleCompact}
             </Box>
             {section('h-session', 'Memory')}
-            <Svg key="session" source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} width={W} height={cardH} />
+            <Svg key="session" source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} width={W} height={sessionHeight(W, info, rules)} />
             {section('h-settings', 'Settings')}
             <Box key="settings" flexDirection="column">
               <Button

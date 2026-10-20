@@ -101,5 +101,11 @@ test('backdrop: a dark skin paints the whole pane behind the cards', async ($, o
   base(on)
   await $.session.start({ source: 'startup', cwd: '/repo', surface: 'desktop', isInteractive: true } as never)
   await run($, 'cyberpunk-2077')
-  expect(await drawn($)).toContain('fill="#050608"')
+  // The cards stack in plain flow (the desktop pane draws nothing under an absolute
+  // overlay), so the backdrop is the column's own background.
+  const ui = await $.ui.mount({ plugin: 'crab-progress', surface: 'desktop', component: 'Pane', requestId: 'crab-agents', props: pane })
+  const boxes = await ui.findAll({ type: 'Box' })
+  await ui.unmount()
+  expect(boxes.some(b => (b.props as { backgroundColor?: string }).backgroundColor === '#050608')).toBe(true)
+  expect(boxes.some(b => (b.props as { position?: string }).position === 'absolute')).toBe(false)
 })
