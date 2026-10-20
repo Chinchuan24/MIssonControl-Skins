@@ -47,14 +47,14 @@ Claude works in steps, calls tools and spins up sub-agents. Mission Control show
 - **Currency**: see costs in USD, EUR, GBP, JPY, MYR, SGD or Night City eddies (€$).
 - **Languages**: English, Russian or Hebrew (right to left).
 
-### Street Cred and Braindance
+### Street Cred and Braindance (cyberpunk skins)
 
 ![Street Cred and Braindance](docs/street-cred.png)
 
 - **Street Cred**: every job you finish earns XP. Long jobs and big crews earn more. Level up from NOBODY to LEGEND OF THE AFTERLIFE.
 - **9 badges** to unlock: First Gig, Fixer's Favorite, Iconic, The Big Leagues, Netrunner, Fixer, Cyberpsycho, Graveyard Shift… and one more that stays **CLASSIFIED** until you find it.
 - **Braindance**: a replay of the session. Every tool call is a mark on the timeline, colored by layer (visual, audio, thermal). Step back and forth with ◀ ▶ to see who did what, and when.
-- On non-cyberpunk skins they show up as **Level & Badges** and **Replay**.
+- These are cyberpunk add-ons: they show only on the cyberpunk skins. `default` and Crab Classic stay clean.
 
 ---
 

@@ -630,7 +630,9 @@ async function bumpCredNow($: EngineInterface, change: (c: Cred) => Cred, quiet:
   await update($, cred, () => next)
   const was = levelOf(before.xp)
   const now = levelOf(next.xp)
-  if (now > was) $.ui.toast(`${eggOf() === 'samurai' ? 'ROCKERBOY CRED' : eggOf() ? 'STREET CRED' : 'LEVEL UP'} ↑ ${now} · ${eggOf() === 'samurai' ? rockerRankOf(now) : rankOf(now)}`)
+  // Street Cred is a cyberpunk add-on: other skins keep counting quietly, with no cheer.
+  if (!eggOf()) return false
+  if (now > was) $.ui.toast(`${eggOf() === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED'} ↑ ${now} · ${eggOf() === 'samurai' ? rockerRankOf(now) : rankOf(now)}`)
   for (const b of fresh) $.ui.toast(`${b.icon} Badge unlocked: ${b.name}`)
   const isCheer = now > was || fresh.length > 0
   if (!quiet && isCheer) void play($, 'assets/levelup.wav')
@@ -3258,7 +3260,7 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
   void $.ui.notify(`Claude finished: ${clip(boss.task, 80)}`).catch(() => undefined)
   // One chime, not two cut short: the level-up's when the job earned one, else the skin's.
   const isCheer = await paid.catch(() => false)
-  void play($, isCheer ? 'assets/levelup.wav' : egg ? `assets/done-${egg}.wav` : 'assets/done.wav')
+  void play($, !egg ? 'assets/done.wav' : isCheer ? 'assets/levelup.wav' : `assets/done-${egg}.wav`)
 }
 
 export const register: Register = (on, options) => {
@@ -3823,7 +3825,9 @@ export const register: Register = (on, options) => {
       const lines = 3 + (finished.length > 0 ? 1 : 0)
       const egg = eggOf()
       const eggH = egg ? BREACH_H + 8 + legendsHeight(legends.length) + 8 : 0
-      const gridH = usageHeight(info, every) + 8 + TODAY_H + 8 + workflowHeight(steps) + 8 + eggH + managerHeight(info) + 8 + tokenHeight(report) + 8 + lines * LINE_H + treeH + orgHeight(org) + cardH + 8 * LINE_H + BOOT_H + 8 + credHeight(W) + 8 + BD_H + LINE_H + 8
+      // Boot line, Street Cred and Braindance are cyberpunk add-ons.
+      const extrasH = egg ? BOOT_H + 8 + credHeight(W) + 8 + BD_H + LINE_H + 8 : 0
+      const gridH = usageHeight(info, every) + 8 + TODAY_H + 8 + workflowHeight(steps) + 8 + eggH + managerHeight(info) + 8 + tokenHeight(report) + 8 + lines * LINE_H + treeH + orgHeight(org) + cardH + 8 * LINE_H + extrasH
       // A skin with a backdrop paints the whole pane body, edge to edge and top to
       // bottom, not just the drawn grid: no strip of the app's grey shows through.
       const fill = SKIN.backdrop.fill
@@ -3835,14 +3839,16 @@ export const register: Register = (on, options) => {
             <Svg key={`grid-${i}`} source={gridSvg(W, tileH)} alt="dotted grid" width={W} height={tileH} />
           ))}
           <Box flexDirection="column" position="absolute" top={0} left={0} right={0} alignItems={align}>
-            <Box key="boot" marginBottom={1}>
-              <Svg
-                source={bootStrip(W, SKIN.colors, FONT, egg ? 'JACKING IN…' : 'BOOTING MISSION CONTROL…', egg === 'corpo' ? 'ARASAKA NETWORK › IDENTITY VERIFIED › ACCESS GRANTED' : egg === 'samurai' ? 'WAKE UP, SAMURAI › AMPS ON › LIVE AT THE ATLANTIS' : egg === 'netrun' ? 'JACKED IN › DIVING THE NET › ICE BYPASSED' : egg ? 'LINK ESTABLISHED › NEURAL HANDSHAKE OK › ICE BYPASSED' : 'MISSION CONTROL ONLINE › ALL SYSTEMS GO')}
-                alt="Mission Control online"
-                width={W}
-                height={BOOT_H}
-              />
-            </Box>
+            {egg ? (
+              <Box key="boot" marginBottom={1}>
+                <Svg
+                  source={bootStrip(W, SKIN.colors, FONT, 'JACKING IN…', egg === 'corpo' ? 'ARASAKA NETWORK › IDENTITY VERIFIED › ACCESS GRANTED' : egg === 'samurai' ? 'WAKE UP, SAMURAI › AMPS ON › LIVE AT THE ATLANTIS' : egg === 'netrun' ? 'JACKED IN › DIVING THE NET › ICE BYPASSED' : 'LINK ESTABLISHED › NEURAL HANDSHAKE OK › ICE BYPASSED')}
+                  alt="Mission Control online"
+                  width={W}
+                  height={BOOT_H}
+                />
+              </Box>
+            ) : null}
             <Box key="usage" marginBottom={1}>
               <Svg
                 source={usageSvg(W, info, clockNow, every)}
@@ -3854,14 +3860,16 @@ export const register: Register = (on, options) => {
             <Box key="today" marginBottom={1}>
               <Svg source={todaySvg(W, day)} alt={`Today: ${day.tasks} tasks, ${day.agents} agents, ${fmtTokens(day.tokens)} tokens, ≈${fmtCost(day.costUsd)}`} width={W} height={TODAY_H} />
             </Box>
-            <Box key="cred" marginBottom={1}>
-              <Svg
-                source={credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : egg ? 'STREET CRED' : 'LEVEL & BADGES', egg ? 'ストリートクレッド' : '', egg === 'samurai' ? rockerRankOf : rankOf)}
-                alt={`Level ${levelOf(streetCred.xp)} ${rankOf(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
-                width={W}
-                height={credHeight(W)}
-              />
-            </Box>
+            {egg ? (
+              <Box key="cred" marginBottom={1}>
+                <Svg
+                  source={credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
+                  alt={`Level ${levelOf(streetCred.xp)} ${rankOf(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
+                  width={W}
+                  height={credHeight(W)}
+                />
+              </Box>
+            ) : null}
             <Box key="workflow" marginBottom={1}>
               <Svg
                 source={workflowSvg(W, f, steps)}
@@ -3890,22 +3898,22 @@ export const register: Register = (on, options) => {
                 />
               </Box>
             ) : null}
-            <Box key="bd" flexDirection="column" marginBottom={1}>
-              <Svg
-                source={braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : egg ? 'BRAINDANCE' : 'REPLAY', egg ? undefined : k =>
-                  k === 'read' || k === 'other' ? SKIN.colors.accent2 : k === 'web' || k === 'agent' ? SKIN.colors.done : SKIN.colors.alert,
-                )}
-                alt={`Replay: ${beats.length} tool calls`}
-                width={W}
-                height={BD_H}
-              />
-              <Box flexDirection="row" gap={2}>
-                <Button key="bd-first" label="⏮ First" plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, () => (n ? 0 : -1)) }} />
-                <Button key="bd-prev" label="◀ Back" plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, i => stepPick(i, n, -1)) }} />
-                <Button key="bd-next" label="Next ▶" plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, i => stepPick(i, n, 1)) }} />
-                <Button key="bd-live" label="● Live" plain onPress={() => update($, bdPick, () => -1)} />
+            {egg ? (
+              <Box key="bd" flexDirection="column" marginBottom={1}>
+                <Svg
+                  source={braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
+                  alt={`Replay: ${beats.length} tool calls`}
+                  width={W}
+                  height={BD_H}
+                />
+                <Box flexDirection="row" gap={2}>
+                  <Button key="bd-first" label="⏮ First" plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, () => (n ? 0 : -1)) }} />
+                  <Button key="bd-prev" label="◀ Back" plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, i => stepPick(i, n, -1)) }} />
+                  <Button key="bd-next" label="Next ▶" plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, i => stepPick(i, n, 1)) }} />
+                  <Button key="bd-live" label="● Live" plain onPress={() => update($, bdPick, () => -1)} />
+                </Box>
               </Box>
-            </Box>
+            ) : null}
             <Svg
               key="manager"
               source={managerSvg(W, boss, info, title, t, list.length, clockNow, managerProgress(f, list, boss, clockNow))}

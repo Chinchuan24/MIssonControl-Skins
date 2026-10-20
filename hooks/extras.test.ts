@@ -34,7 +34,11 @@ const base = (on: On) => {
 const toasts: string[] = []
 const sounds: string[] = []
 
-const start = ($: Engine) => $.session.start({ source: 'startup', cwd: '/repo', surface: 'desktop', isInteractive: true } as never)
+// Street Cred, Braindance and the boot line are cyberpunk add-ons, so the tests wear one.
+const start = async ($: Engine, skin = 'cyberpunk-2077') => {
+  await $.session.start({ source: 'startup', cwd: '/repo', surface: 'desktop', isInteractive: true } as never)
+  if (skin) await $.command.run({ command: 'skin', args: skin } as never)
+}
 const paneSvgs = async ($: Engine) => {
   const ui = await $.ui.mount({ plugin: 'crab-progress', surface: 'desktop', component: 'Pane', requestId: 'crab-agents', props: pane })
   const all = (await ui.findAll({ type: 'Svg' })).map(el => String(el.props.source))
@@ -52,7 +56,7 @@ test('street cred: a finished job earns XP and the CHOOM badge, with a toast', a
   await clock.advance(30_000)
   await $.turn.complete({ reason: 'answer', answer: 'done', text: 'done' } as never)
   const svg = await paneSvgs($)
-  expect(svg).toContain('LEVEL &amp; BADGES')
+  expect(svg).toContain('STREET CRED')
   expect(svg).toMatch(/>12<\/tspan> XP/)
   expect(svg).toContain('FIRST GIG')
   expect(toasts.join('\n')).toContain('Badge unlocked: FIRST GIG')
@@ -65,7 +69,7 @@ test('braindance: tool calls land on the replay; Back steps to an earlier one', 
   await $.tool.call({ tool: 'Read', file_path: '/r/a.ts' } as never)
   await $.tool.call({ tool: 'Edit', file_path: '/r/b.ts', old_string: 'a', new_string: 'b' } as never)
   const ui = await $.ui.mount({ plugin: 'crab-progress', surface: 'desktop', component: 'Pane', requestId: 'crab-agents', props: pane })
-  const bd = async () => (await ui.findAll({ type: 'Svg' })).map(el => String(el.props.source)).find(x => x.includes('REPLAY')) ?? ''
+  const bd = async () => (await ui.findAll({ type: 'Svg' })).map(el => String(el.props.source)).find(x => x.includes('BRAINDANCE')) ?? ''
   expect(await bd()).toContain('2/2')
   await ui.press((await ui.find({ key: 'bd-prev' })) as never)
   expect(await bd()).toContain('1/2')
@@ -196,4 +200,15 @@ test('/missioncontrol currency with a bad rate answers with an error, not "opene
   }
   const ok = String(((await $.command.run({ command: 'missioncontrol', args: 'currency eur 0.92' } as never)) as { text?: string }).text)
   expect(ok).toContain('EUR')
+})
+
+test('default and crab-classic stay clean: no boot line, Street Cred or Braindance', async ($, on) => {
+  base(on)
+  for (const skin of ['crab-classic', 'default']) {
+    await start($, skin)
+    const svg = await paneSvgs($)
+    expect(svg.includes('BRAINDANCE') || svg.includes('REPLAY')).toBe(false)
+    expect(svg.includes('STREET CRED') || svg.includes('LEVEL &amp; BADGES') || svg.includes('LEVEL & BADGES')).toBe(false)
+    expect(svg.includes('JACKING IN') || svg.includes('BOOTING')).toBe(false)
+  }
 })
