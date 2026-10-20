@@ -1094,6 +1094,14 @@ export const CASTS: Record<string, Cast> = {
   runners: { name: 'Edgerunners', bossName: 'David', boss: DAVID, roles: CREW_ROLES, crew: [CHOOM, GANGER, NEON] },
   // Lucy leads; David rides along as one of the crew.
   netrun: { name: 'Edgerunners', bossName: 'Lucy', boss: LUCY, roles: { ...CREW_ROLES, fable: DAVID }, crew: [CHOOM, NEON, GANGER] },
+  // SAMURAI, the secret skin: Johnny fronts the band, the crew backs him up.
+  samurai: {
+    name: 'SAMURAI',
+    bossName: 'Johnny',
+    boss: JOHNNY,
+    roles: { ...CREW_ROLES, artist: LUCY, other: DORIO },
+    crew: [GANGER, NEON, CHOOM],
+  },
   // The old man at the top; Smasher, his officers and a captive rockerboy under him;
   // the guards and staff on the floor.
   corpo: {

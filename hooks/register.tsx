@@ -4,6 +4,8 @@ import type { EngineInterface, Register } from 'claude-code'
 import { CASTS, CAST_CSS, hashOf, spriteMarkup } from './cast'
 import { BREACH_H, BREACH_W, CJK_FONT, EGG_CSS, EGG_TOOLS, EGG_WORDS, GREETING, KATAKANA, breachCard, breachTicker, celebration, heatStars, legendsCard, legendsHeight, psychoChip, radio, relicText, sandevistan, skyline, sysTag } from './eggs'
 import type { Egg, Legend } from './eggs'
+import { BD_H, BEATS_KEPT, BLANK_CRED, BOOT_H, award, rockerRankOf, bootStrip, braindanceCard, cleanCred, credCard, credHeight, levelOf, rankOf, shiftPick, stepPick } from './extras'
+import type { Beat, Cred } from './extras'
 import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, unifiedDiff } from './richtext'
 import type { AgentRun, AgentStatus, AllTime, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Today, Watch } from '../types'
 
@@ -319,6 +321,8 @@ type Skin = {
   tabs: { mission: string; skins: string }
   /** Characters in place of the crabs: a key of CASTS ("runners", "corpo", "netrun"). */
   cast?: string
+  /** Left out of the picker and the list until it is worn: an easter egg. */
+  hidden?: boolean
 }
 
 const CRAB_SKIN: Skin = {
@@ -490,7 +494,43 @@ const DEFAULT_SKIN: Skin = {
   tabs: { mission: 'Mission Control', skins: 'Skins' },
 }
 
-const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN]
+// SAMURAI: the secret skin. Johnny's band, red on black, a stage in the skyline.
+// Not in the picker or the list: `/skin samurai` finds it.
+const SAMURAI_SKIN: Skin = {
+  id: 'samurai',
+  cast: 'samurai',
+  hidden: true,
+  name: 'SAMURAI',
+  description: "Johnny's band: red on black, stage lights, never fade away.",
+  font: "Rajdhani,Orbitron,-apple-system,'SF Pro Display','Helvetica Neue',Bahnschrift,'Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  corners: 'chamfer',
+  dark: true,
+  colors: {
+    accent: '#E10600',
+    accent2: '#FFD400',
+    done: '#FFD400',
+    warn: '#FF8A00',
+    alert: '#FF2E3E',
+    meter: '#D9D9D9',
+    text: '#F4F4F4',
+    subtext: '#B3A5A5',
+    muted: '#6E5E5E',
+    tile: '#0E0909',
+    track: '#241515',
+    line: '#3A2020',
+    grid: '#1C1010',
+  },
+  boss: ['#E10600', '#FFD400', '#D9D9D9', '#E10600', '#FFD400'],
+  roles: ['#E10600', '#FFD400', '#D9D9D9', '#FF8A00', '#FF5C5C', '#B3A5A5'],
+  effects: { scanlines: true, glitch: true },
+  chat: true,
+  words: ['Never fading away', 'Shredding', 'Riffing'],
+  toolWords: {},
+  backdrop: { fill: '#080505', pattern: 'lines', ink: 'rgba(225,6,0,.25)' },
+  tabs: { mission: '♪ Mission Control', skins: '♪ Skins' },
+}
+
+const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN, SAMURAI_SKIN]
 
 // Only plain colour and font values reach the drawings: a skin file cannot
 // smuggle markup into an Svg.
@@ -545,7 +585,10 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
 
 const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.id)
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
-const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, currency: 'AUTO' })
+const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, currency: 'AUTO', sounds: true })
+const cred = atom({ plugin: 'crab-progress', key: 'cred' } as const, BLANK_CRED)
+const timeline = atom({ plugin: 'crab-progress', key: 'timeline' } as const, [] as Beat[])
+const bdPick = atom({ plugin: 'crab-progress', key: 'bdPick' } as const, -1)
 const readSettings = async ($: EngineInterface) => {
   const saved = (await $.store.get('currency').catch(() => undefined)) as { code?: string; rate?: number } | undefined
   CURRENCY = currencyOf(saved?.code ?? 'AUTO', saved?.rate)
@@ -553,7 +596,45 @@ const readSettings = async ($: EngineInterface) => {
     openOnStart: (await $.store.get('openOnStart').catch(() => undefined)) !== false,
     crewMode: (await readAutoCrew($)).on,
     currency: CURRENCY.code,
+    sounds: (await $.store.get('sounds').catch(() => undefined)) !== false,
   }
+}
+
+// A sound, when the person has sounds on. Never in the way: a failure is silent.
+async function play($: EngineInterface, asset: string): Promise<void> {
+  if (!(await read($, settings)).sounds) return
+  await $.audio.play({ asset }).catch(() => undefined)
+}
+
+// Street Cred: change the counts, award what they earn, cheer a level or a badge.
+// The store's read-modify-write is not atomic, so the bumps run one at a time: five
+// agents spawned at once count five. `quiet` leaves the chime to the caller's own.
+// Resolves true when the bump earned a level or a badge.
+let credQueue: Promise<unknown> = Promise.resolve()
+function bumpCred($: EngineInterface, change: (c: Cred) => Cred, quiet = false): Promise<boolean> {
+  const run = credQueue.then(() => bumpCredNow($, change, quiet))
+  credQueue = run.catch(() => false)
+  return run
+}
+async function bumpCredNow($: EngineInterface, change: (c: Cred) => Cred, quiet: boolean): Promise<boolean> {
+  let saved: unknown
+  try {
+    saved = await $.store.get('cred')
+  } catch {
+    return false // An unreadable store is left alone rather than overwritten with a blank.
+  }
+  const before = cleanCred(saved)
+  const { cred: next, fresh } = award(change(before))
+  if (next === before) return false
+  await $.store.set('cred', next).catch(() => undefined)
+  await update($, cred, () => next)
+  const was = levelOf(before.xp)
+  const now = levelOf(next.xp)
+  if (now > was) $.ui.toast(`${eggOf() === 'samurai' ? 'ROCKERBOY CRED' : eggOf() ? 'STREET CRED' : 'LEVEL UP'} ↑ ${now} · ${eggOf() === 'samurai' ? rockerRankOf(now) : rankOf(now)}`)
+  for (const b of fresh) $.ui.toast(`${b.icon} Badge unlocked: ${b.name}`)
+  const isCheer = now > was || fresh.length > 0
+  if (!quiet && isCheer) void play($, 'assets/levelup.wav')
+  return isCheer
 }
 // The next currency in the list; a custom rate is kept only for the one it was set on.
 const setCurrency = async ($: EngineInterface, c: Currency) => {
@@ -1077,7 +1158,7 @@ const fmtTokens = (n: number): string =>
   n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${Math.round(n)}`
 
 // The easter eggs' flavour: the cyberpunk skins' casts have them, the rest none.
-const eggOf = (): Egg | undefined => (SKIN.cast === 'runners' || SKIN.cast === 'netrun' || SKIN.cast === 'corpo' ? SKIN.cast : undefined)
+const eggOf = (): Egg | undefined => (SKIN.cast === 'runners' || SKIN.cast === 'netrun' || SKIN.cast === 'corpo' || SKIN.cast === 'samurai' ? SKIN.cast : undefined)
 
 // The money a cost is shown in. Costs are counted in US dollars and converted at an
 // approximate rate (each one can be set with `/missioncontrol currency <code> <rate>`);
@@ -2955,7 +3036,7 @@ const hudHead = (W: number, d: HudData): string => {
   const hasBreach = Boolean(egg) && breachX > mx2 + 120
   return `<rect x="14" y="${y - 7}" width="5" height="5" fill="${c.accent2}" transform="rotate(45 16.5 ${y - 4.5})"/>
 <text x="24" y="${y}" font-family="${FONT}" font-size="10.5" font-weight="800" letter-spacing=".9" fill="${c.accent2}">${name}<tspan class="cur">▮</tspan></text>
-${egg ? `<text x="24" y="${y + 6.5}" font-family="${FONT.replace(/,?sans-serif$/, '')},${CJK_FONT}" font-size="6" letter-spacing="1.2" fill="${c.accent2}" fill-opacity=".5">${KATAKANA[egg]}</text>` : ''}
+${egg ? `<text x="24" y="${y + 7}" font-family="${FONT.replace(/,?sans-serif$/, '')},${CJK_FONT}" font-size="7" letter-spacing="1.2" fill="${c.accent2}" fill-opacity=".5">${KATAKANA[egg]}</text>` : ''}
 ${hasBreach && egg ? breachTicker(breachX, y, d.isWorking, done, d.steps.length, egg, FONT) : [0, 1, 2].map(i => `<rect class="tick" style="animation-delay:${i * 0.25}s" x="${W - 14 - rightW - 30 + i * 7}" y="${y - 7}" width="4" height="7" fill="${c.accent2}"/>`).join('')}
 ${psy.svg}
 ${hasSkinChip ? `<rect x="${sx}" y="${y - 10}" width="${skinW}" height="13" rx="2" fill="none" stroke="${c.accent2}" stroke-opacity=".55"/>
@@ -3038,7 +3119,7 @@ const hudLines = (W: number, d: HudData): string => {
   const todayText = W - crabX - 14 - (textWidth(fullToday, 11) + 8) - 20 >= 120 ? fullToday : ''
   const todayW = todayText ? textWidth(todayText, 11) + 8 : 0
   out.push(`<circle cx="${crabX + 4}" cy="${y5 + 10}" r="3.5" fill="${MOOD_COLOR[d.tip.level]}"${d.tip.level === 2 ? ' class="live"' : ''}/>
-<text class="${d.tip.level ? 't' : 's'}" x="${crabX + 14}" y="${y5 + 14}" font-family="${FONT}" font-size="11.5"${d.tip.level ? ' font-weight="600"' : ''}>${xml(fitText(d.tip.text, 11.5, W - crabX - 14 - todayW - 20))}</text>
+<text class="${d.tip.level === 2 ? 't' : 's'}" x="${crabX + 14}" y="${y5 + 14}" font-family="${FONT}" font-size="11.5" font-weight="${d.tip.level === 2 ? 600 : 500}">${xml(fitText(d.tip.text, 11.5, W - crabX - 14 - todayW - 20))}</text>
 <text class="m" x="${W - 14}" y="${y5 + 14}" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${xml(todayText)}</text>`)
   // Session: turn, speed and cost on the left; the cache draining on the right.
   const y6 = HUD_TOP + 86
@@ -3127,6 +3208,8 @@ const cleanLegends = (v: unknown): Legend[] =>
     .slice(0, LEGENDS_KEPT)
 // Cyberpsychosis is warned of once per climb past 85% context.
 let psyWarned = false
+// MaxTac's siren sounds once per climb past 95%.
+let sirenPlayed = false
 // A full context or a long plan calls the crew once per climb, not on every prompt.
 let crewCalled = false
 // The most tools any request has offered: the main loop's list is the longest.
@@ -3139,8 +3222,31 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
   if (crew.some(a => a.status === 'running')) return
   const at = await $.clock.now()
   const isWorthACheer = crew.length > 0 || at - boss.startedAt > 20_000
-  await update($, manager, prev => ({ ...prev, doneAt: at, activity: '', celebrateUntil: at + CELEBRATE_MS }))
-  if (!isWorthACheer) return
+  // Claimed in one atomic step: two agents finishing together run this twice, and
+  // only the first may cheer and pay out.
+  let isMine = false
+  await update($, manager, prev => {
+    isMine = false
+    if (prev.doneAt || prev.isWorking || prev.task !== boss.task) return prev
+    isMine = true
+    return { ...prev, doneAt: at, activity: '', celebrateUntil: at + CELEBRATE_MS }
+  })
+  if (!isMine) return
+  const isLong = at - boss.startedAt >= 180_000
+  const isCrew = crew.length >= 5
+  // Every finished job pays, a quick solo one too; only the cheer is kept for the bigger ones.
+  const paid = bumpCred($, c => ({
+    ...c,
+    jobs: c.jobs + 1,
+    longJobs: c.longJobs + (isLong ? 1 : 0),
+    crewJobs: c.crewJobs + (isCrew ? 1 : 0),
+    nightJobs: c.nightJobs + (new Date(at).getHours() < 5 ? 1 : 0),
+    xp: c.xp + 10 + (isLong ? 15 : 0) + (isCrew ? 10 : 0),
+  }), isWorthACheer)
+  if (!isWorthACheer) {
+    await paid
+    return
+  }
   const info = await read($, env)
   const legend: Legend = { task: clip(boss.task.replace(/\s+/g, ' '), 60), costUsd: Math.max(0, info.costUsd - (boss.costAtStart ?? info.costUsd)), at, ms: Math.max(0, at - boss.startedAt) }
   const kept = cleanLegends(await $.store.get('legends').catch(() => []))
@@ -3150,7 +3256,9 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
   if (egg && legend.ms >= 180_000) $.ui.toast(egg === 'corpo' ? `▣ Engram filed in Mikoshi: ${clip(legend.task, 40)}` : `🍸 The Afterlife named a drink after you: The ${clip(legend.task, 40)}`)
   $.ui.toast(`🎉 Done: ${clip(boss.task, 60)}`)
   void $.ui.notify(`Claude finished: ${clip(boss.task, 80)}`).catch(() => undefined)
-  void $.audio.play({ asset: 'assets/done.wav' }).catch(() => undefined)
+  // One chime, not two cut short: the level-up's when the job earned one, else the skin's.
+  const isCheer = await paid.catch(() => false)
+  void play($, isCheer ? 'assets/levelup.wav' : egg ? `assets/done-${egg}.wav` : 'assets/done.wav')
 }
 
 export const register: Register = (on, options) => {
@@ -3253,6 +3361,9 @@ export const register: Register = (on, options) => {
     // The pane opens with the session unless the person turned that off in Settings.
     const prefs = await readSettings($)
     await update($, settings, () => prefs)
+    await update($, cred, () => cleanCred(undefined))
+    const savedCred = cleanCred(await $.store.get('cred').catch(() => undefined))
+    await update($, cred, () => savedCred)
     if (prefs.openOnStart) void $.ui.open({ id: PANE, title: SKIN.tabs.mission })
 
     // The cache countdown: redraws the band once a second, toasts at ten and five minutes.
@@ -3292,12 +3403,17 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'missioncontrol' }, async ($, e) => {
-    const money = /^currency(?:\s+([a-z$€£¥]+))?(?:\s+([\d.]+))?$/i.exec((e.args ?? '').trim())
+    // Anything starting with "currency" is a currency request: a bad one gets an error, never "opened".
+    const money = /^currency(?:\s+(\S+))?(?:\s+(\S+))?(\s.*)?$/i.exec((e.args ?? '').trim())
     if (money) {
       if (!money[1]) return { text: `Currency: ${currencyLabel(CURRENCY)}\nPick one: ${CURRENCIES.map(c => c.code).join(', ')} — /missioncontrol currency <code> [rate per US dollar]` }
       const found = CURRENCIES.find(c => c.code === money[1]?.toUpperCase() || c.symbol === money[1])
       if (!found) return { text: `Unknown currency "${money[1]}". Pick one: ${CURRENCIES.map(c => c.code).join(', ')}` }
+      if (money[3]) return { text: `Too many words. Use /missioncontrol currency <code> [rate per US dollar].` }
       const rate = money[2] ? Number(money[2]) : undefined
+      if (money[2] && !(/^\d+(\.\d+)?$|^\.\d+$/.test(money[2]) && Number.isFinite(rate) && (rate as number) > 0)) {
+        return { text: `"${money[2]}" is not a rate: give a positive number of ${found.code} per US dollar, e.g. /missioncontrol currency ${found.code.toLowerCase()} 0.92` }
+      }
       await setCurrency($, currencyOf(found.code, rate))
       return { text: `Costs now show in ${currencyLabel(CURRENCY)}.` }
     }
@@ -3359,6 +3475,20 @@ export const register: Register = (on, options) => {
       } else if (text && !String(e.tool).startsWith('mcp__ccd_')) {
         await update($, manager, prev => ({ ...prev, activity: text }))
       }
+      // Every tool call lands on the replay, but the app's own bookkeeping.
+      const tool = String(e.tool)
+      if (!tool.startsWith('mcp__ccd_')) {
+        const a = e.agentId ? (await read($, agents)).find(x => x.agentId === e.agentId) : undefined
+        const who = e.agentId ? (a ? runRole(a) : 'Agent') : 'Manager'
+        const name = tool.startsWith('mcp__') ? tool.split('__').slice(1).join(': ') : tool
+        let dropped = 0
+        await update($, timeline, prev => {
+          const all = [...prev, { at, tool: clip(name, 80), text: clip(text || '', 300), who }]
+          dropped = Math.max(0, all.length - BEATS_KEPT)
+          return all.slice(-BEATS_KEPT)
+        })
+        if (dropped) await update($, bdPick, i => shiftPick(i, dropped))
+      }
     } catch {
       // A drawing aid only.
     }
@@ -3368,7 +3498,16 @@ export const register: Register = (on, options) => {
   // The manager's task list, followed as the plan tool is called; wrap-up closes it.
   on('tool.call', { tool: PLAN_TOOL }, async ($, e, next) => {
     // Never in the way: a failure here must not block the plan tool itself.
-    if (!e.agentId) await update($, manager, prev => ({ ...prev, plan: applyPlan(prev.plan ?? [], e as unknown as PlanInput) })).catch(() => undefined)
+    if (!e.agentId) {
+      const completed = (plan: PlanStep[] | undefined) => (plan ?? []).filter(st => st.status === 'completed').length
+      let isStep = false
+      await update($, manager, prev => {
+        const plan = applyPlan(prev.plan ?? [], e as unknown as PlanInput)
+        isStep = completed(plan) > completed(prev.plan)
+        return { ...prev, plan }
+      }).catch(() => undefined)
+      if (isStep && eggOf()) void play($, 'assets/step.wav')
+    }
     return next(e)
   })
   on('tool.call', { tool: WRAP_TOOL }, async ($, e, next) => {
@@ -3404,8 +3543,12 @@ export const register: Register = (on, options) => {
     if (started.deny !== undefined) return started
 
     const at = await $.clock.now()
+    let isNew = false
+    let isRetry = false
     await update($, agents, list => {
       const round = 1 + list.filter(a => norm(a.description) === norm(e.description) && e.description).length
+      isNew = !list.some(a => a.id === (started.agentId ?? e.tool_use_id))
+      isRetry = round > 1
       const run: AgentRun = {
         id: started.agentId ?? e.tool_use_id,
         agentId: started.agentId,
@@ -3424,6 +3567,8 @@ export const register: Register = (on, options) => {
       }
       return [...list.filter(a => a.id !== run.id), run].slice(-200)
     })
+    // Street Cred counts each agent that really started once; a retry of the same job earns no XP.
+    if (isNew) await bumpCred($, c => ({ ...c, agents: c.agents + 1, xp: c.xp + (isRetry ? 0 : 2) })).catch(() => false)
     await update($, now, () => at)
     await bumpToday($, { agents: 1 })
     if (e.subagentType.startsWith('savvy-')) {
@@ -3486,6 +3631,12 @@ export const register: Register = (on, options) => {
       await refreshEnv($)
       const egg = eggOf()
       const ctx = (await read($, env)).contextPct
+      if (ctx >= 90 && !(await read($, cred)).chromed) await bumpCred($, c => (c.chromed ? c : { ...c, chromed: true, xp: c.xp + 20 })).catch(() => false)
+      if (ctx < 90) sirenPlayed = false
+      else if (egg && ctx >= 95 && !sirenPlayed) {
+        sirenPlayed = true
+        void play($, 'assets/maxtac.wav')
+      }
       if (ctx < 80) psyWarned = false
       else if (egg && ctx >= 85 && !psyWarned) {
         psyWarned = true
@@ -3610,6 +3761,9 @@ export const register: Register = (on, options) => {
     const day = await read($, today)
     const legends = cleanLegends(await $.store.get('legends').catch(() => []))
     const prefs = await read($, settings)
+    const streetCred = await read($, cred)
+    const beats = await read($, timeline)
+    const pick = await read($, bdPick)
     const report = tokenReport(info, list, boss, tw, clockNow)
     const org = orgTree(list, boss, clockNow, report.mood)
     const isWorking = running.length > 0 || Boolean((e.props as { isWorking?: boolean }).isWorking)
@@ -3669,7 +3823,7 @@ export const register: Register = (on, options) => {
       const lines = 3 + (finished.length > 0 ? 1 : 0)
       const egg = eggOf()
       const eggH = egg ? BREACH_H + 8 + legendsHeight(legends.length) + 8 : 0
-      const gridH = usageHeight(info, every) + 8 + TODAY_H + 8 + workflowHeight(steps) + 8 + eggH + managerHeight(info) + 8 + tokenHeight(report) + 8 + lines * LINE_H + treeH + orgHeight(org) + cardH + 6 * LINE_H
+      const gridH = usageHeight(info, every) + 8 + TODAY_H + 8 + workflowHeight(steps) + 8 + eggH + managerHeight(info) + 8 + tokenHeight(report) + 8 + lines * LINE_H + treeH + orgHeight(org) + cardH + 8 * LINE_H + BOOT_H + 8 + credHeight(W) + 8 + BD_H + LINE_H + 8
       // A skin with a backdrop paints the whole pane body, edge to edge and top to
       // bottom, not just the drawn grid: no strip of the app's grey shows through.
       const fill = SKIN.backdrop.fill
@@ -3681,6 +3835,14 @@ export const register: Register = (on, options) => {
             <Svg key={`grid-${i}`} source={gridSvg(W, tileH)} alt="dotted grid" width={W} height={tileH} />
           ))}
           <Box flexDirection="column" position="absolute" top={0} left={0} right={0} alignItems={align}>
+            <Box key="boot" marginBottom={1}>
+              <Svg
+                source={bootStrip(W, SKIN.colors, FONT, egg ? 'JACKING IN…' : 'BOOTING MISSION CONTROL…', egg === 'corpo' ? 'ARASAKA NETWORK › IDENTITY VERIFIED › ACCESS GRANTED' : egg === 'samurai' ? 'WAKE UP, SAMURAI › AMPS ON › LIVE AT THE ATLANTIS' : egg === 'netrun' ? 'JACKED IN › DIVING THE NET › ICE BYPASSED' : egg ? 'LINK ESTABLISHED › NEURAL HANDSHAKE OK › ICE BYPASSED' : 'MISSION CONTROL ONLINE › ALL SYSTEMS GO')}
+                alt="Mission Control online"
+                width={W}
+                height={BOOT_H}
+              />
+            </Box>
             <Box key="usage" marginBottom={1}>
               <Svg
                 source={usageSvg(W, info, clockNow, every)}
@@ -3691,6 +3853,14 @@ export const register: Register = (on, options) => {
             </Box>
             <Box key="today" marginBottom={1}>
               <Svg source={todaySvg(W, day)} alt={`Today: ${day.tasks} tasks, ${day.agents} agents, ${fmtTokens(day.tokens)} tokens, ≈${fmtCost(day.costUsd)}`} width={W} height={TODAY_H} />
+            </Box>
+            <Box key="cred" marginBottom={1}>
+              <Svg
+                source={credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : egg ? 'STREET CRED' : 'LEVEL & BADGES', egg ? 'ストリートクレッド' : '', egg === 'samurai' ? rockerRankOf : rankOf)}
+                alt={`Level ${levelOf(streetCred.xp)} ${rankOf(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
+                width={W}
+                height={credHeight(W)}
+              />
             </Box>
             <Box key="workflow" marginBottom={1}>
               <Svg
@@ -3720,6 +3890,22 @@ export const register: Register = (on, options) => {
                 />
               </Box>
             ) : null}
+            <Box key="bd" flexDirection="column" marginBottom={1}>
+              <Svg
+                source={braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : egg ? 'BRAINDANCE' : 'REPLAY', egg ? undefined : k =>
+                  k === 'read' || k === 'other' ? SKIN.colors.accent2 : k === 'web' || k === 'agent' ? SKIN.colors.done : SKIN.colors.alert,
+                )}
+                alt={`Replay: ${beats.length} tool calls`}
+                width={W}
+                height={BD_H}
+              />
+              <Box flexDirection="row" gap={2}>
+                <Button key="bd-first" label="⏮ First" plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, () => (n ? 0 : -1)) }} />
+                <Button key="bd-prev" label="◀ Back" plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, i => stepPick(i, n, -1)) }} />
+                <Button key="bd-next" label="Next ▶" plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, i => stepPick(i, n, 1)) }} />
+                <Button key="bd-live" label="● Live" plain onPress={() => update($, bdPick, () => -1)} />
+              </Box>
+            </Box>
             <Svg
               key="manager"
               source={managerSvg(W, boss, info, title, t, list.length, clockNow, managerProgress(f, list, boss, clockNow))}
@@ -3806,6 +3992,16 @@ export const register: Register = (on, options) => {
                 onPress={async () => {
                   const i = CURRENCIES.findIndex(c => c.code === CURRENCY.code)
                   await setCurrency($, CURRENCIES[(i + 1) % CURRENCIES.length] as Currency)
+                }}
+              />
+              <Button
+                key="set-sounds"
+                label={`${prefs.sounds ? '☑' : '☐'} Sounds: chimes, blips and the MaxTac siren`}
+                plain
+                onPress={async () => {
+                  const isOn = !(await read($, settings)).sounds
+                  await $.store.set('sounds', isOn).catch(() => undefined)
+                  await update($, settings, prev => ({ ...prev, sounds: isOn }))
                 }}
               />
               <Button key="set-skin" label="Change skin ▸" plain onPress={() => void $.ui.open({ id: SKINS_PANE, title: SKIN.tabs.skins })} />
@@ -4075,7 +4271,7 @@ export const register: Register = (on, options) => {
       await update($, skin, () => k.id)
       await retitle($)
     }
-    const skins = [...SKINS.values()]
+    const skins = [...SKINS.values()].filter(k => !k.hidden || k.id === active.id)
     if (e.surface === 'desktop' && 'Svg' in ui) {
       const { Svg } = ui
       const W = Math.max(240, Math.min(900, (e.props.bodyColumns || 40) * 8 - 8))
@@ -4115,7 +4311,7 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'skin' }, async ($, e) => {
     const arg = (e.args ?? '').trim().toLowerCase()
     const listing = () =>
-      [...SKINS.values()].map(k => `${k.id === SKIN.id ? '▸' : ' '} ${k.id}  ${k.name}${k.description ? ` · ${k.description}` : ''}`).join('\n')
+      [...SKINS.values()].filter(k => !k.hidden || k.id === SKIN.id).map(k => `${k.id === SKIN.id ? '▸' : ' '} ${k.id}  ${k.name}${k.description ? ` · ${k.description}` : ''}`).join('\n')
     if (arg === 'reload') {
       const { folder, loaded, skipped } = await loadSkins($)
       const current = SKINS.get(SKIN.id) ?? CRAB_SKIN
@@ -4134,6 +4330,13 @@ export const register: Register = (on, options) => {
     await $.store.set('skin', k.id)
     await update($, skin, () => k.id)
     await retitle($)
+    if (k.hidden) {
+      // Found the secret: a badge for the finder.
+      $.ui.toast(GREETING.samurai)
+      void play($, 'assets/done-samurai.wav')
+      // Quiet: the badge's chime would cut the band's own.
+      await bumpCred($, c => (c.samurai ? c : { ...c, samurai: true, xp: c.xp + 50 }), true).catch(() => false)
+    }
     return { text: `Skin: ${k.name}.` }
   })
 

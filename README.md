@@ -35,15 +35,26 @@ Claude works in steps, calls tools and spins up sub-agents. Mission Control show
   - ☑ open Mission Control when Claude starts
   - ☑ crew mode
   - currency
+  - ☑ sounds
   - change skin
 
 **Smart extras**
 - **Crew mode**: big jobs are split across sub-agents automatically. A job counts as big when it has a long brief, 4+ asks, 6+ files, a codebase sweep, a 6-step plan, or context past a set %. Faster, and it keeps the main context lean.
 - **Stuck alarm**: an agent that goes quiet for 2 minutes is flagged.
-- **Done chime**: a toast, a notification and a sound when the job finishes.
+- **Done chime**: a toast, a notification and a sound when the job finishes. Each cyberpunk skin has its own sound pack (job done, step done, level up, and a MaxTac siren). Turn sounds off in Settings.
+- **Boot-up**: the pane types out a short boot line when it opens (on Arasaka: "IDENTITY VERIFIED").
 - **Rich replies**: diffs, code, tables, math and mermaid charts drawn as cards.
 - **Currency**: see costs in USD, EUR, GBP, JPY, MYR, SGD or Night City eddies (€$).
 - **Languages**: English, Russian or Hebrew (right to left).
+
+### Street Cred and Braindance
+
+![Street Cred and Braindance](docs/street-cred.png)
+
+- **Street Cred**: every job you finish earns XP. Long jobs and big crews earn more. Level up from NOBODY to LEGEND OF THE AFTERLIFE.
+- **9 badges** to unlock: First Gig, Fixer's Favorite, Iconic, The Big Leagues, Netrunner, Fixer, Cyberpsycho, Graveyard Shift… and one more that stays **CLASSIFIED** until you find it.
+- **Braindance**: a replay of the session. Every tool call is a mark on the timeline, colored by layer (visual, audio, thermal). Step back and forth with ◀ ▶ to see who did what, and when.
+- On non-cyberpunk skins they show up as **Level & Badges** and **Replay**.
 
 ---
 
@@ -84,6 +95,7 @@ The original: a working crab in costume per role, clean and light. `default` lea
 - **The Afterlife** names a drink after every long job (on Arasaka, the engram is filed in **Mikoshi**).
 - Job-done cheers: "PREEM. JOB DONE, CHOOM", the moon rising, or 任務完了.
 - Slang in the spinner and tool rows: jacking in, quickhack, ping, datamine, visit Vik, call a Delamain…
+- There's a hidden skin. It isn't in the picker. Wake up, and you might find it. 🎸
 
 ### Make your own
 Skins are small `.json` files; see [`skins/README.md`](skins/README.md) for every field. They load from, in order:

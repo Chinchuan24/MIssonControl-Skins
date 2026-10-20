@@ -5,7 +5,7 @@
 // Three flavours, one per cast: `runners` (Night City yellow), `netrun` (Lucy's
 // pink and the moon), `corpo` (Arasaka red).
 
-export type Egg = 'runners' | 'netrun' | 'corpo'
+export type Egg = 'runners' | 'netrun' | 'corpo' | 'samurai'
 
 export type EggColors = { a: string; b: string; c: string; text: string; dim: string }
 
@@ -13,6 +13,7 @@ const COLORS: Record<Egg, EggColors> = {
   runners: { a: '#FCEE0A', b: '#00F0FF', c: '#FF003C', text: '#F4F4F4', dim: '#5A6270' },
   netrun: { a: '#FF5CF0', b: '#5CE1FF', c: '#B8F2E0', text: '#F4F0FF', dim: '#6A5E80' },
   corpo: { a: '#E3001B', b: '#F2F2F2', c: '#8A0A24', text: '#F2F2F2', dim: '#55565C' },
+  samurai: { a: '#E10600', b: '#EDEDED', c: '#FFD400', text: '#F4F4F4', dim: '#5E5252' },
 }
 export const eggColors = (egg: Egg): EggColors => COLORS[egg]
 
@@ -127,12 +128,16 @@ export const skyline = (W: number, y0: number, h: number, egg: Egg): string => {
     // The tower: tall, stepped, a red beacon on top.
     const tx = Math.round(W * 0.72)
     extra = `<path d="M${tx} ${y0 + h}V${y0 + 6}l6 -6l6 6V${y0 + h}Z"/><rect class="beacon" x="${tx + 5}" y="${y0 - 2}" width="2" height="2" fill="#FF1E3C"/>`
+  } else if (egg === 'samurai') {
+    // A stage: two spotlights sweeping down on the band.
+    const sx = Math.round(W * 0.7)
+    extra = `<path d="M${sx} ${y0 - 4}l-26 ${h + 4}h20z" fill="#FFD400" fill-opacity=".18"/><path d="M${sx + 40} ${y0 - 4}l26 ${h + 4}h-20z" fill="#E10600" fill-opacity=".22"/><rect x="${sx - 30}" y="${y0 + h - 4}" width="100" height="4" fill="#2A0A0A"/>`
   } else if (egg === 'netrun') {
     const mx = Math.round(W * 0.82)
     extra = `<g class="moon"><circle cx="${mx}" cy="${y0 + 4}" r="${h * 0.42}" fill="#FFD6F2" fill-opacity=".55"/><circle cx="${mx - 3}" cy="${y0 + 2}" r="${h * 0.12}" fill="#E6A8D8" fill-opacity=".5"/></g>`
   }
   const av = `<g class="av" style="--sw:${W + 60}px"><rect x="0" y="${y0 + 3}" width="9" height="2" rx="1" fill="${c.dim}"/><rect x="8" y="${y0 + 3}" width="2" height="2" fill="${c.c}"/></g>`
-  return `<g opacity=".22" fill="${egg === 'corpo' ? '#2A0A0F' : egg === 'netrun' ? '#2A1A3A' : '#1A2230'}">${extra}${towers.join('')}</g><g opacity=".5">${windows.join('')}</g>${av}`
+  return `<g opacity=".22" fill="${egg === 'corpo' ? '#2A0A0F' : egg === 'samurai' ? '#2A0C0C' : egg === 'netrun' ? '#2A1A3A' : '#1A2230'}">${extra}${towers.join('')}</g><g opacity=".5">${windows.join('')}</g>${av}`
 }
 
 // The cheer when a job is done: Night City's "preem", the moon, the corporation's stamp.
@@ -142,7 +147,7 @@ export const celebration = (W: number, H: number, egg: Egg, font: string): strin
     return `<g class="rise"><circle cx="${W - 70}" cy="${H / 2}" r="${H * 0.36}" fill="#FFD6F2"/><circle cx="${W - 78}" cy="${H / 2 - 6}" r="${H * 0.08}" fill="#E6A8D8"/></g>
 <text class="rise" x="${W - 130}" y="${H / 2 + 5}" text-anchor="end" font-family="${font}" font-size="15" font-weight="800" letter-spacing="1.5" fill="${c.a}">TO THE MOON ☾</text>`
   }
-  const label = egg === 'corpo' ? 'PROTOCOL COMPLETE · 任務完了' : 'PREEM. JOB DONE, CHOOM'
+  const label = egg === 'corpo' ? 'PROTOCOL COMPLETE · 任務完了' : egg === 'samurai' ? 'NEVER FADE AWAY' : 'PREEM. JOB DONE, CHOOM'
   // CJK glyphs are about twice as wide as Latin ones.
   const w = [...label].reduce((n, ch) => n + (ch.charCodeAt(0) > 0x2e80 ? 16 : 9), 0) + 30
   if (egg === 'corpo') font = `${font.replace(/,?sans-serif$/, '')},${CJK_FONT}`
@@ -153,12 +158,12 @@ export const celebration = (W: number, H: number, egg: Egg, font: string): strin
 // A tiny code tag for a corner: SYS.2077 // 0x3F, and a katakana line.
 export const sysTag = (x: number, y: number, egg: Egg, font: string, anchor = 'end'): string => {
   const c = COLORS[egg]
-  const code = egg === 'corpo' ? 'ARS.2077 // 0x0A' : egg === 'netrun' ? 'NET.2076 // 0x4C' : 'SYS.2077 // 0x3F'
+  const code = egg === 'corpo' ? 'ARS.2077 // 0x0A' : egg === 'netrun' ? 'NET.2076 // 0x4C' : egg === 'samurai' ? 'SAM.2013 // 0x77' : 'SYS.2077 // 0x3F'
   return `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="${font}" font-size="7" letter-spacing=".8" fill="${c.dim}" fill-opacity=".8">${code}</text>`
 }
 // Japanese text needs a Japanese face: macOS, Windows, then Linux's Noto.
 export const CJK_FONT = "'Hiragino Sans','Yu Gothic UI','Meiryo','Noto Sans CJK JP',sans-serif"
-export const KATAKANA: Record<Egg, string> = { runners: 'ミッション・コントロール', netrun: 'ネットランナー', corpo: 'アラサカ' }
+export const KATAKANA: Record<Egg, string> = { runners: 'ミッション・コントロール', netrun: 'ネットランナー', corpo: 'アラサカ', samurai: 'サムライ' }
 
 // Night City radio, one station an hour (names only).
 const STATIONS = ['89.7 GROWL FM', '88.9 PACIFIC DREAMS', '91.9 ROYAL BLUE', '92.9 NIGHT FM', '95.2 SAMIZDAT', '96.1 RITUAL FM', '98.7 BODY HEAT', '99.9 IMPULSE', '101.9 THE DIRGE', '103.5 RADIO PEBKAC', '106.9 30 PRINCIPALES', '107.3 MORRO ROCK', '107.5 DARK STAR', '89.3 RADIO VEXELSTROM']
@@ -252,15 +257,18 @@ ${rows}
 export const EGG_WORDS: Record<Egg, string[]> = {
   runners: ['Jacking in', 'Breaching ICE', 'Uploading daemon', 'Pinging the subnet', 'Chipping in', 'Calling a Delamain', 'Asking the fixer', 'Overclocking', 'Dodging NetWatch', 'Hitting the Afterlife', 'Checking the chrome', 'Scanning with Kiroshis'],
   netrun: ['Diving into the Net', 'Chasing the moon', 'Slipping past ICE', 'Deep diving', 'Drifting through the Net', 'Riding the subway', 'Jacking in, choom', 'Cutting the cables', 'Breaching the Blackwall… not today'],
+  samurai: ['Tuning up', 'Plugging in the amp', 'Soundcheck', 'Burning corpo towers', 'Writing a riff', 'Playing the Atlantis', 'Chipping in', 'Loading the Malorian'],
   corpo: ['Processing', 'Executing protocol', 'Consulting the board', 'Filing the engram', 'Securing assets', 'Dispatching Smasher', 'Reporting to Saburo', 'Running Soulkiller… diagnostics', 'Auditing the floor'],
 }
 export const EGG_TOOLS: Record<Egg, Record<string, string>> = {
   runners: { Read: 'Scan', Edit: 'Rewire', MultiEdit: 'Rewire', Write: 'Burn chip', Bash: 'Quickhack', PowerShell: 'Quickhack', Grep: 'Ping', Glob: 'Datamine', Agent: 'Call a fixer', WebFetch: 'Jack in', WebSearch: 'Netsearch', ToolSearch: 'Visit Vik' },
   netrun: { Read: 'Dive', Edit: 'Rewrite', MultiEdit: 'Rewrite', Write: 'Leave a trace', Bash: 'Breach', PowerShell: 'Breach', Grep: 'Ping', Glob: 'Map the Net', Agent: 'Call the crew', WebFetch: 'Pull', WebSearch: 'Search the Net', ToolSearch: 'Swap chrome' },
+  samurai: { Read: 'Read the setlist', Edit: 'Rewrite the riff', MultiEdit: 'Rewrite the riff', Write: 'Cut a track', Bash: 'Plug in', PowerShell: 'Plug in', Grep: 'Find the hook', Glob: 'Map the venue', Agent: 'Call the band', WebFetch: 'Pull a sample', WebSearch: 'Scout the crowd', ToolSearch: 'Swap guitars' },
   corpo: { Read: 'Audit', Edit: 'Amend', MultiEdit: 'Amend', Write: 'File', Bash: 'Execute', PowerShell: 'Execute', Grep: 'Surveil', Glob: 'Catalogue', Agent: 'Dispatch', WebFetch: 'Retrieve', WebSearch: 'Surveil the Net', ToolSearch: 'Requisition' },
 }
 export const GREETING: Record<Egg, string> = {
   runners: 'Wake up, Samurai. We have a city to burn.',
   netrun: 'Wake up, choom. The moon is waiting.',
   corpo: 'Arasaka welcomes you, employee. Loyalty is rewarded.',
+  samurai: '🎸 SAMURAI reunited. Never fade away.',
 }
