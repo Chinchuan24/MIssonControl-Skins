@@ -9,6 +9,8 @@ import type { Beat, Cred } from './extras'
 import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, unifiedDiff } from './richtext'
 import type { AgentRun, AgentStatus, AllTime, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Today, Watch } from '../types'
 
+// Note: `update` writes, and redraws every reader, even when its change hands back
+// the same value: guard no-op writes with a read first.
 const flow = atom({ plugin: 'crab-progress', key: 'flow' } as const, null)
 const agents = atom({ plugin: 'crab-progress', key: 'agents' } as const, [])
 const panel = atom({ plugin: 'crab-progress', key: 'panel' } as const, {
@@ -56,7 +58,7 @@ const crewText = (reason: string): string => `# Crew mode (Mission Control)
 This task is a big job (${reason}). Split it instead of carrying it all in this context; it is faster, and it keeps this context, and its cost, small.
 - Break the work into independent pieces. Give each to its own sub-agent with the Agent tool, and start the independent ones together, in one message, so they run in parallel.
 - Brief each one fully: the files, the goal, what done looks like. Name it "<Role>: <piece>" (e.g. "Engineer: wire the parser", "Researcher: map the API") so Mission Control files it under its role.
-- Pick the worker by difficulty: the savvy-light / savvy-medium / savvy-careful / savvy-heavy agents when they are listed, else general-purpose; Explore for read-only searching and summing up.
+- Pick the worker by the job: mc-* agents when they are listed, else general-purpose for building and editing; Explore for read-only searching and summing up.
 - Ask workers for conclusions, not file dumps; do not read big files here that a worker can read.
 - Pieces that edit the same files go to one worker, or run one after another.
 - Keep small things here: a few tool calls are not worth a sub-agent.
@@ -226,7 +228,7 @@ const cleanRules = (v: unknown): string[] =>
 
 // Never set before means first run: seed the default rule. An empty list stays empty.
 async function loadRules($: EngineInterface): Promise<string[]> {
-  const stored = await $.store.get(MEMORY_KEY)
+  const stored = await $.store.get(MEMORY_KEY).catch(() => DEFAULT_RULES)
   if (stored === undefined) {
     await $.store.set(MEMORY_KEY, DEFAULT_RULES)
     return [...DEFAULT_RULES]
@@ -249,7 +251,7 @@ const listRules = (rules: string[]): string =>
 
 const TOOL = 'mcp__crab-progress__progress'
 const STEP_TOOL = 'mcp__crab-progress__step'
-// Added to the end of each savvy worker's brief. Their system prompt words step
+// Added to the end of each Mission Control worker's brief. Their system prompt words step
 // reporting as a condition ("if the step tool appears among your tools") and they
 // skip it even with the tool listed; the same request in the brief is followed.
 const STEP_BRIEF = `
@@ -710,6 +712,31 @@ function applySkin(k: Skin): void {
   PANE_CSS = paneCss(k)
 }
 
+// An open pane behind another tab is not raised by a second ui.open: close it, then open it.
+async function showPane($: EngineInterface, id: string, title: string): ReturnType<EngineInterface['ui']['open']> {
+  const all = await $.ui.panes().catch(() => [])
+  const row = all.find(p => p.id === id)
+  if (row && !row.isShown) await $.ui.close({ id }).catch(() => undefined)
+  return $.ui.open({ id, title })
+}
+
+// What the desktop app counts against its 262,144-character limit for one drawing:
+// every text, an Svg's source and alt, each other element's prop names and string
+// values. Past the limit it draws a blank pane; DRAW_MAX leaves room for its own count.
+const DRAW_MAX = 220_000
+const drawnChars = (n: unknown): number => {
+  if (typeof n === 'string') return n.length
+  if (Array.isArray(n)) return n.reduce((sum: number, c) => sum + drawnChars(c), 0)
+  if (!n || typeof n !== 'object') return 0
+  const el = n as { type?: unknown; props?: Record<string, unknown>; children?: unknown }
+  const props = el.props ?? {}
+  const own =
+    el.type === 'Svg'
+      ? String(props.source ?? '').length + String(props.alt ?? '').length
+      : Object.entries(props).reduce((sum, [k, v]) => (k === 'children' ? sum : sum + k.length + (typeof v === 'string' ? v.length : 0)), 0)
+  return own + drawnChars(el.children ?? props.children)
+}
+
 // After a switch, the open panes take the new skin's tab titles.
 async function retitle($: EngineInterface): Promise<void> {
   const open = await $.ui.panes().catch(() => [])
@@ -785,8 +812,8 @@ const STRINGS = {
     isRunning: 'работает',
     isFinished: 'завершён',
     isPlanned: 'запланирована',
-    opened: 'Панель агентов открыта.',
-    closed: 'Панель агентов закрыта.',
+    opened: 'Центр управления открыт.',
+    closed: 'Центр управления закрыт.',
     done: 'Готово',
     plan: 'План',
     design: 'Дизайн',
@@ -818,8 +845,8 @@ const STRINGS = {
     isRunning: 'פועל',
     isFinished: 'הסתיים',
     isPlanned: 'מתוכנן',
-    opened: 'חלונית הסוכנים נפתחה.',
-    closed: 'חלונית הסוכנים נסגרה.',
+    opened: 'מרכז הבקרה נפתח.',
+    closed: 'מרכז הבקרה נסגר.',
     done: 'הושלם',
     plan: 'תכנון',
     design: 'עיצוב',
@@ -859,6 +886,17 @@ async function detectLang($: EngineInterface, option: unknown): Promise<Lang> {
   }
   const locale = (await $.env.get('LC_ALL')) || (await $.env.get('LC_MESSAGES')) || (await $.env.get('LANG'))
   if (locale) return langOf(locale)
+  // An app opened from the macOS Dock sets no LANG, and the hooks runtime's Intl
+  // always says en-US there: ask macOS for the first preferred language instead.
+  if (await $.env.get('__CF_USER_TEXT_ENCODING')) {
+    try {
+      const { exitCode, stdout } = await $.process.run(['/usr/bin/defaults', 'read', '-g', 'AppleLanguages'], { timeoutMs: 3000 })
+      const first = exitCode === 0 ? /[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]+)*/.exec(stdout.replace(/^\s*\(/, ''))?.[0] : undefined
+      if (first) return langOf(first)
+    } catch {
+      // No `defaults` (or not the CLI): fall through.
+    }
+  }
   // Windows and apps opened from the macOS Dock set no LANG: the runtime still knows.
   let system = ''
   try {
@@ -870,7 +908,7 @@ async function detectLang($: EngineInterface, option: unknown): Promise<Lang> {
 }
 
 const blank = (): Flow => ({
-  title: 'savvy-flow',
+  title: 'mission-control',
   total: 0,
   done: 0,
   running: 0,
@@ -884,7 +922,7 @@ const isNewFlow = (prev: Flow | null, input: ProgressInput): boolean =>
 
 // Only a known tier is kept: the name is later a key into the tier tables.
 const tierName = (v: string): string => {
-  const t = v.replace(/^savvy-/, '').trim().toLowerCase()
+  const t = v.replace(/^mc-/, '').trim().toLowerCase()
   return TIERS.includes(t) ? t : ''
 }
 
@@ -1095,7 +1133,7 @@ const TIER_COLOR: Record<string, string> = {
   other: '#888780',
 }
 
-// What each savvy tier runs on, for planned tasks that have no run yet.
+// What each worker tier runs on, for planned tasks that have no run yet.
 const colorOf = (tier: string): string => TIER_COLOR[tier] ?? '#888780'
 
 const TIER_MODEL: Record<string, [model: string, effort: string]> = {
@@ -1172,11 +1210,14 @@ const costOf = (model: string, u: Usage, isRequest: boolean): number => {
 // Haiku 4.5 and the Claude 3 models have a 200K window; the rest, Haiku 5.5 included, 1M.
 const windowOf = (model: string): number => (/haiku-4|claude-3/i.test(model) ? 200_000 : 1_000_000)
 
-// `savvy-careful`, or `savvy-flow:savvy-careful` when the agents ship in a plugin.
+// `mc-careful`, or `<plugin>:mc-careful` when the agents ship in a plugin.
+// A Mission Control worker: one of the four tiers, bare or under a plugin's name.
+const isWorker = (type: string): boolean => /^(?:[^:]+:)?mc-(?:fable|light|medium|careful|heavy)$/.test(type)
+
 const tierOf = (type: string): string => {
   const bare = type.replace(/^[^:]*:/, '')
-  const t = bare.replace(/^savvy-/, '').toLowerCase()
-  return Object.hasOwn(TIER_COLOR, t) && bare.startsWith('savvy-') ? t : 'other'
+  const t = bare.replace(/^mc-/, '').toLowerCase()
+  return Object.hasOwn(TIER_COLOR, t) && bare.startsWith('mc-') ? t : 'other'
 }
 
 const modelName = (id: string): string => {
@@ -1248,40 +1289,6 @@ const totals = (list: AgentRun[], at: number) => {
 }
 
 // --- desktop drawings: each row is one SVG, as the band above the prompt is.
-
-// The pane's backdrop: a dotted grid as tall as the content laid over it; the
-// row SVGs are transparent, so it shows through between their marks.
-const GRID_STEP = 16
-// A Text or Button row on the desktop is about 20px; the grid errs taller.
-const LINE_H = 24
-// The engine refuses an Svg taller than 4096px, so a long grid is stacked from
-// tiles of at most this height; a multiple of GRID_STEP keeps the dots aligned.
-const GRID_TILE = 4096
-const gridTiles = (H: number) => Array.from({ length: Math.ceil(H / GRID_TILE) }, (_, i) => Math.min(GRID_TILE, H - i * GRID_TILE))
-// The pane's whole background, in the skin: a fill under everything, then its
-// pattern: dots, a fine grid of lines, or a scatter of stars.
-const gridSvg = (W: number, H: number) => {
-  const bd = SKIN.backdrop
-  const ink = bd.ink || SKIN.colors.grid
-  const step = GRID_STEP
-  const cell =
-    bd.pattern === 'lines'
-      ? `<path d="M${step} 0V${step}M0 ${step}H${step}" fill="none" stroke="${ink}" stroke-width="1"/>`
-      : bd.pattern === 'stars'
-        ? `<circle cx="3" cy="5" r=".8" fill="${ink}"/><circle cx="11" cy="12" r=".5" fill="${ink}" fill-opacity=".6"/>`
-        : bd.pattern === 'dots'
-          ? `<circle class="d" cx="${step / 2}" cy="${step / 2}" r="1"/>`
-          : ''
-  const dotCss = SKIN.dark ? `.d{fill:${ink}}` : `.d{fill:#d9d8d4}@media (prefers-color-scheme: dark){.d{fill:${SKIN.colors.grid}}}`
-  // A starry sky gets a moon, low and faint, in the corner.
-  const moon = bd.pattern === 'stars' ? `<circle cx="${W - 46}" cy="54" r="26" fill="${SKIN.colors.text}" fill-opacity=".06"/><circle cx="${W - 36}" cy="48" r="24" fill="${bd.fill || SKIN.colors.tile}"/>` : ''
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-<style>${dotCss}</style>
-<defs><pattern id="g" width="${step}" height="${step}" patternUnits="userSpaceOnUse">${cell}</pattern></defs>
-${bd.fill ? `<rect width="${W}" height="${H}" fill="${bd.fill}"/>` : ''}${moon}
-<rect width="${W}" height="${H}" fill="url(#g)"/>
-</svg>`
-}
 
 // The pane's text and surface classes: a dark-only skin paints its own colours;
 // the classic follows the system scheme.
@@ -1626,6 +1633,10 @@ const scanlines = (W: number, H: number): string =>
 
 const svg = (W: number, H: number, body: string): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${PANE_CSS}${CRAB_CSS}${body}${SKIN.effects.scanlines ? scanlines(W, H) : ''}</svg>`
+// A drawing whose crabs stand still: the walking CSS (~3K) is left out. Rows that
+// repeat once per agent use it, so a big crew stays under the app's size limit.
+const stillSvg = (W: number, H: number, body: string): string =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${PANE_CSS}${body}${SKIN.effects.scanlines ? scanlines(W, H) : ''}</svg>`
 
 // The pane's own title already says "Agents": the header names the flow, if any.
 const headerSvg = (W: number, title: string, t: ReturnType<typeof totals>): string => {
@@ -1996,6 +2007,27 @@ const buildTree = (list: AgentRun[], hideDone: boolean): TreeRow[] => {
   return rows
 }
 
+// The tree less some agents (and whatever they started), each row's connectors
+// worked out again from the rows left. A role left with no rows goes too.
+const withoutRows = (rows: TreeRow[], drop: Set<string>): TreeRow[] => {
+  const kept: TreeRow[] = []
+  let cut = 0
+  for (const r of rows) {
+    if (cut && r.depth > cut) continue
+    cut = r.kind === 'agent' && drop.has(r.a.id) ? r.depth : 0
+    if (!cut) kept.push(r)
+  }
+  const left = kept.filter((r, i) => r.kind !== 'role' || (kept[i + 1]?.depth ?? 0) > 1)
+  const notLast: boolean[] = []
+  return left.map((r, i) => {
+    const next = left.slice(i + 1).find(n => n.depth <= r.depth)
+    const isLast = !next || next.depth < r.depth
+    const lines = notLast.slice(0, r.depth - 1)
+    notLast[r.depth - 1] = !isLast
+    return { ...r, isLast, lines }
+  })
+}
+
 const UNIT = 18
 const ROLE_H = 34
 const AGENT_H = AGENT_INNER_H + 8
@@ -2008,6 +2040,11 @@ const rowInnerW = (W: number, r: TreeRow): number => W - rowInnerX(r) - (isBoxed
 const FOLD_H = 36
 const OPEN_W = 64
 const rowHeight = (r: TreeRow): number => (r.kind === 'role' ? ROLE_H : r.folded ? FOLD_H : AGENT_H)
+// The desktop app refuses a drawing past 262,144 characters and leaves the pane
+// blank; a running agent's card costs ~15K of them. Past this many, the rest share one row.
+const MAX_CARDS = 4
+// When the finished rows must fold into one, this many stay to be opened.
+const KEEP_DONE = 3
 
 // The slim row of a finished agent: its crab, the outcome, what it was, what it cost.
 const foldedSvg = (W: number, a: AgentRun, at: number): string => {
@@ -2015,7 +2052,7 @@ const foldedSvg = (W: number, a: AgentRun, at: number): string => {
   const ok = a.status !== 'failed'
   const meta = `${fmtTokens(a.tokens)} tokens · ${fmtTime(elapsed(a, at))}`
   const metaW = textWidth(meta, 11) + 6
-  return svg(
+  return stillSvg(
     W,
     H,
     `${crab(4, 2, costumeFor(a), true, false, 0.82)}
@@ -2023,6 +2060,25 @@ const foldedSvg = (W: number, a: AgentRun, at: number): string => {
 ${ok ? `<path d="M36.5 ${H / 2}l2.5 2.5 4.5-5" fill="none" stroke="${inkOn(DONE)}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>` : `<path d="M37 ${H / 2 - 3}l6 6M43 ${H / 2 - 3}l-6 6" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>`}
 <text class="s" x="54" y="${H / 2 + 4.5}" font-family="${FONT}" font-size="12.5" font-weight="600">${xml(fitText(a.description || a.type, 12.5, W - 54 - metaW - 8))}</text>
 <text class="m" x="${W - 4}" y="${H / 2 + 4}" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${xml(meta)}</text>`,
+  )
+}
+
+// Agents past what the pane can draw, in one slim row: how many, by role. The
+// running ones pulse; finished ones get the done badge.
+const moreByRole = (some: AgentRun[]): string =>
+  [...some.reduce((m, a) => m.set(runRole(a), (m.get(runRole(a)) ?? 0) + 1), new Map<string, number>())].map(([role, n]) => `${role} ${n}`).join(' · ')
+const moreAlt = (some: AgentRun[], isLive: boolean): string => `+${some.length} more agents ${isLive ? 'working' : 'finished'}: ${moreByRole(some)}`
+const moreSvg = (W: number, some: AgentRun[], isLive: boolean): string => {
+  const H = FOLD_H - 8
+  const y = 4 + H / 2
+  const head = `+${some.length} more ${isLive ? 'working' : 'finished'}`
+  const headW = textWidth(head, 12.5) + 12
+  return stillSvg(
+    W,
+    FOLD_H,
+    `${isLive ? `<circle class="live" cx="${UNIT + 9}" cy="${y}" r="5" fill="${ACCENT}"/>` : `<circle cx="${UNIT + 9}" cy="${y}" r="7" fill="${DONE}"/><path d="M${UNIT + 5.5} ${y}l2.5 2.5 4.5-5" fill="none" stroke="${inkOn(DONE)}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`}
+<text class="t" x="${UNIT + 22}" y="${y + 4.5}" font-family="${FONT}" font-size="12.5" font-weight="600">${xml(head)}</text>
+<text class="m" x="${UNIT + 22 + headW}" y="${y + 4}" font-family="${FONT}" font-size="11">${xml(fitText(moreByRole(some), 11, W - UNIT - 22 - headW - 4))}</text>`,
   )
 }
 
@@ -2048,7 +2104,7 @@ const treeRowSvg = (W: number, r: TreeRow, inner: string): string => {
 <linearGradient id="sh" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".10"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
 <clipPath id="cc">${cardShape(x0 + 0.5, 2.5, cw, H - 5, ``, 12)}</clipPath>
 </defs>
-<style>.edge{animation:edge 1.6s ease-in-out infinite}@keyframes edge{50%{stroke-opacity:.9}}.sweep{animation:sweep 2.4s linear infinite}@keyframes sweep{from{transform:translateX(-160px)}to{transform:translateX(${W}px)}}@media (prefers-reduced-motion: reduce){.edge,.sweep{animation:none}}</style>
+${isLive ? `<style>.edge{animation:edge 1.6s ease-in-out infinite}@keyframes edge{50%{stroke-opacity:.9}}.sweep{animation:sweep 2.4s linear infinite}@keyframes sweep{from{transform:translateX(-160px)}to{transform:translateX(${W}px)}}@media (prefers-reduced-motion: reduce){.edge,.sweep{animation:none}}</style>` : ''}
 ${cardShape(x0 + 0.5, 2.5, cw, H - 5, `fill="url(#bg)"${isFolded ? ' opacity=".5"' : ''}`, 12)}
 ${isLive ? `<g clip-path="url(#cc)"><rect class="sweep" x="0" y="0" width="140" height="${H}" fill="url(#sh)"/></g>` : ''}
 ${cardShape(x0 + 0.5, 2.5, cw, H - 5, `class="${isLive ? 'edge' : ''}" fill="none" stroke="${color}" stroke-opacity="${isLive ? 0.45 : 0.28}" stroke-width="${isLive ? 1.4 : 1}"`, 12)}
@@ -2062,7 +2118,7 @@ ${isFolded ? '' : `<rect x="${x0 + 0.5}" y="14" width="3" height="${H - 28}" rx=
 
 const roleSvg = (W: number, r: Extract<TreeRow, { kind: 'role' }>): string => {
   const meta = `${r.count} ${r.count === 1 ? 'agent' : 'agents'}${r.running ? `  ·  ${r.running} working` : ''}`
-  return svg(
+  return stillSvg(
     W,
     ROLE_H,
     `<circle cx="10" cy="${ROLE_H / 2}" r="4" fill="${r.color}"/>
@@ -2167,6 +2223,13 @@ const sortedAll = (all: AllTime): [string, number][] =>
     .filter(([, n]) => n > 0)
     .sort((x, y) => y[1] - x[1])
     .slice(0, 6)
+
+// The usage card read aloud; before any limit or token is known it says so, not "Usage: . ".
+const usageAlt = (info: Env): string => {
+  const limits = sortedLimits(info).map(l => `${limitName(l.kind)} ${Math.round(l.percentUsed)}%`)
+  const models = sortedModels(info).map(([m, n]) => `${modelName(m)} ${fmtTokens(n)} tokens`)
+  return limits.length || models.length ? `Usage: ${[limits.join(', '), models.join(', ')].filter(Boolean).join('. ')}` : 'Usage: no data yet'
+}
 
 const usageHeight = (info: Env, all: AllTime = { since: '', models: {} }): number => {
   const limits = sortedLimits(info).length
@@ -3304,7 +3367,7 @@ const hudLines = (W: number, d: HudData): string => {
     ['$ TOTAL', fmtCost(ss.total), c.text],
   ]
   const left = ss.cacheLeft
-  const cacheText0 = ss.isBusy ? 'warm' : left === null ? '—' : left === 0 ? 'expired' : '00:00'
+  const cacheText0 = ss.isBusy ? 'warm' : left === null ? '—' : left === 0 ? 'expired' : left > 600 ? '60 min' : '00:00'
   const cacheStart = W - 14 - 64 - 8 - textWidth(cacheText0, 12) - 10 - textWidth('⧗ CACHE', 9.5) - 14
   const cellW = ([k, v]: [string, string, string]) => textWidth(k, 9.5) + 6 + textWidth(v, 12) + 22
   // Drop the least needed first: the turn's cost, then the speed, then the total.
@@ -3324,7 +3387,7 @@ const hudLines = (W: number, d: HudData): string => {
   }
   if (!hasCache) return out.join('\n')
   const cacheTone = ss.isBusy || left === null ? c.accent2 : left <= 600 ? c.alert : left <= 1200 ? c.warn : c.accent2
-  const cacheText = ss.isBusy ? 'warm' : left === null ? '—' : left === 0 ? 'expired' : `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`
+  const cacheText = ss.isBusy ? 'warm' : left === null ? '—' : left === 0 ? 'expired' : left > 600 ? `${Math.ceil(left / 60)} min` : `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`
   const share = ss.isBusy ? 1 : left === null ? 0 : left / (CACHE_TTL_MS / 1000)
   const barW = 64
   const bx = W - 14 - barW
@@ -3433,25 +3496,85 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
   void play($, !egg ? 'assets/done.wav' : isCheer ? `${ADDON}/assets/levelup.wav` : `${ADDON}/assets/done-${egg}.wav`)
 }
 
+// What everyone is doing right now, from each tool call: the live activity line,
+// the heartbeat the stuck alarm reads, and the replay. Runs beside the call.
+async function trackTool($: EngineInterface, e: { tool: unknown; agentId?: string }): Promise<void> {
+  try {
+    const text = activityOf(e as unknown as Record<string, unknown>)
+    const at = await $.clock.now()
+    if (e.agentId) {
+      const id = e.agentId
+      if ((await read($, agents)).some(a => a.agentId === id)) await update($, agents, list => list.map(a => (a.agentId === id ? { ...a, activity: text || a.activity, lastProgressAt: at, isStuck: false } : a)))
+    } else if (text && !String(e.tool).startsWith('mcp__ccd_')) {
+      if ((await read($, manager)).activity !== text) await update($, manager, prev => ({ ...prev, activity: text }))
+    }
+    // Every tool call lands on the replay, but the app's own bookkeeping.
+    const tool = String(e.tool)
+    if (!tool.startsWith('mcp__ccd_')) {
+      const a = e.agentId ? (await read($, agents)).find(x => x.agentId === e.agentId) : undefined
+      const who = e.agentId ? (a ? runRole(a) : 'Agent') : 'Manager'
+      const name = tool.startsWith('mcp__') ? tool.split('__').slice(1).join(': ') : tool
+      let dropped = 0
+      await update($, timeline, prev => {
+        const all = [...prev, { at, tool: clip(name, 80), text: clip(text || '', 300), who }]
+        dropped = Math.max(0, all.length - BEATS_KEPT)
+        return all.slice(-BEATS_KEPT)
+      })
+      if (dropped) await update($, bdPick, i => shiftPick(i, dropped))
+    }
+  } catch {
+    // A drawing aid only.
+  }
+}
+
 export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     lang = await detectLang($, options.language)
+    // One ticker for every drawing. `now` moves each second only while something on
+    // screen moves (work, a crew, the party, the cache's last ten minutes), else once a
+    // minute; the cache's minutes and the stuck alarm ride on the same tick.
+    $.clock.every(1000, () => {
+      void (async () => {
+        const at = await $.clock.now()
+        const [st, list, boss, last] = await Promise.all([read($, session), read($, agents), read($, manager), read($, now)])
+        const left = st.cacheUntil === null ? null : Math.max(0, Math.floor((st.cacheUntil - at) / 1000))
+        const isRunning = list.some(a => a.status === 'running')
+        const isParty = (boss.celebrateUntil ?? 0) > at - 2000 || (Boolean(boss.doneAt) && at < (boss.doneAt ?? 0) + CELEBRATE_MS + 2000)
+        // Past expiry it ticks once more, so the band reaches "expired" rather than stopping at 00:01.
+        const isCacheClose = st.cacheUntil !== null && left !== null && left <= 600 && !st.isBusy && last < st.cacheUntil
+        const isLive = boss.isWorking || st.isBusy || isRunning || isParty || isCacheClose
+        if (isLive || at - last >= 60_000) await update($, now, () => at)
+        const due = CACHE_WARN_MIN.filter(m => left !== null && left > 0 && left <= m * 60)
+        if (due.length && !st.isBusy) {
+          const minutes = Math.min(...due)
+          if (st.warned === 0 || st.warned > minutes) {
+            await update($, session, prev => ({ ...prev, warned: minutes }))
+            $.ui.toast(`⧗ Prompt cache expires in ${Math.ceil((left ?? 0) / 60)} min`, { timeoutMs: 30000 })
+          }
+        }
+        const stuck = list.filter(a => a.status === 'running' && !a.isStuck && at - (a.lastProgressAt ?? a.startedAt) > STUCK_MS)
+        if (!stuck.length) return
+        const ids = new Set(stuck.map(a => a.id))
+        await update($, agents, l => l.map(a => (ids.has(a.id) ? { ...a, isStuck: true } : a)))
+        for (const a of stuck) $.ui.toast(`🦀 "${clip(a.description || a.type, 40)}" has gone quiet for 2 min: it may be stuck`)
+      })()
+    })
     await $.tool.register({
       name: 'progress',
       description:
-        'Report /savvy-flow progress to the progress bar above the prompt and the agents panel. ' +
-        'Call it after presenting the plan (title, total, tasks, phase "delegate"), each time a task is accepted (done), ' +
-        'when switching phase or re-planning (tasks), and once at the end with finished: true. Fields left out keep their previous value. ' +
-        'For the main session only: a call from a subagent is ignored (workers report with `step`).',
+        'Optional: show a multi-agent plan in Mission Control (the band above the prompt and the pane). ' +
+        'Send the plan once it is set (title, total, tasks), then update done as tasks finish, tasks when the plan changes, ' +
+        'and finished: true at the end. Any field you leave out keeps its last value. ' +
+        'Main session only; subagents report their own progress with `step`.',
       inputSchema: {
         type: 'object',
         properties: {
           title: { type: 'string', description: 'Short name of the overall task, a few words.' },
           total: { type: 'integer', minimum: 0, description: 'Number of planned worker tasks.' },
-          done: { type: 'integer', minimum: 0, description: 'Number of tasks accepted after review.' },
+          done: { type: 'integer', minimum: 0, description: 'How many tasks are finished.' },
           phase: { type: 'string', enum: [...PHASES] },
-          finished: { type: 'boolean', description: 'True once the flow is closed.' },
+          finished: { type: 'boolean', description: 'True once the plan is done.' },
           tasks: {
             type: 'array',
             description:
@@ -3460,7 +3583,7 @@ export const register: Register = (on, options) => {
               type: 'object',
               properties: {
                 title: { type: 'string', description: 'A few words; reused verbatim as the Agent description.' },
-                tier: { type: 'string', enum: [...TIERS] },
+                tier: { type: 'string', enum: [...TIERS], description: 'Worker size: fable, heavy, careful, medium or light.' },
                 after: { type: 'array', items: { type: 'integer' }, description: 'Numbers of the tasks this one waits for.' },
               },
               required: ['title', 'tier'],
@@ -3468,13 +3591,13 @@ export const register: Register = (on, options) => {
           },
         },
       },
-    })
+    }).catch(() => undefined)
     await $.tool.register({
       name: 'step',
       description:
-        'For savvy-flow workers: report progress on your own task to the agents panel. ' +
-        'Right after reading the brief, call it with `total` (your plan in 3-8 steps) and `done: 0`; ' +
-        'call it again as each step finishes. Cheap and silent: it only draws a bar.',
+        'For subagents: show progress on your own task in Mission Control. ' +
+        'Once you know your plan, send `total` (3 to 8 steps) with `done: 0`, ' +
+        'then send `done` again after each step. It only moves a progress bar; nothing else happens.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -3486,15 +3609,15 @@ export const register: Register = (on, options) => {
       },
       // In every agent's tool list, not behind ToolSearch: workers do not go looking for it.
       isDeferred: false,
-    })
+    }).catch(() => undefined)
     await $.command.register({
       name: 'missioncontrol',
       description: 'Open Mission Control: usage, workflow, the manager and its sub-agents, your answer rules and settings',
-    })
+    }).catch(() => undefined)
     await $.command.register({
       name: 'prefs',
       description: 'Memory: how Claude should answer you, in every session. /prefs, /prefs add <rule>, /prefs remove <n>, /prefs clear',
-    })
+    }).catch(() => undefined)
     const rules = await loadRules($)
     await update($, memory, () => rules)
     await refreshEnv($)
@@ -3502,7 +3625,8 @@ export const register: Register = (on, options) => {
     // picks up from the prompts already sent, and the turn's cost from what is already
     // spent. Left at zero, the band read "TURN 0" beside the whole session's cost.
     const spentAtLoad = (await read($, env)).costUsd
-    const promptsSoFar = await $.session
+    const isReload = (await read($, session)).turn > 0 || (await read($, today)).date !== ''
+    const promptsSoFar = isReload ? 0 : await $.session
       .messages()
       .then(ms => (Array.isArray(ms) ? ms.filter(m => m.role === 'user' && !m.toolResults?.length && m.text.trim() !== '').length : 0))
       .catch(() => 0)
@@ -3510,11 +3634,11 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'skins',
       description: 'Open the skin picker: every skin as a live preview, one click to put it on',
-    })
+    }).catch(() => undefined)
     await $.command.register({
       name: 'skin',
       description: 'Skins: /skin to list, /skin <name> to switch, /skin reload after editing a file in Custom Claude Skins',
-    })
+    }).catch(() => undefined)
     await loadSkins($)
     await checkAddon($)
     const chosen = await $.store.get('skin').catch(() => undefined)
@@ -3528,64 +3652,33 @@ export const register: Register = (on, options) => {
       await update($, skin, () => CRAB_SKIN.id)
     }
     const greet = eggOf()
-    if (greet) $.ui.toast(GREETING[greet])
+    if (greet && !isReload) $.ui.toast(GREETING[greet])
     await $.command.register({
       name: 'autocrew',
       description: 'Crew mode for big jobs: /autocrew for its state, /autocrew on|off, /autocrew <context %> to call the crew',
-    })
+    }).catch(() => undefined)
     await $.command.register({
       name: 'tokens',
       description: 'Token Manager: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>',
-    })
+    }).catch(() => undefined)
     const autopilot = (await $.store.get('autopilot').catch(() => false)) === true
     const budget = Number(await $.store.get('budgetUsd').catch(() => 0)) || 0
     await update($, watch, prev => ({ ...prev, autopilot, budgetUsd: budget }))
-    await loadAllTime($)
+    if (!isReload) await loadAllTime($)
     const savedDay = (await $.store.get('today').catch(() => undefined)) as Today | undefined
     const startedAt = await $.clock.now()
-    if (savedDay && savedDay.date === dayOf(startedAt)) await update($, today, () => savedDay)
-    else await update($, today, () => ({ ...BLANK_TODAY, date: dayOf(startedAt) }))
+    // A reload keeps the counts $.state still holds: the store is only written at a turn's end.
+    if (!isReload || (await read($, today)).date !== dayOf(startedAt)) {
+      if (savedDay && savedDay.date === dayOf(startedAt)) await update($, today, () => savedDay)
+      else await update($, today, () => ({ ...BLANK_TODAY, date: dayOf(startedAt) }))
+    }
     // The pane opens with the session unless the person turned that off in Settings.
     const prefs = await readSettings($)
     await update($, settings, () => prefs)
-    await update($, cred, () => cleanCred(undefined))
     const savedCred = cleanCred(await $.store.get('cred').catch(() => undefined))
     await update($, cred, () => savedCred)
-    if (prefs.openOnStart) void $.ui.open({ id: PANE, title: SKIN.tabs.mission })
+    if (prefs.openOnStart && !isReload) void $.ui.open({ id: PANE, title: SKIN.tabs.mission }).catch(() => undefined)
 
-    // The cache countdown: redraws the band once a second, toasts at ten and five minutes.
-    $.clock.every(1000, () => {
-      void (async () => {
-        const st = await read($, session)
-        if (st.cacheUntil === null) return
-        const left = Math.max(0, Math.floor((st.cacheUntil - (await $.clock.now())) / 1000))
-        if (left !== st.cacheLeft) await update($, session, prev => ({ ...prev, cacheLeft: left }))
-        const due = CACHE_WARN_MIN.filter(m => left > 0 && left <= m * 60)
-        if (!due.length || st.isBusy) return
-        const minutes = Math.min(...due)
-        if (st.warned !== 0 && st.warned <= minutes) return
-        await update($, session, prev => ({ ...prev, warned: minutes }))
-        $.ui.toast(`⧗ Prompt cache expires in ${Math.ceil(left / 60)} min`, { timeoutMs: 30000 })
-      })()
-    })
-
-    // Ticks the running agents' clocks and the crew's party; quiet when neither runs.
-    // A running agent quiet past STUCK_MS is flagged once and pinged.
-    $.clock.every(1000, () => {
-      void (async () => {
-        const list = await read($, agents)
-        const boss = await read($, manager)
-        const at = await $.clock.now()
-        const isParty = (boss.celebrateUntil ?? 0) > at - 2000 || (Boolean(boss.doneAt) && at < (boss.doneAt ?? 0) + CELEBRATE_MS + 2000)
-        if (!list.some(a => a.status === 'running') && !isParty) return
-        await update($, now, () => at)
-        const stuck = list.filter(a => a.status === 'running' && !a.isStuck && at - (a.lastProgressAt ?? a.startedAt) > STUCK_MS)
-        if (!stuck.length) return
-        const ids = new Set(stuck.map(a => a.id))
-        await update($, agents, l => l.map(a => (ids.has(a.id) ? { ...a, isStuck: true } : a)))
-        for (const a of stuck) $.ui.toast(`🦀 "${clip(a.description || a.type, 40)}" has gone quiet for 2 min: it may be stuck`)
-      })()
-    })
     return started
   })
 
@@ -3604,16 +3697,13 @@ export const register: Register = (on, options) => {
       await setCurrency($, currencyOf(found.code, rate))
       return { text: `Costs now show in ${currencyLabel(CURRENCY)}.` }
     }
-    // `/missioncontrol open` opens the panel, or brings it forward from behind another tab, without toggling it.
-    if ((e.args ?? '').trim() === 'open') {
-      const at = await $.clock.now()
-      await update($, now, () => at)
-      const shown = await $.ui.open({ id: PANE, title: SKIN.tabs.mission })
-      return { text: shown.isPlaced ? tr().opened : `Mission Control is open but not shown: ${shown.reason}` }
-    }
+    // `/missioncontrol` and `/missioncontrol open` open the panel, or bring it forward
+    // from behind another tab, without toggling it. Anything else gets the usage line.
+    const verb = (e.args ?? '').trim()
+    if (verb !== '' && verb.toLowerCase() !== 'open') return { text: `Unknown option "${verb}". Use /missioncontrol, /missioncontrol open or /missioncontrol currency <code> [rate per US dollar].` }
     const at = await $.clock.now()
     await update($, now, () => at)
-    const shown = await $.ui.open({ id: PANE, title: SKIN.tabs.mission })
+    const shown = await showPane($, PANE, SKIN.tabs.mission)
     return { text: shown.isPlaced ? tr().opened : `Mission Control is open but not shown: ${shown.reason}` }
   })
 
@@ -3653,33 +3743,8 @@ export const register: Register = (on, options) => {
   // What everyone is doing right now, from each tool call: the live activity line,
   // and the heartbeat the stuck alarm reads. Never in the way of the call itself.
   on('tool.call', async ($, e, next) => {
-    try {
-      const text = activityOf(e as unknown as Record<string, unknown>)
-      const at = await $.clock.now()
-      if (e.agentId) {
-        const id = e.agentId
-        await update($, agents, list => list.map(a => (a.agentId === id ? { ...a, activity: text || a.activity, lastProgressAt: at, isStuck: false } : a)))
-      } else if (text && !String(e.tool).startsWith('mcp__ccd_')) {
-        await update($, manager, prev => ({ ...prev, activity: text }))
-      }
-      // Every tool call lands on the replay, but the app's own bookkeeping.
-      const tool = String(e.tool)
-      if (!tool.startsWith('mcp__ccd_')) {
-        const a = e.agentId ? (await read($, agents)).find(x => x.agentId === e.agentId) : undefined
-        const who = e.agentId ? (a ? runRole(a) : 'Agent') : 'Manager'
-        const name = tool.startsWith('mcp__') ? tool.split('__').slice(1).join(': ') : tool
-        let dropped = 0
-        await update($, timeline, prev => {
-          const all = [...prev, { at, tool: clip(name, 80), text: clip(text || '', 300), who }]
-          dropped = Math.max(0, all.length - BEATS_KEPT)
-          return all.slice(-BEATS_KEPT)
-        })
-        if (dropped) await update($, bdPick, i => shiftPick(i, dropped))
-      }
-    } catch {
-      // A drawing aid only.
-    }
-    return next(e)
+    const [result] = await Promise.all([next(e), trackTool($, e)])
+    return result
   })
 
   // The manager's task list, followed as the plan tool is called; wrap-up closes it.
@@ -3702,10 +3767,10 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // Safety net: worker launches move the faint layer even if the orchestrator forgets to report.
+  // Safety net: mc-* launches move the faint layer even if the main session forgets to report.
   on('tool.call', { tool: 'Agent' }, async ($, e, next) => {
     const type = String(e.subagent_type ?? '')
-    if (!type.startsWith('savvy-')) return next(e)
+    if (!isWorker(type)) return next(e)
 
     await update($, flow, prev => {
       const base = prev && !prev.isFinished ? { ...blank(), ...prev } : blank()
@@ -3719,7 +3784,7 @@ export const register: Register = (on, options) => {
   })
 
   on('agent.spawn', async ($, e, next) => {
-    const isUnbriefed = e.subagentType.startsWith('savvy-') && !e.prompt.includes(STEP_TOOL)
+    const isUnbriefed = isWorker(e.subagentType) && !e.prompt.includes(STEP_TOOL)
     const briefed = isUnbriefed ? { ...e, prompt: e.prompt + STEP_BRIEF } : e
     // Autopilot: read-only explorers go to Haiku, unless a model was chosen for them.
     const w = await read($, watch)
@@ -3758,9 +3823,9 @@ export const register: Register = (on, options) => {
     if (isNew) await bumpCred($, c => ({ ...c, agents: c.agents + 1, xp: c.xp + (isRetry ? 0 : 2) })).catch(() => false)
     await update($, now, () => at)
     await bumpToday($, { agents: 1 })
-    if (e.subagentType.startsWith('savvy-')) {
+    if (isWorker(e.subagentType)) {
       const f = await read($, flow)
-      await autoOpen($, f && !f.isFinished ? f.title : 'savvy-flow')
+      await autoOpen($, f && !f.isFinished ? f.title : 'mission-control')
     } else if (options.autoOpen === 'any') {
       await autoOpen($, 'any-agent')
     }
@@ -3807,7 +3872,6 @@ export const register: Register = (on, options) => {
         promptAll: prev.promptAll + prompt,
       }))
       await bumpToday($, { tokens: burned })
-      if (agentId) await update($, agents, list => list.map(a => (a.agentId === agentId ? { ...a, lastProgressAt: stepAt, isStuck: false } : a)))
       const model = usage.model || e.model
       if (burned && model) {
         await update($, env, prev => ({ ...prev, modelTokens: { ...(prev.modelTokens ?? {}), [model]: ((prev.modelTokens ?? {})[model] ?? 0) + burned } }))
@@ -3831,13 +3895,14 @@ export const register: Register = (on, options) => {
       }
       if (typeof e.effort === 'string') {
         const effort = e.effort
-        await update($, env, prev => (prev.effort === effort ? prev : { ...prev, effort }))
+        if ((await read($, env)).effort !== effort) await update($, env, prev => ({ ...prev, effort }))
       }
       return result
     }
     if (!usage) return result
 
     const model = usage.model || e.model
+    const seenAt = await $.clock.now()
     await update($, agents, list =>
       list.map((a): AgentRun =>
         a.agentId !== agentId
@@ -3862,6 +3927,8 @@ export const register: Register = (on, options) => {
                 (usage.cache_creation_input_tokens || 0),
               costUsd: a.costUsd + costOf(model, usage, true),
               steps: a.steps + 1,
+              lastProgressAt: seenAt,
+              isStuck: false,
             },
       ),
     )
@@ -3934,7 +4001,14 @@ export const register: Register = (on, options) => {
     const info = await read($, env)
     const rules = await read($, memory)
     const opened = new Set(p.expanded ?? [])
-    const tree = buildTree(list, p.isDoneCollapsed).map(r => (r.kind === 'agent' ? { ...r, folded: r.a.status !== 'running' && !opened.has(r.a.id) } : r))
+    const rows = buildTree(list, p.isDoneCollapsed)
+    // On a desktop only the first few running agents get a card; the rest fold into
+    // one row, so a big crew stays under the app's size limit. A card that ends
+    // hands its place to the next.
+    const spare = e.surface === 'desktop' ? rows.flatMap(r => (r.kind === 'agent' && r.a.status === 'running' ? [r.a] : [])).slice(MAX_CARDS) : []
+    const tree = (spare.length ? withoutRows(rows, new Set(spare.map(a => a.id))) : rows).map(r =>
+      r.kind === 'agent' ? { ...r, folded: r.a.status !== 'running' && !opened.has(r.a.id) } : r,
+    )
     const toggleOpen = (id: string) =>
       update($, panel, prev => {
         const set = new Set(prev.expanded ?? [])
@@ -3996,21 +4070,47 @@ export const register: Register = (on, options) => {
 
       // In Hebrew the column hugs the right edge: section heads and buttons right-aligned.
       const align = isRtl() ? 'flex-end' : undefined
-      if (p.isCompact) {
-        return (
-          <Box flexDirection="column" gap={1} alignItems={align} {...(SKIN.backdrop.fill ? { backgroundColor: SKIN.backdrop.fill } : {})}>
-            <Svg source={compactSvg(W, list, planned, t)} alt={`${list.length} ${s.agentsCount}, ${summary}`} width={W} height={32} />
-            {toggleCompact}
-            <Svg source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} width={W} height={sessionHeight(W, info, rules)} />
-          </Box>
-        )
-      }
+      const orgPicture = (source: string) => (
+        <Svg
+          key="org"
+          source={source}
+          alt={`Hierarchy: Manager, then ${org.children.map(r => `${r.label} (${r.children.length})`).join(', ') || 'no roles yet'}`}
+          width={W}
+          height={orgHeight(org)}
+        />
+      )
+      // The short view. Forced when the full one is too big for the app to draw: it
+      // keeps the crew's picture and offers the ways back to the full view.
+      const compactView = (picture?: string) => (
+        <Box flexDirection="column" gap={1} alignItems={align} {...(SKIN.backdrop.fill ? { backgroundColor: SKIN.backdrop.fill } : {})}>
+          <Svg source={compactSvg(W, list, planned, t)} alt={`${list.length} ${s.agentsCount}, ${summary}`} width={W} height={32} />
+          {picture === undefined ? (
+            toggleCompact
+          ) : (
+            <Box flexDirection="column">
+              <Text dimColor>Too many agents to draw in full: this is the short view.</Text>
+              <Box flexDirection="row" gap={2}>
+                {opened.size > 0 && <Button key="fold-all" label="Fold the opened agents" plain onPress={() => update($, panel, prev => ({ ...prev, expanded: [] }))} />}
+                {finished.length > 0 && !p.isDoneCollapsed && toggleDone}
+              </Box>
+            </Box>
+          )}
+          {picture ? orgPicture(picture) : null}
+          <Svg source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} width={W} height={sessionHeight(W, info, rules)} />
+        </Box>
+      )
+      if (p.isCompact) return compactView()
       const egg = eggOf()
       // A skin with a backdrop paints the pane body behind the cards.
       const fill = SKIN.backdrop.fill
+      // A row's own drawing does not change when the rows around it go: drawn once.
+      const drawings = new Map<string, string>()
+      const drawn = (key: string, draw: () => string): string => drawings.get(key) ?? drawings.set(key, draw()).get(key) ?? ''
+      const moreRow = (some: AgentRun[], isLive: boolean) =>
+        some.length > 0 && <Svg key={isLive ? 'more-working' : 'more-done'} source={moreSvg(W, some, isLive)} alt={moreAlt(some, isLive)} width={W} height={FOLD_H} />
       // The cards stack in plain flow: the desktop pane draws nothing for a tree that
       // lays them over a full-height grid with an absolute Box.
-      return (
+      const full = (picture: string, shown: TreeRow[], done: AgentRun[]) => (
         <Box flexDirection="column" {...(fill ? { backgroundColor: fill } : {})}>
           <Box flexDirection="column" alignItems={align}>
             {egg ? (
@@ -4026,7 +4126,7 @@ export const register: Register = (on, options) => {
             <Box key="usage" marginBottom={1}>
               <Svg
                 source={usageSvg(W, info, clockNow, every)}
-                alt={`Usage: ${sortedLimits(info).map(l => `${limitName(l.kind)} ${Math.round(l.percentUsed)}%`).join(', ')}. ${sortedModels(info).map(([m, n]) => `${modelName(m)} ${fmtTokens(n)} tokens`).join(', ')}`}
+                alt={usageAlt(info)}
                 width={W}
                 height={usageHeight(info, every)}
               />
@@ -4103,13 +4203,13 @@ export const register: Register = (on, options) => {
                 height={tokenHeight(report)}
               />
             </Box>
-            {tree.map(r =>
+            {shown.map(r =>
               r.kind === 'role' ? (
-                <Svg key={r.key} source={treeRowSvg(W, r, roleSvg(rowInnerW(W, r), r))} alt={`${r.role}: ${r.count} agents, ${r.running} working`} width={W} height={ROLE_H} />
+                <Svg key={r.key} source={treeRowSvg(W, r, drawn(r.key, () => roleSvg(rowInnerW(W, r), r)))} alt={`${r.role}: ${r.count} agents, ${r.running} working`} width={W} height={ROLE_H} />
               ) : r.folded ? (
                 <Box key={r.key} flexDirection="row" alignItems="center">
                   <Svg
-                    source={treeRowSvg(W - OPEN_W, r, foldedSvg(rowInnerW(W - OPEN_W, r), r.a, at))}
+                    source={treeRowSvg(W - OPEN_W, r, drawn(r.key, () => foldedSvg(rowInnerW(W - OPEN_W, r), r.a, at)))}
                     alt={`${r.a.description}: ${r.a.status === 'failed' ? s.failed : s.isFinished}, ${fmtTokens(r.a.tokens)} tokens`}
                     width={W - OPEN_W}
                     height={FOLD_H}
@@ -4119,7 +4219,7 @@ export const register: Register = (on, options) => {
               ) : (
                 <Box key={r.key} flexDirection="column">
                   <Svg
-                    source={treeRowSvg(W, r, agentSvg(rowInnerW(W, r), r.a, at, !isBoxed(r)))}
+                    source={treeRowSvg(W, r, drawn(r.key, () => agentSvg(rowInnerW(W, r), r.a, at, !isBoxed(r))))}
                     alt={`${r.a.description}: ${modelName(r.a.model)}, ${r.a.status === 'running' ? s.isRunning : s.isFinished}`}
                     width={W}
                     height={AGENT_H}
@@ -4128,15 +4228,11 @@ export const register: Register = (on, options) => {
                 </Box>
               ),
             )}
+            {moreRow(spare, true)}
+            {moreRow(done, false)}
             {isEmpty && (SKIN.dark ? <Text color={SKIN.colors.subtext}>No sub-agents yet. They show up here, under the manager, by role.</Text> : <Text dimColor>No sub-agents yet. They show up here, under the manager, by role.</Text>)}
             {section('h-org', 'Hierarchy')}
-            <Svg
-              key="org"
-              source={orgSource(W, org)}
-              alt={`Hierarchy: Manager, then ${org.children.map(r => `${r.label} (${r.children.length})`).join(', ') || 'no roles yet'}`}
-              width={W}
-              height={orgHeight(org)}
-            />
+            {orgPicture(picture)}
             <Box key="toggles" flexDirection="row" gap={2} marginTop={1}>
               {finished.length > 0 && toggleDone}
               {toggleCompact}
@@ -4186,11 +4282,40 @@ export const register: Register = (on, options) => {
                   await update($, settings, prev => ({ ...prev, sounds: isOn }))
                 }}
               />
-              <Button key="set-skin" label="Change skin ▸" plain onPress={() => void $.ui.open({ id: SKINS_PANE, title: SKIN.tabs.skins })} />
+              <Button key="set-skin" label="Change skin ▸" plain onPress={() => void showPane($, SKINS_PANE, SKIN.tabs.skins)} />
             </Box>
           </Box>
         </Box>
       )
+      // The app draws a blank pane for a tree past its size limit: the first that fits
+      // wins. Everything; then the finished rows folded into one (all but the first
+      // few, the opened ones and any with a card under them); then either with the
+      // hierarchy's light drawing; at last the short view.
+      const rich = orgSource(W, org)
+      const view = full(rich, tree, [])
+      const size = drawnChars(view)
+      if (size <= DRAW_MAX) return view
+      const fold = new Set(
+        tree.flatMap((r, i) => {
+          if (r.kind !== 'agent' || !r.folded) return []
+          const end = tree.findIndex((n, j) => j > i && n.depth <= r.depth)
+          const under = tree.slice(i + 1, end < 0 ? undefined : end)
+          return under.every(n => n.kind === 'agent' && n.folded) ? [r.a.id] : []
+        }).slice(KEEP_DONE),
+      )
+      const shown = fold.size ? withoutRows(tree, fold) : tree
+      const kept = new Set(shown.flatMap(r => (r.kind === 'agent' ? [r.a.id] : [])))
+      const done = tree.flatMap(r => (r.kind === 'agent' && !kept.has(r.a.id) ? [r.a] : []))
+      const slim = fold.size ? full(rich, shown, done) : view
+      const slimSize = fold.size ? drawnChars(slim) : size
+      if (slimSize <= DRAW_MAX) return slim
+      const light = orgSvg(W, org, true)
+      if (size - rich.length + light.length <= DRAW_MAX) return full(light, tree, [])
+      if (slimSize - rich.length + light.length <= DRAW_MAX) return full(light, shown, done)
+      const short = compactView(rich)
+      if (drawnChars(short) <= DRAW_MAX) return short
+      const shorter = compactView(light)
+      return drawnChars(shorter) <= DRAW_MAX ? shorter : compactView('')
     }
 
     // Terminal: the same content in text rows.
@@ -4365,9 +4490,13 @@ export const register: Register = (on, options) => {
   })
 
   // Kept open: each prompt puts the pane back if it was closed.
+  const PERSON_ORIGINS = new Set(['composer', 'bridge', 'sdk'])
   on('prompt.submit', async ($, e, next) => {
     // A typed request (not a slash command or a system note) is the manager's task.
-    const asked = e.isMeta || e.command ? '' : e.text.trim()
+    // Only the person's own words count: a task notification, a peer or a plugin's
+    // prompt is no task of theirs.
+    const isPersons = !e.origin || PERSON_ORIGINS.has(e.origin.kind)
+    const asked = e.isMeta || e.command || !isPersons ? '' : e.text.trim()
     if (asked) {
       const at = await $.clock.now()
       const info = await read($, env)
@@ -4439,7 +4568,7 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'skins' }, async $ => {
-    await $.ui.open({ id: SKINS_PANE, title: SKIN.tabs.skins })
+    await showPane($, SKINS_PANE, SKIN.tabs.skins)
     return { text: 'Skin picker opened.' }
   })
 
@@ -4476,6 +4605,7 @@ export const register: Register = (on, options) => {
     }
     return (
       <Box flexDirection="column">
+        {HAS_CYBER ? null : <Text dimColor>{ADDON_PITCH}</Text>}
         {skins.map(k => (
           <Box key={`skin-${k.id}`} flexDirection="row" gap={1}>
             <Text color={k.colors.accent} bold>
@@ -4498,7 +4628,9 @@ export const register: Register = (on, options) => {
     if (arg === 'reload') {
       const { folder, loaded, skipped } = await loadSkins($)
       await checkAddon($)
-      const current = SKINS.get(SKIN.id) ?? CRAB_SKIN
+      // A skin from an add-on that is gone falls back to the crab.
+      const found = SKINS.get(SKIN.id)
+      const current = found && canWear(found) ? found : CRAB_SKIN
       applySkin(current)
       await update($, skin, () => `${current.id}`)
       return { text: folder ? `Reloaded ${loaded} skin file(s) from ${folder}.${skipped.length ? `\nSkipped: ${skipped.join('; ')}` : ''}\n${listing()}` : `No "${SKINS_FOLDER}" folder found.\n${listing()}` }
@@ -4527,11 +4659,17 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'autocrew' }, async ($, e) => {
     const arg = e.args.trim().toLowerCase()
+    // A context line outside 10–95%, or any other word, is answered, not quietly
+    // clamped or read as a request for the state.
+    const pct = /^\d+%?$/.test(arg) ? parseInt(arg, 10) : NaN
+    if (arg && arg !== 'on' && arg !== 'off' && !(pct >= 10 && pct <= 95)) {
+      return { text: 'Usage: /autocrew for its state, /autocrew on|off, or /autocrew <10–95> to call the crew past that context %' }
+    }
     const auto = await readAutoCrew($)
     const next: AutoCrew =
       arg === 'on' ? { ...auto, on: true }
       : arg === 'off' ? { ...auto, on: false }
-      : /^\d{2}%?$/.test(arg) ? { on: true, ctxPct: Math.max(10, Math.min(95, parseInt(arg, 10))) }
+      : arg ? { on: true, ctxPct: pct }
       : auto
     if (next !== auto) await $.store.set('autoCrew', next).catch(() => undefined)
     await update($, settings, prev => ({ ...prev, crewMode: next.on }))
@@ -4545,6 +4683,10 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'tokens' }, async ($, e) => {
     const [verb = '', arg = ''] = (e.args ?? '').trim().split(/\s+/)
+    // Anything but a report, a budget or autopilot on|off gets the usage line.
+    if ((verb && verb !== 'autopilot' && verb !== 'budget') || (verb === 'autopilot' && arg && arg !== 'on' && arg !== 'off')) {
+      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>' }
+    }
     if (verb === 'autopilot') {
       const isOn = arg !== 'off'
       await $.store.set('autopilot', isOn)
@@ -4591,7 +4733,7 @@ export const register: Register = (on, options) => {
       return { text: `All rules cleared.${note}` }
     }
     await update($, memory, () => rules)
-    await $.ui.open({ id: MEMORY_PANE, title: 'Memory' })
+    await showPane($, MEMORY_PANE, 'Memory')
     return { text: listRules(rules) }
   })
 
@@ -4619,7 +4761,8 @@ export const register: Register = (on, options) => {
   // Tool rows in the skin: a status rail, icon, verb, target and outcome.
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     const k = await useSkin($)
-    if (!k.chat) return next(e)
+    // A light skin's chat colours are dark ones: it leaves the rows to the app.
+    if (!k.chat || !k.dark) return next(e)
     const ui = $.ui.resolve(e)
     const { Box, Text } = ui
     const c = k.colors
@@ -4677,7 +4820,7 @@ export const register: Register = (on, options) => {
   // A reply with none of these stays the app's own drawing.
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     const k = await useSkin($)
-    if (!k.chat || e.props.isSummary) return next(e)
+    if (!k.chat || !k.dark || e.props.isSummary) return next(e)
     const blocks = splitBlocks(e.props.text)
     if (blocks.every(b => b.kind === 'md' && !hasInlineMath(b.text))) return next(e)
     const ui = $.ui.resolve(e)
@@ -4765,6 +4908,7 @@ export const register: Register = (on, options) => {
     const ui = $.ui.resolve(e)
     const { Box, Text, Button } = ui
     const bandBoss = await read($, manager)
+    await read($, now) // the tick: redraws the band's clocks
     const bandAt = await $.clock.now().catch(() => 0)
     const list = visibleCrew(await read($, agents), bandBoss, bandAt)
     const info = await read($, env)
@@ -4772,17 +4916,17 @@ export const register: Register = (on, options) => {
     const isWorking = e.props.isWorking || list.some(a => a.status === 'running')
     const idleText = reported ? undefined : isWorking ? tr().working : tr().idle
     const text = idleText ?? label(f)
-    // A glyph alone names nothing to a screen reader: the label names the control,
-    // the children are what is drawn.
+    // The desktop draws a Button's label, not its children, in a slot about 96px wide
+    // beside the band: a long label spilled out of it. Keep both labels short.
     const crewButton = (
-      <Button key="crab-agents" label={`Mission Control: ${crew} agents`} plain onPress={() => void togglePane($)}>
+      <Button key="crab-agents" label={`◈ ${crew}`} plain onPress={() => void togglePane($)}>
         {`◈ ${crew}`}
       </Button>
     )
     const percent = idleText ? '' : `${Math.round(ratio(f) * 100)}%`
     // ✕ clears the reported flow; the row goes back to idle rather than away.
     const dismiss = reported ? (
-      <Button key="crab-dismiss" label="Dismiss progress" plain onPress={() => update($, flow, () => null)}>
+      <Button key="crab-dismiss" label="✕" plain onPress={() => update($, flow, () => null)}>
         ✕
       </Button>
     ) : null
@@ -4831,7 +4975,7 @@ export const register: Register = (on, options) => {
           speed: sess.speed,
           turnCost: Math.max(0, info.costUsd - sess.costAtStart),
           total: info.costUsd,
-          cacheLeft: sess.cacheLeft,
+          cacheLeft: sess.cacheUntil === null ? null : Math.max(0, Math.floor((sess.cacheUntil - bandAt) / 1000)),
           isBusy: isWorking || sess.isBusy,
         },
       }

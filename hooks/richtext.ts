@@ -9,8 +9,8 @@
 export type Diff = { source: string; added: number; removed: number }
 
 export const unifiedDiff = (oldText: string, newText: string, context = 2): Diff => {
-  const a = oldText.split('\n')
-  const b = newText.split('\n')
+  const a = oldText.split(/\r?\n/)
+  const b = newText.split(/\r?\n/)
   let head = 0
   while (head < a.length && head < b.length && a[head] === b[head]) head++
   let tail = 0
@@ -45,7 +45,7 @@ const isTableRule = (l: string): boolean => /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}
 
 export const splitBlocks = (text: string): Block[] => {
   const out: Block[] = []
-  const lines = text.split('\n')
+  const lines = text.split(/\r?\n/)
   let md: string[] = []
   const flush = () => {
     if (md.join('').trim()) out.push({ kind: 'md', text: md.join('\n') })

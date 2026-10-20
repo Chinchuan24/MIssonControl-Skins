@@ -4,15 +4,22 @@
   mission-control-cyberpunk.zip  the mod with the Cyberpunk Skins add-on
   cyberpunk-skins-addon.zip      just addons/cyberpunk/, to unzip into a Core install
 
-Usage: python tools/release.py [outdir]   (default: dist/)
+Usage: python3 tools/release.py [outdir]   (default: dist/; on Windows: py tools\release.py)
 """
 import os, subprocess, sys, zipfile
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 out = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(root, 'dist'))
 os.makedirs(out, exist_ok=True)
-files = subprocess.run(['git', 'ls-files'], cwd=root, capture_output=True, text=True, check=True).stdout.split('\n')
-files = [f for f in files if f and not f.startswith(('docs/', 'tools/', 'dist/'))]
+files = subprocess.run(['git', 'ls-files', '-z'], cwd=root, capture_output=True, text=True, encoding='utf-8', check=True).stdout.split('\0')
+# macOS and Windows litter never ships, even if it was committed by mistake.
+junk = lambda f: os.path.basename(f).startswith('._') or os.path.basename(f) in ('.DS_Store', 'Thumbs.db', 'desktop.ini') or '__MACOSX' in f.split('/')
+files = [f for f in files if f and not junk(f) and not f.startswith(('docs/', 'tools/', 'dist/')) and not f.endswith(('.test.ts', '.test.tsx'))]
+# Shipped files must be committed: an untracked runtime file would be left out.
+stray = [l[3:] for l in subprocess.run(['git', 'status', '--porcelain'], cwd=root, capture_output=True, text=True, encoding='utf-8', check=True).stdout.splitlines()
+         if l.startswith('??') and l[3:].startswith(('hooks/', 'skins/', 'assets/', 'addons/', 'types/', '.claude-plugin/'))]
+if stray:
+    sys.exit('Untracked files would be left out of the zips: ' + ', '.join(stray))
 addon = [f for f in files if f.startswith('addons/cyberpunk/')]
 core = [f for f in files if not f.startswith('addons/')]
 

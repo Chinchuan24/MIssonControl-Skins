@@ -37,7 +37,14 @@ const bigCrew = async ($: Engine, roles: string[], perRole: number) => {
   for (let k = 1; k <= 6; k++) spawns.push([k % 2 ? 'Explore' : 'general-purpose', `Helper: sub ${k}`, `a${k * 3}`])
   for (const [i, [t, d, p]] of spawns.entries())
     await $.agent.spawn({ tool_use_id: `t${i}`, prompt: 'p', description: d, subagentType: t, provider: 'engine', parentModel: 'x', parentAgentId: p, background: false, fork: false } as never)
-  for (let i = 1; i <= spawns.length; i += 2) await $.turn.complete({ agentId: `a${i}`, reason: 'answer' } as never)
+  for (let i = 1; i <= spawns.length; i += 2) await $.turn.complete({ agentId: `a${i}`, reason: 'answer', answer: 'ok' } as never)
+  return spawns.length
+}
+
+// The rest of the crew finishes too. While agents still work, their cards share the
+// pane's whole size limit and the hierarchy takes its light drawing (size.test.tsx).
+const finishAll = async ($: Engine, count: number) => {
+  for (let i = 2; i <= count; i += 2) await $.turn.complete({ agentId: `a${i}`, reason: 'answer', answer: 'ok' } as never)
 }
 
 const hierarchy = async ($: Engine): Promise<string> => {
@@ -54,7 +61,7 @@ for (const skin of ['cyberpunk-2077', 'lucy-edgerunners']) {
     base(on)
     await start($)
     await $.command.run({ command: 'skin', args: skin } as never)
-    await bigCrew($, ROLES, 4)
+    await finishAll($, await bigCrew($, ROLES, 4))
     const src = await hierarchy($)
     expect(src.length).toBeLessThan(SVG_MAX)
     // The full drawing: each figure defined once and placed, the shared done badge.
@@ -70,7 +77,7 @@ test('a crowd of 24 roles, six agents each, still draws every figure under the l
   base(on)
   await start($)
   await $.command.run({ command: 'skin', args: 'cyberpunk-2077' } as never)
-  await bigCrew($, Array.from({ length: 24 }, (_, i) => `Crew${String.fromCharCode(65 + i)}`), 6)
+  await finishAll($, await bigCrew($, Array.from({ length: 24 }, (_, i) => `Crew${String.fromCharCode(65 + i)}`), 6))
   const src = await hierarchy($)
   expect(src.length).toBeLessThan(SVG_MAX)
   expect(src).toContain('id="bok"')

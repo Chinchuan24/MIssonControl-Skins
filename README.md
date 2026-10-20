@@ -83,7 +83,7 @@ Claude works in steps, calls tools and spins up sub-agents. Mission Control show
 - 🚀 **Crew mode**: big jobs get split across sub-agents automatically
 - 🚨 **Stuck alarm** (2 min quiet) and 🔔 **done chime** (toast, notification, sound)
 - 🧾 **Rich replies**: diffs, code, tables, math and mermaid as cards
-- 🌍 **6 currencies**, **3 languages** (English, Russian, Hebrew)
+- 🌍 **7 currencies**, **3 languages** (English, Russian, Hebrew)
 - 🎨 **Skins**: `default` (the app's own look) and **Crab Classic** (a crab in costume per role), or [make your own](skins/README.md)
 
 <details>
@@ -200,7 +200,7 @@ Copy an example, give it a new `id`, edit it, then run `/skin reload` and `/skin
 
 **1. Get it** (one of):
 
-- Download a zip above and unzip it anywhere, or
+- Download a zip above and unzip it anywhere. It holds one folder, `mission-control/` (the one with `.claude-plugin/` inside): that is the folder to point Claude Code at. Windows' "Extract All" may wrap it in a second folder; use the inner one. Or
 - clone the repo (this gets everything, add-on included):
   ```
   git clone https://github.com/Chinchuan24/MIssonControl-Skins.git
@@ -211,22 +211,37 @@ Copy an example, give it a new `id`, edit it, then run `/skin reload` and `/skin
 ```json
 {
   "env": {
-    "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/MIssonControl-Skins",
+    "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/mission-control",
     "CLAUDE_CODE_PLUGIN_DIR_WATCH": "1"
   }
 }
 ```
 
+- **Windows:** write the path with forward slashes or doubled backslashes, e.g. `"C:/Users/<you>/mission-control"` or `"C:\\Users\\<you>\\mission-control"`. A single `\` breaks the JSON.
 - Several mod folders: separate them with `;` on **Windows**, `:` on **macOS / Linux**.
+- **WSL:** the CLI there is Linux: use the WSL `~/.claude/settings.json`, `:` separators and `/mnt/c/...` paths.
+- Keep the mod on a local drive: network and `\\wsl.localhost` paths can hide the skins and the add-on.
 - `CLAUDE_CODE_PLUGIN_DIR_WATCH=1` reloads the mod when its files change.
 
-**3. Restart Claude Code**, then run `/missioncontrol` and `/skins`.
+**3. Restart Claude Code**, then run `/missioncontrol` and `/skins`. On a Mac, quit the desktop app with ⌘Q and open it again.
 
 <details>
 <summary><b>Adding the Cyberpunk add-on to an existing Core install</b></summary>
 <br>
 
 Unzip [`cyberpunk-skins-addon.zip`](https://github.com/Chinchuan24/MIssonControl-Skins/releases/latest/download/cyberpunk-skins-addon.zip) **into** your Mission Control folder. It creates `addons/cyberpunk/`. Restart Claude Code, then pick a skin with `/skins`.
+
+On a Mac, double-clicking the zip unzips it into a folder of its own, and dragging `addons/` onto your install in Finder replaces the folder instead of merging it. Unzip it from Terminal instead:
+
+```
+unzip -o ~/Downloads/cyberpunk-skins-addon.zip -d /path/to/mission-control
+```
+
+On Windows, "Extract All" also makes a folder of its own. In PowerShell instead:
+
+```
+Expand-Archive -Force "$env:USERPROFILE\Downloads\cyberpunk-skins-addon.zip" -DestinationPath "C:\path\to\mission-control"
+```
 
 </details>
 
@@ -265,8 +280,8 @@ Unzip [`cyberpunk-skins-addon.zip`](https://github.com/Chinchuan24/MIssonControl
 
 ## 🙏 Credits and license
 
-- Based on **savvy-progress** from [johnnyvizz/claude-kit](https://github.com/johnnyvizz/claude-kit) (MIT).
-- Pixel art: generated for this project in a fan-art style, then converted to sprite grids. The done chime (`assets/done.wav`) was synthesised for this project.
+- Started from **savvy-progress** by [johnnyvizz](https://github.com/johnnyvizz) ([claude-kit](https://github.com/johnnyvizz/claude-kit), MIT), since heavily reworked. Its copyright notice is kept in [LICENSE](LICENSE).
+- Character designs and pixel art: most were created by [Chinchuan24](https://github.com/Chinchuan24) with [Higgsfield](https://higgsfield.ai), then converted to sprite grids. The Crab Classic crab is based on Pixel Clawd from DockCrab (Clawdy). The done chime (`assets/done.wav`) was synthesised for this project.
 - **Open source under the [MIT License](LICENSE)**: use it, fork it, remix it. Game and show names, characters and terms are not covered.
 
 <p align="center"><sub>Stop guessing what Claude is up to. Open Mission Control and watch.</sub></p>

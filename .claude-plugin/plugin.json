@@ -1,7 +1,7 @@
 {
   "name": "crab-progress",
   "version": "0.3.0",
-  "description": "Mission Control for Claude Code: a HUD band above the prompt, a live agents pane (/crew), skins, pixel-art casts and Night City easter eggs. Based on savvy-progress from johnnyvizz/claude-kit (MIT).",
+  "description": "Mission Control for Claude Code: a HUD band above the prompt, a live agents pane (/missioncontrol), skins, pixel-art casts and Night City easter eggs.",
   "author": { "name": "Chinchuan24", "url": "https://github.com/Chinchuan24" },
   "homepage": "https://github.com/Chinchuan24/MIssonControl-Skins",
   "repository": "https://github.com/Chinchuan24/MIssonControl-Skins",
@@ -18,9 +18,9 @@
     "autoOpen": {
       "type": "string",
       "title": "Open the agents panel",
-      "description": "savvy: when a savvy-flow worker starts or a plan is reported; any: also when any other subagent starts",
-      "default": "savvy",
-      "options": ["savvy", "any"]
+      "description": "mission: when an mc-* worker starts or a plan is reported with the progress tool; any: also when any other subagent starts",
+      "default": "mission",
+      "options": ["mission", "any"]
     }
   },
   "license": "MIT"

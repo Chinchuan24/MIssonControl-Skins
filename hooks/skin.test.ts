@@ -105,7 +105,11 @@ test('backdrop: a dark skin paints the whole pane behind the cards', async ($, o
   // overlay), so the backdrop is the column's own background.
   const ui = await $.ui.mount({ plugin: 'crab-progress', surface: 'desktop', component: 'Pane', requestId: 'crab-agents', props: pane })
   const boxes = await ui.findAll({ type: 'Box' })
+  const svgs = await ui.findAll({ type: 'Svg' })
   await ui.unmount()
+  // The desktop drops an Svg whose alt is blank, which once collapsed the whole pane.
+  expect(svgs.length).toBeGreaterThan(0)
+  expect(svgs.filter(el => !String((el.props as { alt?: string }).alt ?? '').trim()).length).toBe(0)
   expect(boxes.some(b => (b.props as { backgroundColor?: string }).backgroundColor === '#050608')).toBe(true)
   expect(boxes.some(b => (b.props as { position?: string }).position === 'absolute')).toBe(false)
 })
