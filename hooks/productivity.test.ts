@@ -129,3 +129,64 @@ test('usage lists every session, seeded from the history file', async ($, on) =>
   expect(usage).toContain('All sessions since Jul 8')
   expect(usage).toContain('Opus 5.5')
 })
+
+test('a background agent from an earlier prompt keeps the job open and stays in view', async ($, on) => {
+  const clock = base(on)
+  on('turn.complete', async () => ({ text: '' }) as never)
+  await start($)
+  await $.prompt.submit({ text: 'build the video', cursor: 0 } as never)
+  await $.agent.spawn({ tool_use_id: 't1', prompt: 'p', description: 'Researcher: launch videos', subagentType: 'general-purpose', provider: 'engine', parentModel: 'x', background: true, fork: false } as never)
+  await $.turn.complete({ reason: 'answer', answer: 'started', text: 'started' } as never)
+  await clock.advance(60_000)
+  // A new prompt while the background agent still runs: no "done", the agent stays.
+  await $.prompt.submit({ text: 'are you working?', cursor: 0 } as never)
+  await $.turn.complete({ reason: 'answer', answer: 'yes', text: 'yes' } as never)
+  await clock.advance(10_000)
+  await clock.settle()
+  const during = await text($)
+  expect(during).toContain('Researcher: launch videos')
+  expect(during).not.toContain('waiting for your next request')
+  // Once it reports back and the main loop answers its report, the job finishes and the panel clears.
+  await $.turn.complete({ agentId: 'a1', reason: 'answer', answer: 'ok', text: 'ok' } as never)
+  await $.prompt.submit({ text: '<task-notification>a1 completed</task-notification>', cursor: 0, origin: { kind: 'task-notification' } } as never)
+  await $.turn.complete({ reason: 'answer', answer: 'here is what it found', text: 'here is what it found' } as never)
+  await clock.advance(10_000)
+  await clock.settle()
+  expect(await text($)).toContain('waiting for your next request')
+})
+
+test('safety net: a silent agent keeps the job open, checks in hourly, and /missioncontrol release lets it go', async ($, on) => {
+  const clock = base(on)
+  on('turn.complete', async () => ({ text: '' }) as never)
+  await start($)
+  await $.prompt.submit({ text: 'long job', cursor: 0 } as never)
+  await $.agent.spawn({ tool_use_id: 't1', prompt: 'p', description: 'Researcher: lost one', subagentType: 'general-purpose', provider: 'engine', parentModel: 'x', background: true, fork: false } as never)
+  await $.turn.complete({ reason: 'answer', answer: 'started', text: 'started' } as never)
+  // Two silent hours: still held open, never released on its own.
+  await clock.advance(2 * 3600_000 + 10_000)
+  await clock.settle()
+  expect(await text($)).toContain('Researcher: lost one')
+  expect(await text($)).not.toContain('waiting for your next request')
+  // The person lets it go: the job finishes and clears.
+  const reply = (await $.command.run({ command: 'missioncontrol', args: 'release' } as never)) as { text?: string }
+  expect(String(reply.text)).toContain('Released 1 quiet agent')
+  await clock.advance(10_000)
+  await clock.settle()
+  expect(await text($)).toContain('waiting for your next request')
+})
+
+test('safety net: an agent that keeps reporting is never cut off, however long it runs', async ($, on) => {
+  const clock = base(on)
+  on('turn.complete', async () => ({ text: '' }) as never)
+  await start($)
+  await $.prompt.submit({ text: 'long build', cursor: 0 } as never)
+  await $.agent.spawn({ tool_use_id: 't1', prompt: 'p', description: 'Engineer: long build', subagentType: 'general-purpose', provider: 'engine', parentModel: 'x', background: true, fork: false } as never)
+  await $.turn.complete({ reason: 'answer', answer: 'started', text: 'started' } as never)
+  for (let i = 0; i < 6; i++) {
+    await clock.advance(15 * 60_000)
+    await $.tool.call({ tool: 'Bash', command: 'npm run build', agentId: 'a1' } as never)
+  }
+  await clock.settle()
+  expect(await text($)).toContain('Engineer: long build')
+  expect(await text($)).not.toContain('waiting for your next request')
+})

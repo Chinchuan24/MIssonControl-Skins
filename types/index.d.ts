@@ -4,6 +4,8 @@ export type PlannedTask = {
   title: string
   tier: string
   after: number[]
+  /** The timekeeper's budget for this task, as the plan gave it. */
+  minutes?: number
 }
 
 export type Flow = {
@@ -14,9 +16,12 @@ export type Flow = {
   phase: Phase
   isFinished: boolean
   tasks: PlannedTask[]
+  /** The timekeeper's budget for the whole plan, as the plan gave it. */
+  minutes?: number
 }
 
-export type AgentStatus = 'running' | 'done' | 'failed'
+/** `stopped`: cut short on purpose (Esc, a release), shown neutral, never as an error. */
+export type AgentStatus = 'running' | 'done' | 'failed' | 'stopped'
 
 export type AgentRun = {
   id: string
@@ -46,6 +51,16 @@ export type AgentRun = {
   lastProgressAt?: number
   /** Quiet too long while running; the panel flags it and pings once. */
   isStuck?: boolean
+  /** The timekeeper's budget for this run, in minutes; absent while the timekeeper is off. */
+  budgetMin?: number
+  /** Past its budget: flagged like a stuck one, and alerted once. */
+  isOverBudget?: boolean
+  /** When Mission Control last checked in with the person about this quiet agent. */
+  checkedInAt?: number
+  /** Started in the background: its end queues a report the main loop still has to answer. */
+  isBackground?: boolean
+  /** Its tool calls still in flight: a long build or a permission prompt is no silence. */
+  toolsInFlight?: number
 }
 
 export type Panel = {
@@ -92,6 +107,28 @@ export type Manager = {
   /** The session's cost and tokens when this task began: the task's own spend is the difference. */
   costAtStart?: number
   tokensAtStart?: number
+  /** The job's budget from its plan's `minutes`, when the progress tool gave one. */
+  planMin?: number
+  /** The job's budget in minutes: the plan's, else the default; absent while the timekeeper is off. */
+  budgetMin?: number
+  /** How the job ended short: Esc (`stopped`) or an API error or refusal (`error`). Never cheered. */
+  outcome?: 'stopped' | 'error'
+  /** When a background agent of the job ended: its report waits on a main turn to answer it. */
+  reportDue?: number
+  /** An earlier job still held open by its background work when this prompt came: the one that finishes. */
+  carried?: { task: string; startedAt: number; costAtStart?: number; ids: string[] }
+  /** Reopened by a turn Claude started after the job was done: it ends again quietly. */
+  isFollowUp?: boolean
+}
+
+/** The timekeeper: its settings (kept in `$.store`) and which job it already alerted for. */
+export type Timekeeper = {
+  on: boolean
+  jobMin: number
+  agentMin: number
+  /** The `startedAt` of the job already warned at 80%, and of the one alerted past 100%. */
+  warnedFor: number
+  overFor: number
 }
 
 /** What the token manager watches: recent burn, how much was cached, its settings. */
@@ -135,6 +172,36 @@ export type Today = {
   costUsd: number
 }
 
+/** One piece of background work, as the last Stop or SubagentStop hook listed it. */
+export type BgTask = {
+  id: string
+  /** 'shell', 'subagent', 'monitor', 'workflow', or the engine's own word for another kind. */
+  type: string
+  status: string
+  description: string
+  /** A shell's command line. */
+  command?: string
+  /** A subagent's type. */
+  agentType?: string
+  /** A monitor's MCP server and tool. */
+  server?: string
+  tool?: string
+  /** A workflow's name. */
+  name?: string
+  /** Since when it has stood at this status: first listed, or its status last changed. */
+  seenAt?: number
+  /** When Mission Control last checked in with the person about it, quiet an hour. */
+  checkedInAt?: number
+  /** Let go by the person (/missioncontrol release): still listed, no longer holding the job. */
+  released?: boolean
+}
+
+/** A scheduled wake-up (CronCreate, ScheduleWakeup, /loop) that will start a turn later. */
+export type BgCron = { id: string; schedule: string; recurring: boolean; prompt: string }
+
+/** Claude's background work. The engine lists it only as a turn or a subagent stops: `at` says when. */
+export type Background = { tasks: BgTask[]; crons: BgCron[]; at: number }
+
 declare module 'claude-code' {
   interface PluginState {
     'crab-progress': {
@@ -160,6 +227,12 @@ declare module 'claude-code' {
       /** The beat the replay shows; -1 follows the newest. */
       bdPick: number
       session: SessionStats
+      /** The timekeeper's settings and alert marks; the marks live here so a hot reload never re-alerts. */
+      timekeeper: Timekeeper
+      /** Background tasks and scheduled wake-ups, as the last Stop or SubagentStop listed them. */
+      background: Background
+      /** Today and All-time as this session last read or wrote them: a save adds only its own share. */
+      saved: { today: Today; allTime: AllTime }
     }
   }
 }
