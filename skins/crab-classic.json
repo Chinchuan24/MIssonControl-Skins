@@ -1,0 +1,59 @@
+{
+  "id": "crab-classic",
+  "name": "Crab Classic",
+  "description": "The original: soft violet, gold boss, rounded cards.",
+  "font": "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  "corners": "round",
+  "dark": false,
+  "colors": {
+    "accent": "#8f8cf4",
+    "accent2": "#5EC8D8",
+    "done": "#5fbf8f",
+    "warn": "#E9B44C",
+    "alert": "#E5675E",
+    "meter": "#3B82F6",
+    "text": "#ececec",
+    "subtext": "#a8a8a4",
+    "muted": "#7d7d79",
+    "tile": "#262625",
+    "track": "#2c2c2b",
+    "line": "#333331",
+    "grid": "#3a3a38"
+  },
+  "boss": [
+    "#F5C542",
+    "#E76F51",
+    "#B58BE5",
+    "#5EC8D8",
+    "#F5C542"
+  ],
+  "roles": [
+    "#E58FB5",
+    "#5EC8D8",
+    "#E9B44C",
+    "#9CCB6B",
+    "#B58BE5",
+    "#E5875E"
+  ],
+  "effects": {
+    "scanlines": false,
+    "glitch": false
+  },
+  "backdrop": {
+    "fill": "",
+    "pattern": "dots",
+    "ink": ""
+  },
+  "chat": true,
+  "words": [
+    "Scuttling",
+    "Pinching through",
+    "Clawing along",
+    "Sidestepping"
+  ],
+  "toolWords": {},
+  "tabs": {
+    "mission": "🦀 Mission Control",
+    "skins": "Skins"
+  }
+}

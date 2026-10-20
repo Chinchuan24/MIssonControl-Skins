@@ -1,0 +1,75 @@
+{
+  "id": "cyberpunk-2077",
+  "name": "Cyberpunk 2077",
+  "description": "Night City HUD: neon yellow, hot red, electric cyan, cut corners, scanlines.",
+  "font": "Rajdhani,Orbitron,-apple-system,'SF Pro Display','Helvetica Neue',Bahnschrift,'Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  "corners": "chamfer",
+  "dark": true,
+  "colors": {
+    "accent": "#FCEE0A",
+    "accent2": "#00F0FF",
+    "done": "#00FF9F",
+    "warn": "#FCEE0A",
+    "alert": "#FF003C",
+    "meter": "#00F0FF",
+    "text": "#F3EFE0",
+    "subtext": "#9FB4BA",
+    "muted": "#5E6A72",
+    "tile": "#0B0C10",
+    "track": "#1A1D24",
+    "line": "#2B2F38",
+    "grid": "#1C2129"
+  },
+  "boss": [
+    "#FCEE0A",
+    "#FF003C",
+    "#B000FF",
+    "#00F0FF",
+    "#FCEE0A"
+  ],
+  "roles": [
+    "#FCEE0A",
+    "#00F0FF",
+    "#FF003C",
+    "#FF5CF0",
+    "#00FF9F",
+    "#FF8A00"
+  ],
+  "effects": {
+    "scanlines": true,
+    "glitch": true
+  },
+  "backdrop": {
+    "fill": "#050608",
+    "pattern": "lines",
+    "ink": "rgba(0,240,255,.07)"
+  },
+  "chat": true,
+  "words": [
+    "Jacking in",
+    "Breaching ICE",
+    "Netrunning",
+    "Overclocking",
+    "Uploading quickhack",
+    "Scanning Night City"
+  ],
+  "toolWords": {
+    "Read": "Scan",
+    "Edit": "Patch",
+    "MultiEdit": "Patch",
+    "Write": "Burn",
+    "Bash": "Exec",
+    "PowerShell": "Exec",
+    "Grep": "Trace",
+    "Glob": "Index",
+    "Agent": "Deploy",
+    "WebFetch": "Jack in",
+    "WebSearch": "Netsearch",
+    "ToolSearch": "Load chrome"
+  },
+  "tabs": {
+    "mission": "◢ Mission Control",
+    "skins": "◢ Skins"
+  },
+  "cast": "runners"
+}

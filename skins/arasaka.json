@@ -1,0 +1,73 @@
+{
+  "id": "arasaka",
+  "name": "Arasaka",
+  "description": "Corporate steel: blood red on black, hard edges, no noise.",
+  "font": "Rajdhani,-apple-system,'SF Pro Display','Helvetica Neue',Bahnschrift,'Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  "corners": "chamfer",
+  "dark": true,
+  "colors": {
+    "accent": "#E3001B",
+    "accent2": "#C9CED6",
+    "done": "#3DDC97",
+    "warn": "#FFB000",
+    "alert": "#FF1E3C",
+    "meter": "#E3001B",
+    "text": "#F2F2F2",
+    "subtext": "#9A9EA6",
+    "muted": "#5A5E66",
+    "tile": "#0A0A0B",
+    "track": "#1B1C1F",
+    "line": "#2A2C31",
+    "grid": "#18191C"
+  },
+  "boss": [
+    "#E3001B",
+    "#FFFFFF",
+    "#7A0010",
+    "#C9CED6",
+    "#E3001B"
+  ],
+  "roles": [
+    "#E3001B",
+    "#C9CED6",
+    "#FFFFFF",
+    "#FF5A6E",
+    "#8A9099",
+    "#B3001A"
+  ],
+  "effects": {
+    "scanlines": false,
+    "glitch": false
+  },
+  "backdrop": {
+    "fill": "#060607",
+    "pattern": "lines",
+    "ink": "rgba(227,0,27,.07)"
+  },
+  "chat": true,
+  "words": [
+    "Processing",
+    "Securing assets",
+    "Auditing",
+    "Executing protocol",
+    "Consulting the board"
+  ],
+  "toolWords": {
+    "Read": "Audit",
+    "Edit": "Amend",
+    "MultiEdit": "Amend",
+    "Write": "File",
+    "Bash": "Execute",
+    "PowerShell": "Execute",
+    "Grep": "Investigate",
+    "Glob": "Catalogue",
+    "Agent": "Dispatch",
+    "WebFetch": "Retrieve",
+    "WebSearch": "Surveil"
+  },
+  "tabs": {
+    "mission": "Arasaka · Mission Control",
+    "skins": "Arasaka · Skins"
+  },
+  "cast": "corpo"
+}

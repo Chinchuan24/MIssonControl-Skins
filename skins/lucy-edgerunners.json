@@ -1,0 +1,73 @@
+{
+  "id": "lucy-edgerunners",
+  "name": "Lucy · Edgerunners",
+  "description": "Moonlit netrunner: rose-pink and cyan on deep violet, soft glow.",
+  "font": "Rajdhani,-apple-system,'SF Pro Display','Helvetica Neue',Bahnschrift,'Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  "corners": "round",
+  "dark": true,
+  "colors": {
+    "accent": "#FF5CF0",
+    "accent2": "#5CE1FF",
+    "done": "#7DFFCF",
+    "warn": "#FFD166",
+    "alert": "#FF3D7F",
+    "meter": "#B79CFF",
+    "text": "#F4ECFF",
+    "subtext": "#B9A9D9",
+    "muted": "#6E6290",
+    "tile": "#100B1A",
+    "track": "#1E1530",
+    "line": "#2C2244",
+    "grid": "#1A1428"
+  },
+  "boss": [
+    "#FF5CF0",
+    "#5CE1FF",
+    "#B79CFF",
+    "#FFFFFF",
+    "#FF5CF0"
+  ],
+  "roles": [
+    "#FF5CF0",
+    "#5CE1FF",
+    "#B79CFF",
+    "#7DFFCF",
+    "#FFD166",
+    "#FF8AD8"
+  ],
+  "effects": {
+    "scanlines": true,
+    "glitch": true
+  },
+  "backdrop": {
+    "fill": "#0A0712",
+    "pattern": "stars",
+    "ink": "rgba(244,236,255,.35)"
+  },
+  "chat": true,
+  "words": [
+    "Diving",
+    "Drifting through the Net",
+    "Moonwalking",
+    "Netrunning",
+    "Chasing the moon"
+  ],
+  "toolWords": {
+    "Read": "Dive",
+    "Edit": "Rewrite",
+    "MultiEdit": "Rewrite",
+    "Write": "Leave a trace",
+    "Bash": "Run",
+    "PowerShell": "Run",
+    "Grep": "Search",
+    "Glob": "Map",
+    "Agent": "Call in",
+    "WebFetch": "Pull",
+    "WebSearch": "Search the Net"
+  },
+  "tabs": {
+    "mission": "☾ Mission Control",
+    "skins": "☾ Skins"
+  },
+  "cast": "netrun"
+}
