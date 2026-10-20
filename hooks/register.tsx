@@ -7,6 +7,7 @@ import type { Egg, Legend } from './eggs'
 import { BEATS_KEPT, BLANK_CRED, BOOT_H, award, rockerRankOf, bdHeight, bootStrip, braindanceCard, cleanCred, credCard, credHeight, levelOf, rankOf, shiftPick, stepPick } from './extras'
 import type { Beat, Cred } from './extras'
 import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, unifiedDiff } from './richtext'
+import { LIVE_N, glide, isNewReading, isSame, liveText, liveWidth, pin, steady, steadyTree, wallMinute } from './smooth'
 import type { AgentRun, AgentStatus, AllTime, Background, BgCron, BgTask, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Today, Watch } from '../types'
 import type { On } from 'claude-code'
 import type { Timekeeper } from '../types'
@@ -21,6 +22,10 @@ const panel = atom({ plugin: 'crab-progress', key: 'panel' } as const, {
   autoOpenedFor: '',
 })
 const now = atom({ plugin: 'crab-progress', key: 'now' } as const, 0)
+// The desktop's ticks: written only when what the band, or the pane, draws from the
+// time has changed (a minute, a threshold, a label), never just because a second passed.
+const bandTick = atom({ plugin: 'crab-progress', key: 'bandTick' } as const, 0)
+const paneTick = atom({ plugin: 'crab-progress', key: 'paneTick' } as const, 0)
 const memory = atom({ plugin: 'crab-progress', key: 'memory' } as const, [])
 const BLANK_ENV: Env = { cwd: '', model: '', surface: '', contextPct: 0, contextTokens: 0, contextWindow: 0, costUsd: 0, connectors: [], limits: [] }
 const env = atom({ plugin: 'crab-progress', key: 'env' } as const, BLANK_ENV)
@@ -519,7 +524,8 @@ async function refreshEnvNow($: EngineInterface, isBaseline: boolean): Promise<v
   const window = ctx?.window ?? 0
   const tokens = ctx?.tokens ?? 0
   const pct = ctx?.percent ?? (window ? (tokens / window) * 100 : 0)
-  await update($, env, prev => ({
+  // Each model request asks again, mostly for the same readings: an equal one is not written.
+  const fresh = (prev: Env): Env => ({
     ...prev,
     cwd,
     model,
@@ -530,7 +536,9 @@ async function refreshEnvNow($: EngineInterface, isBaseline: boolean): Promise<v
     costUsd: usage?.cost?.usd ?? prev.costUsd,
     // A response without readings keeps the last ones rather than blanking the bars.
     limits: usage?.rateLimits?.length ? usage.rateLimits.map(l => ({ kind: l.kind, percentUsed: l.percentUsed, resetsAt: l.resetsAt })) : prev.limits ?? [],
-  }))
+  })
+  const was = await read($, env)
+  if (!isSame(fresh(was), was)) await update($, env, fresh)
   const cost = usage?.cost?.usd
   if (isBaseline || typeof cost !== 'number') return
   // The ledger starts over at /clear: after a drop, the whole new total is new spend.
@@ -2057,6 +2065,8 @@ type Stat = {
   color?: string
   /** A small picture beside the value: effort as pips, a fill as a ring. */
   viz?: { kind: 'pips'; n: number } | { kind: 'ring'; pct: number }
+  /** A value that moves each second (a clock): drawn as a strip that steps itself. */
+  live?: { at: number; read: (t: number) => string }
 }
 const STAT_COLS = 3
 const STAT_H = 40
@@ -2113,7 +2123,11 @@ const statGrid = (x: number, y: number, w: number, stats: Stat[]): string => {
     const vizW = st.viz ? (st.viz.kind === 'pips' ? 36 : 18) : 0
     const valueW = cw - pad - 10 - (vizW ? vizW + 8 : 0)
     const value = fitText(st.v, 15.5, valueW)
-    out.push(`<text class="s" x="${vx.toFixed(1)}" y="${cy + 13}" font-family="${FONT}" font-size="11" letter-spacing=".2">${xml(st.k)}</text>
+    const head = `<text class="s" x="${vx.toFixed(1)}" y="${cy + 13}" font-family="${FONT}" font-size="11" letter-spacing=".2">${xml(st.k)}</text>`
+    // A clock ticks inside the image: the card is drawn again once a minute, not each second.
+    out.push(st.live
+      ? `${head}\n${liveText(vx, cy + 33, st.live.at, 15.5, `font-family="${FONT}" font-size="15.5" font-weight="700" font-variant-numeric="tabular-nums"${st.color ? '' : ' class="t"'}`, st.live.read, st.color)}`
+      : `${head}
 <text x="${vx.toFixed(1)}" y="${cy + 33}" font-family="${FONT}" font-size="15.5" font-weight="700" font-variant-numeric="tabular-nums"${st.color ? ` fill="${st.color}"` : ' class="t"'}>${xml(value)}</text>`)
     if (st.viz) out.push(statViz(st, vx + textWidth(value, 15.5) + 9, cy + 23))
   })
@@ -2122,18 +2136,26 @@ const statGrid = (x: number, y: number, w: number, stats: Stat[]): string => {
 
 // A progress bar with its percent; `null` while running draws a sweeping segment.
 const PROGRESS_H = 26
-const progressBar = (x: number, y: number, w: number, pct: number | null, color: string, isRunning: boolean, label = 'Progress', isEstimate = false): string => {
+// `estimate`, for a guess that grows with the time: the bar glides and its percent
+// steps inside the image for the minute, so the card is not drawn again each second.
+// A reported value glides from the one drawn before.
+const progressBar = (x: number, y: number, w: number, pct: number | null, color: string, isRunning: boolean, label = 'Progress', isEstimate = false, estimate?: { at: number; read: (t: number) => number }): string => {
   const barW = w - 52
   const shown = pct === null ? (isRunning ? 'working' : '—') : `${isEstimate ? '~' : ''}${Math.round(pct * 100)}%`
+  const widthOf = (p: number) => Math.max(p > 0 ? 4 : 0, barW * Math.min(1, p))
+  const live = estimate && liveWidth(estimate.at, t => widthOf(estimate.read(t)))
   const fill =
     pct === null
       ? isRunning
         ? `<rect x="${x}" y="${y + 12}" width="${Math.round(barW * 0.28)}" height="6" rx="3" fill="${color}"><animate attributeName="x" values="${x};${x + barW * 0.72};${x}" dur="1.8s" repeatCount="indefinite"/></rect>`
         : ''
-      : `<rect x="${x}" y="${y + 12}" width="${Math.max(pct > 0 ? 4 : 0, barW * Math.min(1, pct)).toFixed(1)}" height="6" rx="3" fill="${pct >= 1 ? DONE : color}"/>`
+      : live
+        ? `<rect x="${x}" y="${y + 12}" width="${live.start}" height="6" rx="3" fill="${color}">${live.animate}</rect>`
+        : `<rect x="${x}" y="${y + 12}" width="${widthOf(pct).toFixed(1)}" height="6" rx="3" fill="${pct >= 1 ? DONE : color}">${glide(`pb${Math.round(x)}-${Math.round(y)}`, widthOf(pct))}</rect>`
+  const attrs = `class="t" text-anchor="end" font-family="${FONT}" font-size="12" font-weight="600" font-variant-numeric="tabular-nums"`
   return `<text class="s" x="${x}" y="${y + 8}" font-family="${FONT}" font-size="11">${xml(label)}</text>
 <rect class="k" x="${x}" y="${y + 12}" width="${barW}" height="6" rx="3"/>${fill}
-<text class="t" x="${x + w}" y="${y + 19}" text-anchor="end" font-family="${FONT}" font-size="12" font-weight="600" font-variant-numeric="tabular-nums">${shown}</text>`
+${estimate && pct !== null ? liveText(x + w, y + 19, estimate.at, 12, attrs, t => `${isEstimate ? '~' : ''}${Math.round(estimate.read(t) * 100)}%`) : `<text x="${x + w}" y="${y + 19}" ${attrs}>${shown}</text>`}`
 }
 
 const agentStats = (a: AgentRun, at: number): Stat[] => [
@@ -2143,9 +2165,12 @@ const agentStats = (a: AgentRun, at: number): Stat[] => [
   { k: 'Context', v: `${ctxOf(a)}%`, viz: { kind: 'ring', pct: ctxOf(a) } },
   { k: 'Cost', v: `≈${fmtCost(a.costUsd)}` },
   a.budgetMin
-    ? { k: 'Time · budget', v: `${fmtTime(elapsed(a, at))} / ${a.budgetMin}m`, color: budgetTone(elapsed(a, at), a.budgetMin) || undefined }
-    : { k: 'Time', v: fmtTime(elapsed(a, at)) },
+    ? { k: 'Time · budget', v: `${fmtTime(elapsed(a, at))} / ${a.budgetMin}m`, color: budgetTone(elapsed(a, at), a.budgetMin) || undefined, ...runClock(a, at, ` / ${a.budgetMin}m`) }
+    : { k: 'Time', v: fmtTime(elapsed(a, at)), ...runClock(a, at) },
 ]
+// A running agent's clock ticks inside its card; a finished one's time stands still.
+const runClock = (a: AgentRun, at: number, tail = ''): Pick<Stat, 'live'> =>
+  a.status === 'running' && !a.endedAt ? { live: { at, read: t => `${fmtTime(elapsed(a, t))}${tail}` } } : {}
 const AGENT_INNER_H = 50 + statGridHeight(6) + PROGRESS_H + 8
 
 // What share of its own work an agent has done: its reported steps, or whole once finished.
@@ -2164,7 +2189,8 @@ const agentSvg = (W: number, a: AgentRun, at: number, hasRule = true): string =>
   const sub = [tier === 'other' ? a.type : tierWord(tier)]
   // Over budget is flagged first, so a long activity line never cuts it off.
   if (isOver(a)) sub.push(`⏱\uFE0E ${tkStr().overWord}`)
-  if (isQuiet(a)) sub.push(`⚠\uFE0E quiet ${fmtTime(at - (a.lastProgressAt ?? a.startedAt))}`)
+  // Whole minutes: a reading that changed each second would draw the card again each second.
+  if (isQuiet(a)) sub.push(`⚠\uFE0E quiet ${Math.floor((at - (a.lastProgressAt ?? a.startedAt)) / 60_000)} min`)
   else if (a.status === 'running' && a.activity) sub.push(`▸ ${a.activity}`)
   if (a.round > 1) sub.push(`${s.round} ${a.round}`)
   if (a.status === 'failed') sub.push(s.failed)
@@ -2177,7 +2203,7 @@ const agentSvg = (W: number, a: AgentRun, at: number, hasRule = true): string =>
 <text class="t" x="42" y="18" font-family="${FONT}" font-size="13" font-weight="600">${xml(fitText(a.description || a.type, 13, textW))}</text>
 <text x="42" y="35" font-family="${FONT}" font-size="11"><tspan fill="${color}">${xml(sub[0] ?? '')}</tspan><tspan class="s">${xml(fitText(sub.slice(1).map(x => `  ·  ${x}`).join(''), 11, textW - 60))}</tspan></text>
 ${statGrid(42, 46, W - 42 - 6, agentStats(a, at))}
-${progressBar(42, 46 + statGridHeight(6), W - 42 - 6, agentProgress(a, at), color, a.status === 'running', 'Progress', isEstimated(a))}
+${progressBar(42, 46 + statGridHeight(6), W - 42 - 6, agentProgress(a, at), color, a.status === 'running', 'Progress', isEstimated(a), isEstimated(a) ? { at, read: t => estimateOf(a, t) } : undefined)}
 ${statusMark(W - 8, 16, a.status, color)}
 ${hasRule ? `<line class="ln" x1="0" y1="${H - 0.5}" x2="${W}" y2="${H - 0.5}"/>` : ''}`,
   )
@@ -2200,7 +2226,7 @@ ${statusMark(mx(W, W - 8), 16, 'planned', color)}
   )
 }
 
-const compactSvg = (W: number, list: AgentRun[], planned: Planned[], t: ReturnType<typeof totals>): string => {
+const compactSvg = (W: number, list: AgentRun[], planned: Planned[], t: ReturnType<typeof totals>, at = 0): string => {
   const icons = [
     ...list.filter(a => a.status === 'running').map(a => ({ k: costumeOf(a.type), c: colorOf(tierOf(a.type)), s: isQuiet(a) ? 'quiet' : 'running', dim: false })),
     ...list.filter(a => a.status !== 'running').map(a => ({ k: costumeOf(a.type), c: colorOf(tierOf(a.type)), s: a.status, dim: false })),
@@ -2225,7 +2251,9 @@ const compactSvg = (W: number, list: AgentRun[], planned: Planned[], t: ReturnTy
     W,
     32,
     `${body}${more ? `<text class="s" ${startText(W, x, 21, false)} font-family="${FONT}" font-size="12">+${more}</text>` : ''}
-<text class="s" ${endText(W, W, 21)} font-family="${FONT}" font-size="12" font-variant-numeric="tabular-nums">≈${fmtCost(t.cost)} · ${fmtTokens(t.tokens)} · ${fmtTime(t.time)}</text>`,
+${at && list.some(a => a.status === 'running') && !isRtl()
+  ? liveText(W, 21, at, 12, `class="s" text-anchor="end" font-family="${FONT}" font-size="12" font-variant-numeric="tabular-nums"`, tt => `≈${fmtCost(t.cost)} · ${fmtTokens(t.tokens)} · ${fmtTime(totals(list, tt).time)}`)
+  : `<text class="s" ${endText(W, W, 21)} font-family="${FONT}" font-size="12" font-variant-numeric="tabular-nums">≈${fmtCost(t.cost)} · ${fmtTokens(t.tokens)} · ${fmtTime(t.time)}</text>`}`,
   )
 }
 
@@ -2646,6 +2674,25 @@ const segmentBar = (x: number, y: number, w: number, pct: number, tone: string):
   return segs + ticks
 }
 
+// The band's gauge while its share is a guess that climbs with the time: drawn at the
+// minute's start, and each segment that lights within the minute switches on inside
+// the image at its own second, so the gauge fills without a redraw.
+const liveSegmentBar = (x: number, y: number, w: number, at: number, pctAt: (t: number) => number, tone: string): string => {
+  const t0 = at - (at % 60_000)
+  const gap = 2
+  const n = Math.max(12, Math.floor(w / 9))
+  const sw = (w - gap * (n - 1)) / n
+  const litOf = (pct: number) => Math.round((n * Math.max(0, Math.min(100, pct))) / 100)
+  let lit = litOf(pctAt(t0))
+  const later: string[] = []
+  for (let i = 1; i < LIVE_N; i++) {
+    const t = t0 + i * 1000
+    const next = litOf(pctAt(t))
+    for (; lit < next; lit++) later.push(`<rect x="${(x + lit * (sw + gap)).toFixed(1)}" y="${y}" width="${sw.toFixed(1)}" height="7" rx="1" fill="${tone}" opacity="0"><set attributeName="opacity" to="1" begin="${pin(t)}s" fill="freeze"/></rect>`)
+  }
+  return `${segmentBar(x, y, w, pctAt(t0), tone).replace(/height="8"/g, 'height="7"')}${later.join('')}`
+}
+
 // A section's heading: a short rail in the accent, the title, a note at the right.
 const usageHead = (x: number, y: number, w: number, title: string, note: string): string =>
   `<line class="ln" x1="${x}" y1="${y + 4.5}" x2="${x + w}" y2="${y + 4.5}"/>
@@ -2771,8 +2818,8 @@ const managerStats = (info: Env, t: ReturnType<typeof totals>, crew: number, m: 
   { k: 'Sub-agents', v: String(crew) },
   { k: 'Agent cost', v: `≈${fmtCost(t.cost)}` },
   m.budgetMin && m.task && m.startedAt
-    ? { k: 'Time · budget', v: `${fmtTime(Math.max(0, (m.doneAt ?? at) - m.startedAt))} / ${m.budgetMin}m`, color: budgetTone((m.doneAt ?? at) - m.startedAt, m.budgetMin) || undefined }
-    : { k: 'Time', v: m.isWorking && m.startedAt ? fmtTime(Math.max(0, at - m.startedAt)) : '—' },
+    ? { k: 'Time · budget', v: `${fmtTime(Math.max(0, (m.doneAt ?? at) - m.startedAt))} / ${m.budgetMin}m`, color: budgetTone((m.doneAt ?? at) - m.startedAt, m.budgetMin) || undefined, ...(m.doneAt ? {} : { live: { at, read: tt => `${fmtTime(Math.max(0, tt - m.startedAt))} / ${m.budgetMin}m` } }) }
+    : { k: 'Time', v: m.isWorking && m.startedAt ? fmtTime(Math.max(0, at - m.startedAt)) : '—', ...(m.isWorking && m.startedAt ? { live: { at, read: tt => fmtTime(Math.max(0, tt - m.startedAt)) } } : {}) },
 ]
 
 const managerSvg = (
@@ -2785,6 +2832,7 @@ const managerSvg = (
   at: number,
   progress: number | null,
   waitingOn = 0,
+  estimate?: (t: number) => number,
 ): string => {
   const textW = W - 68 - 18
   const isParty = (m.celebrateUntil ?? 0) > at
@@ -2804,7 +2852,7 @@ ${isParty ? confetti(W, H) : ''}
 <text${m.isWorking ? '' : ' class="t"'} x="${W - 18 - pillW / 2}" y="25.5" text-anchor="middle" font-family="${FONT}" font-size="11" font-weight="600"${m.isWorking ? ` fill="${inkOn(ACCENT)}"` : ''}>${status}</text>
 <text class="${m.task ? 't' : 'm'}" x="68" y="50" font-family="${FONT}" font-size="14" font-weight="600">${xml(fitText(m.task || 'Waiting for your next request', 14, textW))}</text>
 ${statGrid(68, 66, W - 68 - 18, managerStats(info, t, crew, m, at))}
-${progressBar(68, 66 + statGridHeight(6), W - 68 - 18, progress, '#F5C542', m.isWorking, 'Overall progress')}`,
+${progressBar(68, 66 + statGridHeight(6), W - 68 - 18, progress, '#F5C542', m.isWorking, 'Overall progress', false, estimate && !waitingOn ? { at, read: estimate } : undefined)}`,
   )
 }
 
@@ -2822,6 +2870,12 @@ const managerProgress = (f: Flow | null, list: AgentRun[], m: Manager, at = 0): 
   if (m.isWorking) return m.startedAt && at > m.startedAt ? Math.min(0.9, 1 - Math.exp(-(at - m.startedAt) / 90_000)) : 0
   return m.task ? 1 : 0
 }
+// The same reading as a function of the time, when it is a guess that climbs with it
+// (the manager's own clock, or its crew's estimates); undefined when only news moves it.
+const managerEstimate = (f: Flow | null, list: AgentRun[], m: Manager, at = 0): ((t: number) => number) | undefined => {
+  const read = (t: number) => managerProgress(f, list, m, t) ?? 0
+  return at && read(at) !== read(at + 60_000) ? read : undefined
+}
 
 // Terminal: the tree as text, `├─` and `└─` like a file listing.
 const treePrefix = (r: TreeRow): string =>
@@ -2832,12 +2886,13 @@ const treePrefix = (r: TreeRow): string =>
 // manager's own request.
 
 type StepState = 'done' | 'running' | 'failed' | 'stopped' | 'waiting'
-type WorkStep = { key: string; title: string; color: string; state: StepState; progress: number | null; note: string }
+type WorkStep = { key: string; title: string; color: string; state: StepState; progress: number | null; note: string; est?: (t: number) => number }
 
-const stepOfRun = (a: AgentRun, at?: number): Pick<WorkStep, 'state' | 'progress' | 'note'> => ({
+const stepOfRun = (a: AgentRun, at?: number): Pick<WorkStep, 'state' | 'progress' | 'note' | 'est'> => ({
   state: a.status === 'running' ? 'running' : a.status === 'failed' ? 'failed' : a.status === 'stopped' ? 'stopped' : 'done',
   progress: progressOf(a, at),
   note: a.stepNote ?? '',
+  ...(at && isEstimated(a) ? { est: (t: number) => estimateOf(a, t) } : {}),
 })
 
 const workSteps = (f: Flow | null, list: AgentRun[], boss: Manager, at?: number): WorkStep[] => {
@@ -2891,7 +2946,7 @@ const stepMark = (st: WorkStep, y: number): string => {
   return `<circle cx="24" cy="${y + 13}" r="4.5" fill="none" stroke="#8a8a86" stroke-width="1.4"/>`
 }
 
-const workflowSvg = (W: number, f: Flow | null, steps: WorkStep[]): string => {
+const workflowSvg = (W: number, f: Flow | null, steps: WorkStep[], at = 0): string => {
   const H = workflowHeight(steps)
   const isPlan = Boolean(f && !f.isFinished && f.tasks.length)
   const doneCount = steps.filter(st => st.state === 'done').length
@@ -2910,16 +2965,23 @@ const workflowSvg = (W: number, f: Flow | null, steps: WorkStep[]): string => {
     const pct = st.progress === null ? null : Math.round(st.progress * 100)
     // A running step that reports no progress gets a sweeping segment instead of a number.
     let fill = ''
+    const widthOf = (p: number) => Math.max(p ? 3 : 0, (rowBarW * p) / 100)
+    // An estimate glides and counts inside the image; a reported share glides from the last one.
+    const est = st.est && at ? st.est : undefined
     if (st.state !== 'waiting' && pct === null) {
       fill = `<rect x="${bx}" y="${y + 10}" width="${Math.round(rowBarW * 0.3)}" height="6" rx="3" fill="${st.color}"><animate attributeName="x" values="${bx};${bx + rowBarW * 0.7};${bx}" dur="1.8s" repeatCount="indefinite"/></rect>`
+    } else if (pct !== null && est) {
+      const live = liveWidth(at, t => widthOf(Math.round(est(t) * 100)))
+      fill = `<rect x="${bx}" y="${y + 10}" width="${live.start}" height="6" rx="3" fill="${st.color}">${live.animate}</rect>`
     } else if (pct !== null) {
-      fill = `<rect x="${bx}" y="${y + 10}" width="${Math.max(pct ? 3 : 0, (rowBarW * pct) / 100).toFixed(1)}" height="6" rx="3" fill="${st.state === 'done' ? DONE : st.color}"/>`
+      fill = `<rect x="${bx}" y="${y + 10}" width="${widthOf(pct).toFixed(1)}" height="6" rx="3" fill="${st.state === 'done' ? DONE : st.color}">${glide(`wf-${st.key}`, widthOf(pct))}</rect>`
     }
     const side = pct === null ? (st.state === 'waiting' ? 'waiting' : '') : `${pct}%`
+    const sideAttrs = `class="m" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums"`
     return `${stepMark(st, y)}
 <text class="${st.state === 'waiting' ? 's' : 't'}" x="36" y="${y + 17}" font-family="${FONT}" font-size="12.5"${st.state === 'running' ? ' font-weight="600"' : ''}>${xml(fitText(label, 12.5, textW))}</text>
 <rect class="k" x="${bx}" y="${y + 10}" width="${rowBarW}" height="6" rx="3"/>${fill}
-<text class="m" x="${bx - 8}" y="${y + 17}" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${side}</text>`
+${pct !== null && est ? liveText(bx - 8, y + 17, at, 11, sideAttrs, t => `${Math.round(est(t) * 100)}%`) : `<text x="${bx - 8}" y="${y + 17}" ${sideAttrs}>${side}</text>`}`
   })
   const empty = `<text class="m" x="14" y="${WORK_HEAD + 16}" font-family="${FONT}" font-size="12">Steps show up here when Claude starts working.</text>`
   return svg(
@@ -2929,7 +2991,7 @@ const workflowSvg = (W: number, f: Flow | null, steps: WorkStep[]): string => {
 <text class="t" x="14" y="22" font-family="${FONT}" font-size="13" font-weight="600">Workflow<tspan class="s" font-weight="400" font-size="12">   ${xml(fitText(head, 12, W - 200))}</tspan></text>
 <text class="m" x="${W - 14}" y="22" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${right}</text>
 <rect class="k" x="14" y="30" width="${barW}" height="4" rx="2"/>
-<rect x="14" y="30" width="${(barW * overall).toFixed(1)}" height="4" rx="2" fill="${overall >= 1 ? DONE : ACCENT}"/>
+<rect x="14" y="30" width="${(barW * overall).toFixed(1)}" height="4" rx="2" fill="${overall >= 1 ? DONE : ACCENT}">${glide('wf-all', barW * overall)}</rect>
 ${steps.length ? rows.join('\n') : empty}
 ${hidden ? `<text class="m" x="36" y="${WORK_HEAD + visible.length * STEP_H + 12}" font-family="${FONT}" font-size="11">+${hidden} more steps</text>` : ''}`,
   )
@@ -2987,6 +3049,8 @@ const heardAt = (a: AgentRun, list: readonly AgentRun[], at: number, depth = 0):
   const kids = a.agentId && depth < 5 ? list.filter(k => k.parentAgentId === a.agentId && k.status === 'running') : []
   return Math.max(lastSeen(a), ...kids.map(k => heardAt(k, list, at, depth + 1)))
 }
+// How old a streaming agent's sign of life may get before it is stamped again.
+const STAMP_STALE_MS = 30_000
 const isDueCheckIn = (a: AgentRun, list: readonly AgentRun[], at: number): boolean => isHolding(a) && at - Math.max(heardAt(a, list, at), a.checkedInAt ?? 0) >= CHECKIN_MS
 // Flagged quiet and still running: a finished agent is never drawn as stuck.
 const isQuiet = (a: AgentRun): boolean => a.status === 'running' && Boolean(a.isStuck)
@@ -3279,7 +3343,10 @@ const mermaidAlt = (src: string): string => {
   return clip(`Flowchart${names.length ? ` of ${names.length} steps: ${names.join(', ')}` : ''}`, 300)
 }
 const TIP_H = 21
-const tokenHeight = (r: TokenReport): number => 46 + statGridHeight(3) + Math.max(1, r.tips.length) * TIP_H + 10
+// The tips' room only grows: a tip that comes and goes would move every card under it.
+let tipRowsSeen = 1
+const tipRows = (r: TokenReport): number => (tipRowsSeen = Math.max(tipRowsSeen, Math.min(3, r.tips.length)))
+const tokenHeight = (r: TokenReport): number => 46 + statGridHeight(3) + tipRows(r) * TIP_H + 10
 
 const tokenSvg = (W: number, r: TokenReport, isWatching: boolean): string => {
   const H = tokenHeight(r)
@@ -3665,6 +3732,8 @@ type HudData = {
   status: string
   activity: string
   progress: number | null
+  /** The progress as a function of the time, when it is a guess that climbs with it. */
+  progressAt?: (t: number) => number
   isWorking: boolean
   isParty: boolean
   ctxPct: number
@@ -3690,12 +3759,14 @@ type HudData = {
   effort: string
   folder: string
   taskMs: number
+  /** When the task's clock started: the band's clock ticks inside the image from it. */
+  taskFrom?: number
   /** The timekeeper's reading for the job: time used and its budget. */
   budget?: { usedMs: number; min: number }
   /** How many background tasks and wake-ups the engine last listed: a chip in the header. */
   bg: number
   /** Line 6: the turn, the speed, what the turn and the session cost, the cache's hour. */
-  session: { turn: number; speed: number | null; turnCost: number; total: number; cacheLeft: number | null; isBusy: boolean }
+  session: { turn: number; speed: number | null; turnCost: number; total: number; cacheLeft: number | null; isBusy: boolean; cacheUntil?: number | null }
 }
 
 // A pulse line that runs left to right while work goes on: a heartbeat.
@@ -3749,8 +3820,11 @@ ${egg ? heatStars(rx + 178, 43, burnStars(d.burnPerMin), egg) : ''}
 <text x="${rx + 188}" y="33" font-family="${FONT}" font-size="12" font-weight="800" fill="${MOOD_COLOR[burnMood(d.burnPerMin)]}" font-variant-numeric="tabular-nums">${fmtTokens(d.burnPerMin)}</text>`
   // The gauge: the real share when there is one, else a scanner sweeping while it works.
   const gaugeY = 31
+  const climb = d.progressAt
   const gauge =
-    pct !== null
+    pct !== null && climb
+      ? liveSegmentBar(left, gaugeY, barW, d.at, t => Math.round(climb(t) * 100), c.accent)
+      : pct !== null
       ? `${segmentBar(left, gaugeY, barW, pct, d.isParty ? c.done : c.accent).replace(/height="8"/g, 'height="7"')}`
       : `<rect x="${left}" y="${gaugeY}" width="${barW}" height="7" rx="1" class="k"/>${d.isWorking ? `<rect class="scan" x="${left}" y="${gaugeY}" width="${Math.round(barW * 0.22)}" height="7" rx="1" fill="${c.accent}"/>` : ''}`
   const css = `<style>
@@ -3808,7 +3882,9 @@ ${egg ? relicText(left, 20, fitText(d.title, 13, titleW), `font-family="${FONT}"
 <text class="s" x="${left + titleW + pillW + 18}" y="20" font-family="${FONT}" font-size="11.5">${xml(fitText(d.activity ? `▸ ${d.activity}` : '', 11.5, Math.max(0, W - right - (left + titleW + pillW + 18) - 8)))}</text>
 ${gauge}
 ${shine}
-<text class="t" x="${left + barW + 8}" y="${gaugeY + 7}" font-family="${FONT}" font-size="12" font-weight="800" font-variant-numeric="tabular-nums">${pct === null ? (d.isWorking ? '···' : '') : `${pct}%`}</text>
+${pct !== null && climb
+  ? liveText(left + barW + 8, gaugeY + 7, d.at, 12, `class="t" font-family="${FONT}" font-size="12" font-weight="800" font-variant-numeric="tabular-nums"`, t => `${Math.round(climb(t) * 100)}%`)
+  : `<text class="t" x="${left + barW + 8}" y="${gaugeY + 7}" font-family="${FONT}" font-size="12" font-weight="800" font-variant-numeric="tabular-nums">${pct === null ? (d.isWorking ? '···' : '') : `${pct}%`}</text>`}
 ${d.isWorking ? heartbeat(left + barW + 44, gaugeY + 3, 22, c.accent2) : ''}
 ${hasReadouts ? `<line x1="${W - right}" y1="9" x2="${W - right}" y2="${HUD_TOP - 7}" stroke="${c.line}"/>
 ${readouts}` : ''}
@@ -3863,7 +3939,10 @@ ${hasSkinChip ? `<rect x="${sx}" y="${y - 10}" width="${skinW}" height="13" rx="
 ${crewW ? `<rect class="live" x="${cx}" y="${y - 10}" width="${crewW}" height="13" rx="2" fill="${c.accent}"/><text x="${cx + crewW / 2}" y="${y - 0.5}" text-anchor="middle" font-family="${FONT}" font-size="9.5" font-weight="800" letter-spacing=".4" fill="${inkOn(c.accent)}"><title>${xml(d.crewMode)}</title>${crewLabel}</text>` : ''}
 ${bgW ? `<rect x="${bx}" y="${y - 10}" width="${bgW}" height="13" rx="2" fill="none" stroke="${c.accent}" stroke-opacity=".8"/><text x="${bx + bgW / 2}" y="${y - 0.5}" text-anchor="middle" font-family="${FONT}" font-size="9.5" font-weight="800" letter-spacing=".4" fill="${c.accent}"><title>${d.bg} ${xml(tr().bgBand)}</title>${bgLabel}</text>` : ''}
 <text class="s" x="${mx2}" y="${y}" font-family="${FONT}" font-size="11">${xml(fitText(model, 11, Math.max(0, (hasBreach ? breachX : W - rightW - 14) - mx2 - 16)))}</text>
-<text class="m" x="${W - 14}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${d.budget && clock ? budgetClock(parts, clock, d.budget) : xml(right)}</text>
+${!d.budget && clock && d.taskFrom
+  ? // The seconds tick inside the image: the band is not drawn again for them.
+    liveText(W - 14, y, d.at, 11, `class="m" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums"`, t => [...parts.slice(0, -1), `⏱\uFE0E ${fmtTime(Math.max(0, t - (d.taskFrom ?? t)))}`].join('   '))
+  : `<text class="m" x="${W - 14}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${d.budget && clock ? budgetClock(parts, clock, d.budget) : xml(right)}</text>`}
 <line x1="12" y1="${HUD_HEAD + 0.5}" x2="${W - 12}" y2="${HUD_HEAD + 0.5}" stroke="${c.line}"/>`
 }
 
@@ -3980,17 +4059,26 @@ const hudLines = (W: number, d: HudData): string => {
   }
   if (!hasCache) return out.join('\n')
   const cacheTone = ss.isBusy || left === null ? c.accent2 : left <= 600 ? c.alert : left <= 1200 ? c.warn : c.accent2
-  const cacheText = ss.isBusy ? 'warm' : left === null ? '—' : left === 0 ? 'expired' : left > 600 ? `${Math.ceil(left / 60)} min` : `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`
+  const cacheText = cacheTextOf(ss.isBusy, left)
   const share = ss.isBusy ? 1 : left === null ? 0 : left / (CACHE_TTL_MS / 1000)
   const barW = 64
   const bx = W - 14 - barW
   const tw = textWidth(cacheText, 12)
+  // Draining, the countdown and the bar move inside the image: no redraw each second.
+  const until = !ss.isBusy && left ? ss.cacheUntil : null
+  const leftAt = (t: number) => Math.max(0, Math.floor(((until ?? t) - t) / 1000))
+  const valueAttrs = `text-anchor="end" font-family="${FONT}" font-size="12" font-weight="800" font-variant-numeric="tabular-nums"`
+  const live = until ? liveWidth(d.at, t => barW * Math.min(1, leftAt(t) / (CACHE_TTL_MS / 1000))) : null
   out.push(`<text class="m" x="${bx - 8 - tw - 10}" y="${y6 + 14}" text-anchor="end" font-family="${FONT}" font-size="9.5" letter-spacing=".4">⧗ CACHE</text>
-<text x="${bx - 8}" y="${y6 + 14}" text-anchor="end" font-family="${FONT}" font-size="12" font-weight="800" fill="${cacheTone}" font-variant-numeric="tabular-nums">${cacheText}</text>
+${until ? liveText(bx - 8, y6 + 14, d.at, 12, valueAttrs, t => cacheTextOf(false, leftAt(t)), cacheTone) : `<text x="${bx - 8}" y="${y6 + 14}" ${valueAttrs} fill="${cacheTone}">${cacheText}</text>`}
 <rect class="k" x="${bx}" y="${y6 + 8}" width="${barW}" height="5" rx="1"/>
-<rect x="${bx}" y="${y6 + 8}" width="${(barW * Math.max(0, Math.min(1, share))).toFixed(1)}" height="5" rx="1" fill="${cacheTone}"${left !== null && left <= 600 && !ss.isBusy ? ' class="live"' : ''}/>`)
+<rect x="${bx}" y="${y6 + 8}" width="${live ? live.start : (barW * Math.max(0, Math.min(1, share))).toFixed(1)}" height="5" rx="1" fill="${cacheTone}"${left !== null && left <= 600 && !ss.isBusy ? ' class="live"' : ''}>${live ? live.animate : ''}</rect>`)
   return out.join('\n')
 }
+
+// The cache's reading: "warm" while a turn runs, its minutes, then its last ten as mm:ss.
+const cacheTextOf = (isBusy: boolean, left: number | null): string =>
+  isBusy ? 'warm' : left === null ? '—' : left === 0 ? 'expired' : left > 600 ? `${Math.ceil(left / 60)} min` : `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`
 
 const sessionAlt = (e: Env, rules: string[]): string =>
   `${splitCwd(e.cwd).name}, ${e.model ? modelName(e.model) + ', ' : ''}context ${e.contextPct}%, ${e.connectors.length} connectors, ${rules.length} answer rules`
@@ -4221,6 +4309,169 @@ async function startJob($: EngineInterface, asked: string): Promise<void> {
   if (reason) $.ui.toast(`🦀 Big job (${reason}): summoning the crew`)
 }
 
+// What the band draws, from the state: one reading for its drawing and for the tick,
+// so the tick moves exactly when the drawing would change. `isFull` reads what only
+// the desktop's picture shows.
+type BandInput = {
+  reported: Flow | null
+  boss: Manager
+  all: AgentRun[]
+  info: Env
+  bg: Background
+  watch?: Watch
+  sess?: SessionStats
+  day?: Today
+}
+const bandInput = async ($: EngineInterface, isFull: boolean): Promise<BandInput> => ({
+  reported: await read($, flow),
+  boss: await read($, manager),
+  all: await read($, agents),
+  info: await read($, env),
+  bg: await read($, background),
+  ...(isFull ? { watch: await read($, watch), sess: await read($, session), day: await read($, today) } : {}),
+})
+
+const bandView = (i: BandInput, bandAt: number, isWorkingProp: boolean) => {
+  const { reported } = i
+  const info = liveEnv(i.info, bandAt)
+  const bandBoss = i.boss
+  const f = reported ?? idleFlow()
+  const tkBand = bandBudget(bandBoss, bandAt)
+  const list = visibleCrew(i.all, bandBoss, bandAt)
+  const crew = list.length + plannedOf(f, list).length
+  const isWorking = isWorkingProp || list.some(a => a.status === 'running')
+  const bgCount = i.bg.tasks.length + i.bg.crons.length
+  // A job over but held open by background work reads "Waiting on N", never idle or done.
+  const waitingOn = !isWorking && bandBoss.task && !bandBoss.doneAt ? bgBlocking(i.bg).length : 0
+  const idleText = reported ? undefined : isWorking ? tr().working : waitingOn ? tr().bgWaiting(waitingOn) : tr().idle
+  const base = { list, info, crew, isWorking, bgCount, waitingOn, idleText, tkBand }
+  if (!i.watch || !i.sess || !i.day) return { ...base, hud: undefined }
+  const sess = i.sess
+  const boss = managerView(bandBoss, bandAt)
+  const isParty = (bandBoss.celebrateUntil ?? 0) > bandAt
+  const report = tokenReport(info, list, bandBoss, i.watch, bandAt)
+  noteTypicalRun(list)
+  const bandSteps = workSteps(reported, list, boss, bandAt)
+  const five = (info.limits ?? []).find(l => l.kind === 'five_hour')
+  const hud: HudData = {
+    // A cast's boss goes by their own name.
+    title: reported ? f.title : (SKIN.cast ? CASTS[SKIN.cast]?.bossName : undefined) ?? 'Claude',
+    status: isParty ? 'Done!' : reported ? label(f) : isWorking ? 'Working' : waitingOn ? tr().bgWait : outcomeWord(bandBoss) || 'Idle',
+    // The manager's own tool while its turn runs, else what a running agent does.
+    activity: isWorking ? boss.activity || (list.find(a => a.status === 'running' && a.activity)?.activity ?? '') : waitingOn ? tr().bgWaiting(waitingOn) : boss.task ? '' : 'Waiting for your next request',
+    progress: reported ? ratio(f) : isWorking ? managerProgress(null, list, boss, bandAt) : isParty ? 1 : null,
+    progressAt: !reported && isWorking && !isParty ? managerEstimate(null, list, boss, bandAt) : undefined,
+    isWorking,
+    isParty,
+    ctxPct: info.contextPct,
+    limitPct: five ? five.percentUsed : null,
+    burnPerMin: report.burnPerMin,
+    mood: report.mood,
+    crew: list
+      .slice(-24)
+      .map(a => ({ costume: costumeFor(a), color: runRoleColor(a), status: a.status })),
+    roles: [...new Set(list.map(runRole))].map(role => {
+      const members = list.filter(a => runRole(a) === role)
+      return { role, color: members[0] ? runRoleColor(members[0]) : SKIN.colors.accent, count: members.length }
+    }),
+    steps: bandSteps.map(st => st.state),
+    stepText: (bandSteps.find(st => st.state === 'running') ?? bandSteps.find(st => st.state === 'waiting') ?? bandSteps.at(-1))?.title.replace(/^\d+\.\s*/, '') ?? '',
+    tip: report.tips[0] ?? { level: 0, text: 'Lean and on budget ✓' },
+    today: todayOn(i.day, bandAt),
+    crewMode: sess.crewMode ?? '',
+    at: bandAt,
+    model: info.model ? modelName(info.model) : '',
+    effort: info.effort ? effortWord(info.effort) : '',
+    folder: (info.cwd ?? '').split(/[\\/]/).filter(Boolean).at(-1) ?? '',
+    taskMs: isWorking && boss.startedAt ? Math.max(0, bandAt - boss.startedAt) : 0,
+    taskFrom: isWorking && boss.startedAt ? boss.startedAt : undefined,
+    budget: tkBand,
+    bg: bgCount,
+    session: {
+      turn: sess.turn,
+      speed: sess.speed,
+      turnCost: Math.max(0, info.costUsd - sess.costAtStart),
+      total: info.costUsd,
+      cacheLeft: sess.cacheUntil === null ? null : Math.max(0, Math.floor((sess.cacheUntil - bandAt) / 1000)),
+      // The main conversation's cache: a background agent's requests do not keep it warm.
+      isBusy: isWorkingProp || sess.isBusy,
+      cacheUntil: sess.cacheUntil,
+    },
+  }
+  return { ...base, hud }
+}
+
+// The band's reading of the time, as drawn: what self-ticking strips show is left out
+// (they hold for their minute), what a second can change is kept as the band words it.
+const bandReading = (v: ReturnType<typeof bandView>, at: number): string => {
+  const hud = v.hud
+  if (!hud) return JSON.stringify([v.crew, v.isWorking, v.idleText, v.tkBand && [budgetLabel(v.tkBand.usedMs, v.tkBand.min), budgetTone(v.tkBand.usedMs, v.tkBand.min)]])
+  const ss = hud.session
+  const left = ss.cacheLeft
+  const cache = ss.isBusy || left === null || left === 0 ? cacheTextOf(ss.isBusy, left) : [left > 600, left > 1200]
+  // A strip covers its wall minute: while one is drawn, each minute is a new drawing.
+  const hasStrip = Boolean((!hud.budget && hud.taskMs > 0) || (!ss.isBusy && left) || hud.progressAt)
+  return JSON.stringify([
+    hasStrip || eggOf() ? wallMinute(at) : 0,
+    dayOf(at),
+    {
+      ...hud,
+      at: 0,
+      taskMs: hud.taskMs > 0,
+      taskFrom: 0,
+      budget: hud.budget && [budgetLabel(hud.budget.usedMs, hud.budget.min), budgetTone(hud.budget.usedMs, hud.budget.min)],
+      session: { ...ss, cacheLeft: cache },
+      // A climbing guess steps inside the image: only news moves the reading.
+      progress: hud.progressAt ? 'live' : hud.progress === null ? null : Math.round(hud.progress * 100),
+      progressAt: 0,
+    },
+  ])
+}
+
+// The pane's reading of the time, as its pictures word it: the minute while a strip
+// runs, and every label or threshold a second can move (a reset's minutes, a budget's
+// tone, the burn, the clearing after the cheer).
+const paneReading = (all: AgentRun[], rawBoss: Manager, info: Env, w: Watch, bg: Background, at: number, isLive: boolean): string => {
+  const list = visibleCrew(all, rawBoss, at)
+  const boss = managerView(rawBoss, at)
+  info = liveEnv(info, at)
+  const report = tokenReport(info, list, boss, w, at)
+  const usedOf = (a: AgentRun) => elapsed(a, at)
+  return JSON.stringify([
+    isLive ? wallMinute(at) : 0,
+    dayOf(at),
+    isCleared(rawBoss, at),
+    (rawBoss.celebrateUntil ?? 0) > at,
+    (info.limits ?? []).map(l => [resetLabel(l.resetsAt, at), resetsIn(l.resetsAt, at)]),
+    report.mood,
+    report.tips.map(tp => tp.text),
+    fmtTokens(report.burnPerMin),
+    report.burnPerMin > 150_000,
+    bg.at ? bgAgo(bg.at, at) : '',
+    list.map(a => [a.isStuck ? Math.floor((at - (a.lastProgressAt ?? a.startedAt)) / 60_000) : 0, a.budgetMin ? budgetTone(usedOf(a), a.budgetMin) : '']),
+    boss.budgetMin && boss.task && boss.startedAt ? budgetTone((boss.doneAt ?? at) - boss.startedAt, boss.budgetMin) : '',
+  ])
+}
+
+// Moves the band's and the pane's ticks when, and only when, what they draw from the
+// time reads differently: a second passing alone draws nothing on the desktop.
+// Handed what the tick already read. The rest is read every few seconds: a write
+// redraws its readers by itself, so the tick only has to catch what the time moves.
+const TICK_READ_EVERY = 5
+let restTicks = 0
+let tickRead: { reported: Flow | null; info: Env; w: Watch; n: number } | null = null
+async function retick($: EngineInterface, at: number, isLive: boolean, got: Pick<BandInput, 'boss' | 'all' | 'bg' | 'sess'>): Promise<void> {
+  if (!tickRead || ++tickRead.n >= TICK_READ_EVERY) {
+    const [reported, info, w] = await Promise.all([read($, flow), read($, env), read($, watch)])
+    tickRead = { reported, info, w, n: 0 }
+  }
+  const { reported, info, w } = tickRead
+  // Today's counts are data, never the time's: left out of the reading.
+  const band = bandView({ ...got, reported, info, watch: w, day: BLANK_TODAY }, at, isLive)
+  if (isNewReading('band', bandReading(band, at))) await update($, bandTick, () => at)
+  if (isNewReading('pane', paneReading(got.all, got.boss, info, w, got.bg, at, isLive))) await update($, paneTick, () => at)
+}
+
 export const register: Register = (on, options) => {
   timekeeperHooks(on)
   on('session.start', async ($, e, next) => {
@@ -4241,6 +4492,8 @@ export const register: Register = (on, options) => {
         const isLive = boss.isWorking || st.isBusy || isRunning || isParty || isCacheClose
         if (isLive || at - last >= 60_000) await update($, now, () => at)
         await keepTime($, at)
+        // At rest only minute labels move: a look every few seconds is soon enough.
+        if (isLive || ++restTicks % TICK_READ_EVERY === 0) await retick($, at, isLive, { boss, all: list, bg, sess: st }).catch(() => undefined)
         const due = CACHE_WARN_MIN.filter(m => left !== null && left > 0 && left <= m * 60)
         if (due.length && !st.isBusy) {
           const minutes = Math.min(...due)
@@ -4625,7 +4878,11 @@ export const register: Register = (on, options) => {
       if (e.agentId && chunkAt - stampedAt >= 10_000) {
         stampedAt = chunkAt
         const id = e.agentId
-        await update($, agents, list => (list.some(a => a.agentId === id) ? list.map(a => (a.agentId === id ? { ...a, lastProgressAt: chunkAt, isStuck: false } : a)) : list)).catch(() => undefined)
+        // Each stamp redraws the crew, and a fresh one is not drawn: stamp only once the
+        // last sign of life is half a minute old, well inside the alarm's two minutes.
+        const run = (await read($, agents).catch(() => [] as AgentRun[])).find(a => a.agentId === id)
+        if (run && (run.isStuck || chunkAt - lastSeen(run) >= STAMP_STALE_MS))
+          await update($, agents, list => (list.some(a => a.agentId === id) ? list.map(a => (a.agentId === id ? { ...a, lastProgressAt: chunkAt, isStuck: false } : a)) : list)).catch(() => undefined)
       }
       yield step.value
       step = await stream.next()
@@ -4820,7 +5077,10 @@ export const register: Register = (on, options) => {
     const boss = managerView(rawBoss, clockNow)
     const f = await read($, flow)
     const p: Panel = await read($, panel)
-    const at = Math.max(await read($, now), ...list.map(a => a.startedAt), 0)
+    // The desktop's tick moves only when what the pane draws from the time changes;
+    // its clocks tick inside the images. The terminal's text clocks read each second.
+    const isPicture = e.surface === 'desktop' && 'Svg' in ui
+    const at = isPicture ? ((await read($, paneTick)), clockNow) : Math.max(await read($, now), ...list.map(a => a.startedAt), 0)
 
     const running = list.filter(a => a.status === 'running').reverse()
     const finished = list.filter(a => a.status !== 'running').reverse()
@@ -4852,9 +5112,12 @@ export const register: Register = (on, options) => {
     const legends = cleanLegends(await $.store.get('legends').catch(() => []))
     const prefs = await read($, settings)
     const tkNow = await read($, timekeeper)
-    const streetCred = await read($, cred)
-    const beats = await read($, timeline)
-    const pick = await read($, bdPick)
+    // Only the cyberpunk skins draw these: elsewhere each tool call's replay beat
+    // would draw the pane again for nothing.
+    const hasEggs = Boolean(eggOf())
+    const streetCred = hasEggs ? await read($, cred) : BLANK_CRED
+    const beats = hasEggs ? await read($, timeline) : []
+    const pick = hasEggs ? await read($, bdPick) : -1
     const report = tokenReport(info, list, boss, tw, clockNow)
     const org = orgTree(list, boss, clockNow, report.mood)
     const bgList = await read($, background)
@@ -4889,8 +5152,10 @@ export const register: Register = (on, options) => {
     const isEmpty = list.length === 0 && planned.length === 0
     const summary = `≈${fmtCost(t.cost)}, ${fmtTokens(t.tokens)} ${s.tokensWord}, ${fmtTime(t.time)}`
 
-    if (e.surface === 'desktop' && 'Svg' in ui) {
+    if (isPicture && 'Svg' in ui) {
       const { Svg } = ui
+      // Each card keeps its source while it reads the same: no new image, no restart.
+      const keep = <T,>(tree: T): T => steadyTree(tree, `pane:${e.surface}`, clockNow)
       const W = Math.max(240, Math.min(900, (e.props.bodyColumns || 40) * 8 - 8))
       // Section labels in the skin's colours; the classic skins keep the app's dim grey.
       const section = (key: string, text: string) =>
@@ -4921,7 +5186,7 @@ export const register: Register = (on, options) => {
       // keeps the crew's picture and offers the ways back to the full view.
       const compactView = (picture?: string) => (
         <Box flexDirection="column" gap={1} alignItems={align} {...(SKIN.backdrop.fill ? { backgroundColor: SKIN.backdrop.fill } : {})}>
-          <Svg source={compactSvg(W, list, planned, t)} alt={`${list.length} ${s.agentsCount}${quietCount ? `, ⚠ ${quietCount} quiet` : ''}, ${summary}`} width={W} height={32} />
+          <Svg source={compactSvg(W, list, planned, t, clockNow)} alt={`${list.length} ${s.agentsCount}${quietCount ? `, ⚠ ${quietCount} quiet` : ''}, ${summary}`} width={W} height={32} />
           {picture === undefined ? (
             toggleCompact
           ) : (
@@ -4937,7 +5202,7 @@ export const register: Register = (on, options) => {
           <Svg source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} width={W} height={sessionHeight(W, info, rules)} />
         </Box>
       )
-      if (p.isCompact) return compactView()
+      if (p.isCompact) return keep(compactView())
       const egg = eggOf()
       // A skin with a backdrop paints the pane body behind the cards.
       const fill = SKIN.backdrop.fill
@@ -4984,7 +5249,7 @@ export const register: Register = (on, options) => {
             ) : null}
             <Box key="workflow" marginBottom={1}>
               <Svg
-                source={workflowSvg(W, f, steps)}
+                source={workflowSvg(W, f, steps, clockNow)}
                 alt={`Workflow: ${steps.map(st => `${st.title} ${st.state}`).join(', ') || 'nothing running'}`}
                 width={W}
                 height={workflowHeight(steps)}
@@ -5033,7 +5298,7 @@ export const register: Register = (on, options) => {
             ) : null}
             <Svg
               key="manager"
-              source={managerSvg(W, bossCard, info, title, t, list.length, clockNow, managerProgress(f, list, boss, clockNow), waitingOn)}
+              source={managerSvg(W, bossCard, info, title, t, list.length, clockNow, managerProgress(f, list, boss, clockNow), waitingOn, managerEstimate(f, list, boss, clockNow))}
               alt={`Manager: ${boss.task || 'idle'}${bossCard.isWorking ? ', working' : waitingOn ? `, ${s.bgWaiting(waitingOn)}` : outcomeWord(boss) ? `, ${outcomeWord(boss).toLowerCase()}` : ''}. ${summary}`}
               width={W}
               height={managerHeight(info)}
@@ -5145,7 +5410,7 @@ export const register: Register = (on, options) => {
       const rich = orgSource(W, org)
       const view = full(rich, tree, [])
       const size = drawnChars(view)
-      if (size <= DRAW_MAX) return view
+      if (size <= DRAW_MAX) return keep(view)
       const fold = new Set(
         tree.flatMap((r, i) => {
           if (r.kind !== 'agent' || !r.folded) return []
@@ -5159,14 +5424,14 @@ export const register: Register = (on, options) => {
       const done = tree.flatMap(r => (r.kind === 'agent' && !kept.has(r.a.id) ? [r.a] : []))
       const slim = fold.size ? full(rich, shown, done) : view
       const slimSize = fold.size ? drawnChars(slim) : size
-      if (slimSize <= DRAW_MAX) return slim
+      if (slimSize <= DRAW_MAX) return keep(slim)
       const light = orgSvg(W, org, true)
-      if (size - rich.length + light.length <= DRAW_MAX) return full(light, tree, [])
-      if (slimSize - rich.length + light.length <= DRAW_MAX) return full(light, shown, done)
+      if (size - rich.length + light.length <= DRAW_MAX) return keep(full(light, tree, []))
+      if (slimSize - rich.length + light.length <= DRAW_MAX) return keep(full(light, shown, done))
       const short = compactView(rich)
-      if (drawnChars(short) <= DRAW_MAX) return short
+      if (drawnChars(short) <= DRAW_MAX) return keep(short)
       const shorter = compactView(light)
-      return drawnChars(shorter) <= DRAW_MAX ? shorter : compactView('')
+      return keep(drawnChars(shorter) <= DRAW_MAX ? shorter : compactView(''))
     }
 
     // Terminal: the same content in text rows.
@@ -5778,19 +6043,13 @@ export const register: Register = (on, options) => {
 
     const ui = $.ui.resolve(e)
     const { Box, Text, Button } = ui
-    const bandBoss = await read($, manager)
-    await read($, now) // the tick: redraws the band's clocks
+    // The tick: it moves only when something drawn from the time changes, so a
+    // second passing alone draws nothing.
+    await read($, bandTick)
     const bandAt = await $.clock.now().catch(() => 0)
-    const tkBand = bandBudget(bandBoss, bandAt)
-    const list = visibleCrew(await read($, agents), bandBoss, bandAt)
-    const info = liveEnv(await read($, env), bandAt)
-    const crew = list.length + plannedOf(f, list).length
-    const isWorking = e.props.isWorking || list.some(a => a.status === 'running')
-    const bgNow = await read($, background)
-    const bgCount = bgNow.tasks.length + bgNow.crons.length
-    // A job over but held open by background work reads "Waiting on N", never idle or done.
-    const waitingOn = !isWorking && bandBoss.task && !bandBoss.doneAt ? bgBlocking(bgNow).length : 0
-    const idleText = reported ? undefined : isWorking ? tr().working : waitingOn ? tr().bgWaiting(waitingOn) : tr().idle
+    const isDesktop = e.surface !== 'terminal' && 'Svg' in ui
+    const band = bandView(await bandInput($, isDesktop), bandAt, e.props.isWorking)
+    const { list, info, crew, isWorking, bgCount, waitingOn, idleText, tkBand } = band
     const text = idleText ?? label(f)
     // The desktop draws a Button's label, not its children, in a slot about 96px wide
     // beside the band: a long label spilled out of it. Keep both labels short.
@@ -5808,57 +6067,9 @@ export const register: Register = (on, options) => {
     ) : null
 
     // The terminal's element table is completed with an `Svg` that draws nothing: test the surface too.
-    if (e.surface !== 'terminal' && 'Svg' in ui) {
+    if (isDesktop && 'Svg' in ui && band.hud) {
       const { Svg } = ui
-      const boss = managerView(bandBoss, bandAt)
-      const isParty = (bandBoss.celebrateUntil ?? 0) > bandAt
-      const report = tokenReport(info, list, bandBoss, await read($, watch), bandAt)
-      noteTypicalRun(list)
-      const bandSteps = workSteps(reported, list, boss, bandAt)
-      const sess = await read($, session)
-      const five = (info.limits ?? []).find(l => l.kind === 'five_hour')
-      const hud: HudData = {
-        // A cast's boss goes by their own name.
-        title: reported ? f.title : (SKIN.cast ? CASTS[SKIN.cast]?.bossName : undefined) ?? 'Claude',
-        status: isParty ? 'Done!' : reported ? label(f) : isWorking ? 'Working' : waitingOn ? tr().bgWait : outcomeWord(bandBoss) || 'Idle',
-        // The manager's own tool while its turn runs, else what a running agent does.
-        activity: isWorking ? boss.activity || (list.find(a => a.status === 'running' && a.activity)?.activity ?? '') : waitingOn ? tr().bgWaiting(waitingOn) : boss.task ? '' : 'Waiting for your next request',
-        progress: reported ? ratio(f) : isWorking ? managerProgress(null, list, boss, bandAt) : isParty ? 1 : null,
-        isWorking,
-        isParty,
-        ctxPct: info.contextPct,
-        limitPct: five ? five.percentUsed : null,
-        burnPerMin: report.burnPerMin,
-        mood: report.mood,
-        crew: list
-          .slice(-24)
-          .map(a => ({ costume: costumeFor(a), color: runRoleColor(a), status: a.status })),
-        roles: [...new Set(list.map(runRole))].map(role => {
-          const members = list.filter(a => runRole(a) === role)
-          return { role, color: members[0] ? runRoleColor(members[0]) : SKIN.colors.accent, count: members.length }
-        }),
-        steps: bandSteps.map(st => st.state),
-        stepText: (bandSteps.find(st => st.state === 'running') ?? bandSteps.find(st => st.state === 'waiting') ?? bandSteps.at(-1))?.title.replace(/^\d+\.\s*/, '') ?? '',
-        tip: report.tips[0] ?? { level: 0, text: 'Lean and on budget ✓' },
-        today: todayOn(await read($, today), bandAt),
-        crewMode: sess.crewMode ?? '',
-        at: bandAt,
-        model: info.model ? modelName(info.model) : '',
-        effort: info.effort ? effortWord(info.effort) : '',
-        folder: (info.cwd ?? '').split(/[\\/]/).filter(Boolean).at(-1) ?? '',
-        taskMs: isWorking && boss.startedAt ? Math.max(0, bandAt - boss.startedAt) : 0,
-        budget: tkBand,
-        bg: bgCount,
-        session: {
-          turn: sess.turn,
-          speed: sess.speed,
-          turnCost: Math.max(0, info.costUsd - sess.costAtStart),
-          total: info.costUsd,
-          cacheLeft: sess.cacheUntil === null ? null : Math.max(0, Math.floor((sess.cacheUntil - bandAt) / 1000)),
-          // The main conversation's cache: a background agent's requests do not keep it warm.
-          isBusy: e.props.isWorking || sess.isBusy,
-        },
-      }
+      const hud = band.hud
       // About 8 CSS px per reported column; the rest is the count, the dismiss
       // and their gaps. No floor above the slot: a row wider than it would wrap.
       const width = Math.max(180, Math.min(1600, (e.props.bodyColumns || 100) * 8 - 96))
@@ -5870,10 +6081,10 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column">
           <Box flexDirection={isRtl() ? 'row-reverse' : 'row'} alignItems="center" gap={1}>
-            <Svg source={(() => {
+            <Svg source={steady(`band:${e.surface}`, (() => {
               const full = hudBandSvg(Math.round(width / bandScale), hud)
               return full.length < 120_000 ? full : hudBandSvg(Math.round(width / bandScale), { ...hud, lite: true })
-            })().replace(/^<svg([^>]*?) width="[^"]*" height="[^"]*"/, `<svg$1 width="${width}" height="${bandH}"`)} alt={`${hud.title}: ${hud.status}${hud.activity ? `, ${hud.activity}` : ''}${hud.progress === null ? '' : `, ${Math.round(hud.progress * 100)}%`}, context ${info.contextPct}%${bgCount ? `, ${bgCount} ${tr().bgBand}` : ''}`} width={width} height={bandH} />
+            })().replace(/^<svg([^>]*?) width="[^"]*" height="[^"]*"/, `<svg$1 width="${width}" height="${bandH}"`), bandAt)} alt={`${hud.title}: ${hud.status}${hud.activity ? `, ${hud.activity}` : ''}${hud.progress === null ? '' : `, ${Math.round(hud.progress * 100)}%`}, context ${info.contextPct}%${bgCount ? `, ${bgCount} ${tr().bgBand}` : ''}`} width={width} height={bandH} />
             <Box flexDirection="column" gap={1} alignItems="center">
               {/* The app draws a Button's children as-is: keep them to a glyph and the count. */}
               {crewButton}

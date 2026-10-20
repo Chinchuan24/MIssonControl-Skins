@@ -209,6 +209,10 @@ declare module 'claude-code' {
       agents: AgentRun[]
       panel: Panel
       now: number
+      /** The band's tick: moves only when something the band draws from the time changes. */
+      bandTick: number
+      /** The pane's tick, the same for Mission Control's desktop drawing. */
+      paneTick: number
       /** The person's answer-style rules, mirrored from `$.store` for drawing. */
       memory: string[]
       env: Env
