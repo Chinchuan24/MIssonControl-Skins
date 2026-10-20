@@ -1647,10 +1647,25 @@ ${tile(0, s.cost, '≈' + fmtCost(t.cost))}${tile(1, s.tokens, fmtTokens(t.token
 
 const headerHeight = (title: string): number => (title ? 72 : 44)
 
-// The task's own progress when the worker reports steps; a finished run is full.
-const progressOf = (a: AgentRun): number | null => {
+// How long a sub-agent usually runs: the median of this session's finished ones.
+let typicalRunMs = 120_000
+const noteTypicalRun = (list: readonly AgentRun[]): void => {
+  const runs = list.filter(a => a.status === 'done' && a.endedAt).map(a => (a.endedAt as number) - a.startedAt).sort((x, y) => x - y)
+  typicalRunMs = runs.length ? Math.max(30_000, runs[Math.floor(runs.length / 2)] as number) : 120_000
+}
+
+// A running agent that reports no steps: a guess from its time against the typical
+// run, about 70% at the typical length, never past 95% until it finishes.
+const isEstimated = (a: AgentRun): boolean => a.status === 'running' && !a.stepTotal
+const estimateOf = (a: AgentRun, at: number): number =>
+  Math.min(0.95, 1 - Math.exp((-1.2 * Math.max(0, (a.endedAt ?? Math.max(at, a.startedAt)) - a.startedAt)) / typicalRunMs))
+
+// The task's own progress when the worker reports steps; a finished run is full;
+// a running one without steps is estimated when the time is known.
+const progressOf = (a: AgentRun, at?: number): number | null => {
   if (a.status === 'done') return 1
   if (a.stepTotal) return Math.min(1, (a.stepDone ?? 0) / a.stepTotal)
+  if (a.status === 'running' && at) return estimateOf(a, at)
   return null
 }
 
@@ -1729,9 +1744,9 @@ const statGrid = (x: number, y: number, w: number, stats: Stat[]): string => {
 
 // A progress bar with its percent; `null` while running draws a sweeping segment.
 const PROGRESS_H = 26
-const progressBar = (x: number, y: number, w: number, pct: number | null, color: string, isRunning: boolean, label = 'Progress'): string => {
+const progressBar = (x: number, y: number, w: number, pct: number | null, color: string, isRunning: boolean, label = 'Progress', isEstimate = false): string => {
   const barW = w - 52
-  const shown = pct === null ? (isRunning ? 'working' : '—') : `${Math.round(pct * 100)}%`
+  const shown = pct === null ? (isRunning ? 'working' : '—') : `${isEstimate ? '~' : ''}${Math.round(pct * 100)}%`
   const fill =
     pct === null
       ? isRunning
@@ -1754,8 +1769,8 @@ const agentStats = (a: AgentRun, at: number): Stat[] => [
 const AGENT_INNER_H = 50 + statGridHeight(6) + PROGRESS_H + 8
 
 // What share of its own work an agent has done: its reported steps, or whole once finished.
-const agentProgress = (a: AgentRun): number | null => {
-  const p = progressOf(a)
+const agentProgress = (a: AgentRun, at: number): number | null => {
+  const p = progressOf(a, at)
   if (p !== null) return p
   return a.status === 'running' ? null : 1
 }
@@ -1779,7 +1794,7 @@ const agentSvg = (W: number, a: AgentRun, at: number, hasRule = true): string =>
 <text class="t" x="42" y="18" font-family="${FONT}" font-size="13" font-weight="600">${xml(fitText(a.description || a.type, 13, textW))}</text>
 <text x="42" y="35" font-family="${FONT}" font-size="11"><tspan fill="${color}">${xml(sub[0] ?? '')}</tspan><tspan class="s">${xml(fitText(sub.slice(1).map(x => `  ·  ${x}`).join(''), 11, textW - 60))}</tspan></text>
 ${statGrid(42, 46, W - 42 - 6, agentStats(a, at))}
-${progressBar(42, 46 + statGridHeight(6), W - 42 - 6, agentProgress(a), color, a.status === 'running')}
+${progressBar(42, 46 + statGridHeight(6), W - 42 - 6, agentProgress(a, at), color, a.status === 'running', 'Progress', isEstimated(a))}
 ${statusMark(W - 8, 16, a.status, color)}
 ${hasRule ? `<line class="ln" x1="0" y1="${H - 0.5}" x2="${W}" y2="${H - 0.5}"/>` : ''}`,
   )
@@ -2366,19 +2381,19 @@ const treePrefix = (r: TreeRow): string =>
 type StepState = 'done' | 'running' | 'failed' | 'waiting'
 type WorkStep = { key: string; title: string; color: string; state: StepState; progress: number | null; note: string }
 
-const stepOfRun = (a: AgentRun): Pick<WorkStep, 'state' | 'progress' | 'note'> => ({
+const stepOfRun = (a: AgentRun, at?: number): Pick<WorkStep, 'state' | 'progress' | 'note'> => ({
   state: a.status === 'running' ? 'running' : a.status === 'failed' ? 'failed' : 'done',
-  progress: progressOf(a),
+  progress: progressOf(a, at),
   note: a.stepNote ?? '',
 })
 
-const workSteps = (f: Flow | null, list: AgentRun[], boss: Manager): WorkStep[] => {
+const workSteps = (f: Flow | null, list: AgentRun[], boss: Manager, at?: number): WorkStep[] => {
   if (f && !f.isFinished && f.tasks.length) {
     return f.tasks.map((t, i) => {
       const run = [...list].reverse().find(a => norm(a.description) === norm(t.title))
       const tier = t.tier in TIER_COLOR ? t.tier : 'other'
       const base = { key: `task-${i}`, title: `${i + 1}. ${t.title}`, color: colorOf(tier) }
-      return run ? { ...base, ...stepOfRun(run) } : { ...base, state: 'waiting' as const, progress: null, note: '' }
+      return run ? { ...base, ...stepOfRun(run, at) } : { ...base, state: 'waiting' as const, progress: null, note: '' }
     })
   }
   if (boss.plan?.length) {
@@ -2394,7 +2409,7 @@ const workSteps = (f: Flow | null, list: AgentRun[], boss: Manager): WorkStep[] 
   const top = crewOrder(list, false)
     .filter(a => !a.parentAgentId)
     .slice(0, 8)
-  if (top.length) return top.map(a => ({ key: a.id, title: a.description || a.type, color: runRoleColor(a), ...stepOfRun(a) }))
+  if (top.length) return top.map(a => ({ key: a.id, title: a.description || a.type, color: runRoleColor(a), ...stepOfRun(a, at) }))
   if (boss.task) {
     return [{ key: 'main', title: boss.task, color: ACCENT, state: boss.isWorking ? 'running' : 'done', progress: boss.isWorking ? null : 1, note: '' }]
   }
@@ -3593,13 +3608,13 @@ export const register: Register = (on, options) => {
     if ((e.args ?? '').trim() === 'open') {
       const at = await $.clock.now()
       await update($, now, () => at)
-      await $.ui.open({ id: PANE, title: SKIN.tabs.mission })
-      return { text: tr().opened }
+      const shown = await $.ui.open({ id: PANE, title: SKIN.tabs.mission })
+      return { text: shown.isPlaced ? tr().opened : `Mission Control is open but not shown: ${shown.reason}` }
     }
     const at = await $.clock.now()
     await update($, now, () => at)
-    await $.ui.open({ id: PANE, title: SKIN.tabs.mission })
-    return { text: tr().opened }
+    const shown = await $.ui.open({ id: PANE, title: SKIN.tabs.mission })
+    return { text: shown.isPlaced ? tr().opened : `Mission Control is open but not shown: ${shown.reason}` }
   })
 
   on('tool.call', { tool: TOOL }, async ($, e) => {
@@ -3927,7 +3942,8 @@ export const register: Register = (on, options) => {
         else set.add(id)
         return { ...prev, expanded: [...set].slice(-50) }
       })
-    const steps = workSteps(f, list, boss)
+    noteTypicalRun(allAgents)
+    const steps = workSteps(f, list, boss, clockNow)
     const tw = await read($, watch)
     const every = await read($, allTime)
     const day = await read($, today)
@@ -4184,7 +4200,7 @@ export const register: Register = (on, options) => {
       const tier = tierOf(a.type)
       const color = colorOf(tier)
       const ctx = ctxOf(a)
-      const progress = progressOf(a)
+      const progress = progressOf(a, at)
       const model = runModel(a)
       const steps = a.stepTotal ? `${a.stepDone ?? 0}/${a.stepTotal}${a.stepNote ? ' ' + a.stepNote : ''} · ` : ''
       return (
@@ -4777,7 +4793,8 @@ export const register: Register = (on, options) => {
       const boss = managerView(bandBoss, bandAt)
       const isParty = (bandBoss.celebrateUntil ?? 0) > bandAt
       const report = tokenReport(info, list, bandBoss, await read($, watch), bandAt)
-      const bandSteps = workSteps(reported, list, boss)
+      noteTypicalRun(list)
+      const bandSteps = workSteps(reported, list, boss, bandAt)
       const sess = await read($, session)
       const five = (info.limits ?? []).find(l => l.kind === 'five_hour')
       const hud: HudData = {
