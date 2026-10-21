@@ -80,6 +80,7 @@ Claude works in steps, calls tools and spins up sub-agents. Mission Control show
 - 🧪 **Readouts**: context, 5-hour limit, burn rate, tok/s, turn and total cost, prompt-cache countdown
 - 👥 **Crew** and 🪜 **Steps**: every sub-agent by role, the plan as pips
 - 💸 **Token Manager**: cost per task, cache hits, budget warnings; optional **Haiku autopilot** for read-only explorers
+- 🧊 **Smart Keep-Warm**: refreshes the prompt cache just before it expires, only when that saves more than it costs (`/tokens warm on`)
 - 🚀 **Crew mode**: big jobs get split across sub-agents automatically
 - 🚨 **Stuck alarm** (2 min quiet) and 🔔 **done chime** (toast, notification, sound)
 - 🧾 **Rich replies**: diffs, code, tables, math and mermaid as cards
@@ -96,10 +97,27 @@ Claude works in steps, calls tools and spins up sub-agents. Mission Control show
 | **Today** | Tasks, agents, tokens and cost |
 | **Workflow** | The plan's steps, live |
 | **Manager** | The boss card: model, effort, sub-agents, cost and time |
-| **Token Manager** | Burn rate, cost per task, cache hits, budget warnings, optional Haiku autopilot |
+| **Token Manager** | Burn rate, cost per task, cache hits, budget warnings, optional Haiku autopilot and Smart Keep-Warm |
 | **Crew** | Every agent by role (finished ones fold away), plus a hierarchy from the manager down |
 | **Memory** | Answer rules Claude follows in every session (`/prefs`) |
 | **Settings** | ☑ open on start · ☑ crew mode · currency · ☑ sounds · change skin |
+
+</details>
+
+<details>
+<summary><b>🧊 Smart Keep-Warm, how it works</b></summary>
+<br>
+
+Claude's prompt cache keeps your conversation for an hour after each answer. Reading it costs about a tenth of the normal price; once it expires, your next prompt pays to write the whole conversation again (about 2× the normal price). Keep-Warm sends one tiny side request a few minutes before the hour runs out, so the cache stays warm.
+
+- 🙈 **Never in your chat**: the refresh is a side request over your own conversation; nothing is added to it.
+- 🧮 **Only when it pays**: it goes out only when the expected saving beats its cost by at least $0.05. Small conversations are left alone.
+- 🏃 **Knows when you'll be back**: while agents or background tasks still run, you're sure to return, so it keeps going (up to 12 refreshes). Idle, it stops after 3 (about four more warm hours).
+- 🗜️ **Skips a dying context**: at 85%+ context a `/compact` is coming, which rewrites the cache anyway.
+- 📊 **Shows its work**: each refresh's cost and saving in a toast and in the Token Manager; `/tokens` totals them.
+- ⏸️ **Pauses itself** if a refresh finds the cache already gone, until your next prompt.
+
+Off by default: turn it on with `/tokens warm on`. On a Pro or Max plan there's no per-token bill, so each refresh uses a little quota instead; the gain is mostly speed.
 
 </details>
 
@@ -260,7 +278,7 @@ Expand-Archive -Force "$env:USERPROFILE\Downloads\cyberpunk-skins-addon.zip" -De
 | `/skins` | The skin picker, every skin as a live preview |
 | `/skin` | `/skin` to list, `/skin <id>` to switch, `/skin off`, `/skin reload` |
 | `/autocrew` | Crew mode: state, `on`, `off`, or `<context %>` to call the crew |
-| `/tokens` | Token Manager report, `budget <dollars\|off>`, `autopilot <on\|off>` |
+| `/tokens` | Token Manager report, `budget <dollars\|off>`, `autopilot <on\|off>`, `warm <on\|off>` (Smart Keep-Warm) |
 | `/prefs` | How Claude should answer you, in every session: `add <rule>`, `remove <n>`, `clear` |
 
 ---
@@ -273,6 +291,7 @@ Expand-Archive -Force "$env:USERPROFILE\Downloads\cyberpunk-skins-addon.zip" -De
 - `hooks/cast.ts`: the pixel casts
 - `hooks/eggs.ts`: the easter eggs
 - `hooks/richtext.ts`: diffs, tables, math and mermaid in replies
+- `hooks/warm.ts`: Smart Keep-Warm's arithmetic (when a refresh pays)
 - Tests: `claude plugin test /path/to/MIssonControl-Skins` (and `claude plugin validate …`)
 - `.claude-plugin/types/` is generated on each machine by the CLI and is git-ignored.
 
@@ -281,6 +300,7 @@ Expand-Archive -Force "$env:USERPROFILE\Downloads\cyberpunk-skins-addon.zip" -De
 ## 🙏 Credits and license
 
 - Started from **savvy-progress** by [johnnyvizz](https://github.com/johnnyvizz) ([claude-kit](https://github.com/johnnyvizz/claude-kit), MIT), since heavily reworked. Its copyright notice is kept in [LICENSE](LICENSE).
+- Smart Keep-Warm was inspired by **cache-warmer** by [paulbkim-dev](https://github.com/paulbkim-dev) ([claude-code-cache-warmer](https://github.com/paulbkim-dev/claude-code-cache-warmer), MIT), itself after [Pi](https://github.com/earendil-works/pi)'s cache warmer: the side-request refresh, the expected-value rule and the idle limit. Mission Control's version is its own code, built into the Token Manager.
 - Character designs and pixel art: most were created by [Chinchuan24](https://github.com/Chinchuan24) with [Higgsfield](https://higgsfield.ai), then converted to sprite grids. The Crab Classic crab is based on Pixel Clawd from DockCrab (Clawdy). The done chime (`assets/done.wav`) was synthesised for this project.
 - **Open source under the [MIT License](LICENSE)**: use it, fork it, remix it. Game and show names, characters and terms are not covered.
 

@@ -138,6 +138,21 @@ export type Watch = {
   promptAll: number
   autopilot: boolean
   budgetUsd: number
+  /** Smart Keep-Warm: refreshes the prompt cache before it lapses (/tokens warm on). */
+  warm: KeepWarm
+}
+
+export type KeepWarm = {
+  on: boolean
+  /** Refreshes since the last prompt, while idle and while work ran in the background. */
+  idle: number
+  busy: number
+  /** Why warming stopped until the next prompt; empty while it runs. */
+  halted: string
+  /** This session: refreshes sent, what they cost, and what they saved against a rewrite. */
+  count: number
+  spentUsd: number
+  savedUsd: number
 }
 
 /** Tokens per model over every session: seeded once from the history files, then kept up. */
@@ -154,6 +169,9 @@ export type SessionStats = {
   costAtStart: number
   /** When the prompt cache goes cold, an hour after the last answer. */
   cacheUntil: number | null
+  /** The main thread's last request: its prompt size and model, what a refresh would read. */
+  promptTokens?: number
+  model?: string
   /** Seconds left on it, kept by the clock so the band redraws. */
   cacheLeft: number | null
   isBusy: boolean

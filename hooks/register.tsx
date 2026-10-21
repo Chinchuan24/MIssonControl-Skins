@@ -8,6 +8,7 @@ import { BEATS_KEPT, BLANK_CRED, BOOT_H, award, rockerRankOf, bdHeight, bootStri
 import type { Beat, Cred } from './extras'
 import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, unifiedDiff } from './richtext'
 import { LIVE_N, glide, isNewReading, isSame, liveText, liveWidth, pin, steady, steadyTree, wallMinute } from './smooth'
+import { WARM_PROMPT, WARM_TAG, isWarmDue, isWarmed, warmCall, warmLimitHit } from './warm'
 import type { AgentRun, AgentStatus, AllTime, Background, BgCron, BgTask, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Today, Watch } from '../types'
 import type { On } from 'claude-code'
 import type { Timekeeper } from '../types'
@@ -31,7 +32,8 @@ const BLANK_ENV: Env = { cwd: '', model: '', surface: '', contextPct: 0, context
 const env = atom({ plugin: 'crab-progress', key: 'env' } as const, BLANK_ENV)
 const BLANK_MANAGER: Manager = { task: '', isWorking: false, startedAt: 0 }
 const manager = atom({ plugin: 'crab-progress', key: 'manager' } as const, BLANK_MANAGER)
-const BLANK_WATCH: Watch = { burn: [], cacheRead: 0, promptAll: 0, autopilot: false, budgetUsd: 0 }
+const BLANK_WARM: Watch['warm'] = { on: false, idle: 0, busy: 0, halted: '', count: 0, spentUsd: 0, savedUsd: 0 }
+const BLANK_WATCH: Watch = { burn: [], cacheRead: 0, promptAll: 0, autopilot: false, budgetUsd: 0, warm: BLANK_WARM }
 const watch = atom({ plugin: 'crab-progress', key: 'watch' } as const, BLANK_WATCH)
 const BLANK_TODAY: Today = { date: '', tasks: 0, agents: 0, tokens: 0, costUsd: 0 }
 const today = atom({ plugin: 'crab-progress', key: 'today' } as const, BLANK_TODAY)
@@ -3309,6 +3311,8 @@ const tokenReport = (info: Env, list: AgentRun[], boss: Manager, w: Watch, at: n
   if (cachedPct !== null && cachedPct < 50) tips.push({ level: 1, text: `Only ${cachedPct}% cached: long pauses and early edits break the cache` })
   if (running.length > 6) tips.push({ level: 0, text: `${running.length} agents at once: each re-reads its own context` })
   if (w.autopilot) tips.push({ level: 0, text: 'Autopilot on: explorers run on Haiku' })
+  const kw = w.warm ?? BLANK_WARM
+  if (kw.on) tips.push({ level: 0, text: kw.halted ? `Keep-warm paused: ${kw.halted}` : kw.count ? `Keep-warm: ${kw.count} refresh${kw.count === 1 ? '' : 'es'}, saved ≈${fmtCost(Math.max(0, kw.savedUsd))}` : 'Keep-warm on: the cache is refreshed before it lapses' })
   const mood = tips.reduce<0 | 1 | 2>((m, tp) => (tp.level > m ? tp.level : m), 0)
   if (!tips.some(tp => tp.level > 0)) tips.unshift({ level: 0, text: 'Lean and on budget ✓' })
   return { mood, tips: tips.sort((a, b) => b.level - a.level).slice(0, 3), burnPerMin, taskTokens, taskCost, cachedPct, budget: w.budgetUsd }
@@ -3316,6 +3320,49 @@ const tokenReport = (info: Env, list: AgentRun[], boss: Manager, w: Watch, at: n
 
 let MOOD_COLOR: readonly [string, string, string] = ['#5fbf8f', '#E9B44C', '#E5675E']
 const MOOD_WORD = ['Healthy', 'Watch it', 'Act now'] as const
+
+// --- Smart Keep-Warm (hooks/warm.ts): one side request over the session's own
+// transcript, shortly before the hour-long cache lapses. The fork's turn is left
+// out of the session's counts; a prompt resets the refreshes; a lapsed or refused
+// refresh pauses it until the next prompt.
+const warmTurns = new Set<string>()
+let isRefreshing = false
+
+async function keepWarm($: EngineInterface): Promise<void> {
+  if (isRefreshing) return
+  isRefreshing = true
+  const halt = (why: string, spent = 0) => update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), halted: why, spentUsd: (prev.warm ?? BLANK_WARM).spentUsd + spent } }))
+  try {
+    const [st, w, list, bg, info] = await Promise.all([read($, session), read($, watch), read($, agents), read($, background), read($, env)])
+    const kw = w.warm ?? BLANK_WARM
+    if (!kw.on || kw.halted || !st.promptTokens || !st.model) return
+    // Work still running is a sure return; its own requests do not warm the main cache.
+    const isLikely = list.some(a => a.status === 'running') || bg.tasks.length + bg.crons.length > 0
+    if (warmLimitHit(isLikely, kw.idle, kw.busy)) return void (await halt(isLikely ? 'refresh limit reached' : 'idle limit reached'))
+    const call = warmCall(priceOf(st.model, st.promptTokens), st.promptTokens, isLikely, info.contextPct)
+    if (!call.isWarm) return void (await halt(call.reason ?? 'does not pay'))
+    const reply = await $.model.fork({ prompt: WARM_PROMPT }).catch((err: unknown) => (err instanceof Error ? err : new Error(String(err))))
+    if (reply instanceof Error) return void (await halt(`refused: ${clip(reply.message, 40)}`))
+    if (!reply.isAnswered && reply.reason === 'nothing-to-fork') return void (await halt('nothing to refresh'))
+    const usage = reply.usage
+    const cost = costOf(st.model, usage, true)
+    const at = await $.clock.now()
+    if (!isWarmed(usage.cache_read_input_tokens || 0, st.promptTokens)) {
+      await halt(reply.isAnswered ? 'the cache had already lapsed' : `refresh failed (${reply.reason})`, cost)
+      $.ui.toast(`🧊 Keep-warm: the cache had lapsed · ${fmtCost(cost)}`, { timeoutMs: 15000 })
+      return
+    }
+    const saved = call.missUsd - cost
+    await update($, session, prev => ({ ...prev, cacheUntil: at + CACHE_TTL_MS, cacheLeft: CACHE_TTL_MS / 1000, warned: 0 }))
+    await update($, watch, prev => {
+      const p = prev.warm ?? BLANK_WARM
+      return { ...prev, warm: { ...p, idle: p.idle + (isLikely ? 0 : 1), busy: p.busy + (isLikely ? 1 : 0), count: p.count + 1, spentUsd: p.spentUsd + cost, savedUsd: p.savedUsd + saved } }
+    })
+    $.ui.toast(`🧊 Cache kept warm · ${fmtCost(cost)} · saves ≈${fmtCost(Math.max(0, saved))} on your next prompt`, { timeoutMs: 15000 })
+  } finally {
+    isRefreshing = false
+  }
+}
 // The band's HEAT stars and its burn readout both read the burn rate: none while
 // nothing burns, five past 150k tokens a minute, the token manager's own line.
 const burnStars = (perMin: number): number => (perMin <= 0 ? 0 : perMin < 20_000 ? 1 : perMin < 50_000 ? 2 : perMin < 100_000 ? 3 : perMin <= 150_000 ? 4 : 5)
@@ -4499,9 +4546,11 @@ export const register: Register = (on, options) => {
           const minutes = Math.min(...due)
           if (st.warned === 0 || st.warned > minutes) {
             await update($, session, prev => ({ ...prev, warned: minutes }))
-            $.ui.toast(`⧗ Prompt cache expires in ${Math.ceil((left ?? 0) / 60)} min`, { timeoutMs: 30000 })
+            const isWarming = (await read($, watch)).warm?.on
+            $.ui.toast(`⧗ Prompt cache expires in ${Math.ceil((left ?? 0) / 60)} min${isWarming ? '' : ' · /tokens warm on keeps it warm'}`, { timeoutMs: 30000 })
           }
         }
+        if (!st.isBusy && isWarmDue(st.cacheUntil, at) && (await read($, watch)).warm?.on) void keepWarm($).catch(() => undefined)
         // Check in about agents that have been silent an hour: the job stays open, the
         // person decides. Once per quiet hour per agent.
         // A report no main turn came to answer lets the job finish after all.
@@ -4633,12 +4682,13 @@ export const register: Register = (on, options) => {
     }).catch(() => undefined)
     await $.command.register({
       name: 'tokens',
-      description: 'Token Manager: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>',
+      description: 'Token Manager: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>',
     }).catch(() => undefined)
     await startTimekeeper($).catch(() => undefined)
     const autopilot = (await $.store.get('autopilot').catch(() => false)) === true
     const budget = Number(await $.store.get('budgetUsd').catch(() => 0)) || 0
-    await update($, watch, prev => ({ ...prev, autopilot, budgetUsd: budget }))
+    const keepWarmOn = (await $.store.get('keepWarm').catch(() => false)) === true
+    await update($, watch, prev => ({ ...prev, autopilot, budgetUsd: budget, warm: { ...(prev.warm ?? BLANK_WARM), on: keepWarmOn } }))
     if (!isReload) await loadAllTime($)
     const savedDay = (await $.store.get('today').catch(() => undefined)) as Today | undefined
     const startedAt = await $.clock.now()
@@ -4852,7 +4902,14 @@ export const register: Register = (on, options) => {
 
   // Each model request of a subagent: live context, tokens and cost.
   on('turn.start', async ($, e, next) => {
+    // Keep-Warm's own refresh is no turn of the session's: nothing to count.
+    if (!e.agentId && (e.text ?? '').startsWith(WARM_TAG)) {
+      warmTurns.add(e.turnId)
+      return next(e)
+    }
     if (!e.agentId) {
+      // A prompt: the refreshes count again from zero.
+      await update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), idle: 0, busy: 0, halted: '' } }))
       const total = (await $.session.usage().catch(() => null))?.cost?.usd ?? (await read($, env)).costUsd
       await update($, session, prev => ({ ...prev, turn: prev.turn + 1, costAtStart: total, isBusy: true }))
       // A slash command's turn is its job; any other main turn is the manager at work.
@@ -4866,6 +4923,7 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.step', async function* ($, e, next) {
+    if (warmTurns.has(e.turnId)) return yield* next(e)
     // Timed from the response's first chunk, so the wait for the first token is left out.
     const stream = next(e)
     let firstAt: number | null = null
@@ -4915,6 +4973,11 @@ export const register: Register = (on, options) => {
       }
     }
     if (!agentId) {
+      if (usage) {
+        const promptTokens = (usage.input_tokens || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0)
+        const model = usage.model || e.model
+        if (promptTokens && model) await update($, session, prev => ({ ...prev, promptTokens, model }))
+      }
       await refreshEnv($)
       const egg = eggOf()
       const ctx = (await read($, env)).contextPct
@@ -4974,6 +5037,7 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.complete', async ($, e, next) => {
+    if (warmTurns.delete(e.turnId)) return next(e)
     const agentId = e.agentId
     if (!agentId) {
       const doneAt = await $.clock.now()
@@ -5820,8 +5884,18 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'tokens' }, async ($, e) => {
     const [verb = '', arg = ''] = (e.args ?? '').trim().split(/\s+/)
     // Anything but a report, a budget or autopilot on|off gets the usage line.
-    if ((verb && verb !== 'autopilot' && verb !== 'budget') || (verb === 'autopilot' && arg && arg !== 'on' && arg !== 'off')) {
-      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>' }
+    if ((verb && verb !== 'autopilot' && verb !== 'budget' && verb !== 'warm') || ((verb === 'autopilot' || verb === 'warm') && arg && arg !== 'on' && arg !== 'off')) {
+      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>' }
+    }
+    if (verb === 'warm') {
+      const isOn = arg !== 'off'
+      await $.store.set('keepWarm', isOn)
+      await update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), on: isOn, halted: '' } }))
+      return {
+        text: isOn
+          ? 'Keep-warm on: a small side request refreshes the prompt cache before it lapses, only when it should save more than it costs. It never enters the chat. On a Pro or Max plan it uses a little quota instead of money.'
+          : 'Keep-warm off.',
+      }
     }
     if (verb === 'autopilot') {
       const isOn = arg !== 'off'
@@ -5837,11 +5911,16 @@ export const register: Register = (on, options) => {
       return { text: dollars ? `Budget set: ${fmtCost(dollars)} per task. The Token Manager warns at 80% and 100%.` : 'Budget off.' }
     }
     const at = await $.clock.now()
-    const r = tokenReport(liveEnv(await read($, env), at), await read($, agents), await read($, manager), await read($, watch), at)
+    const watched = await read($, watch)
+    const r = tokenReport(liveEnv(await read($, env), at), await read($, agents), await read($, manager), watched, at)
     return {
       text: [
         `Token Manager: ${MOOD_WORD[r.mood]}`,
         `Burn ${fmtTokens(r.burnPerMin)}/min · this task ${fmtTokens(r.taskTokens)} (≈${fmtCost(r.taskCost)})${r.cachedPct === null ? '' : ` · ${r.cachedPct}% cached`}`,
+        ...(() => {
+          const kw = (watched.warm ?? BLANK_WARM)
+          return kw.on ? [`Keep-warm on · ${kw.count} refresh${kw.count === 1 ? '' : 'es'} · spent ≈${fmtCost(kw.spentUsd)} · saved ≈${fmtCost(Math.max(0, kw.savedUsd))}${kw.halted ? ` · paused: ${kw.halted}` : ''}`] : []
+        })(),
         ...r.tips.map(tp => `${['✓', '!', '‼'][tp.level]} ${tp.text}`),
       ].join('\n'),
     }
