@@ -2,3 +2,15 @@
 # apps, connectors and paths. Regenerate them locally; never commit them.
 .claude-plugin/types/
 dist/
+
+# macOS litter
+.DS_Store
+._*
+__MACOSX/
+
+# Windows litter
+Thumbs.db
+desktop.ini
+
+# Local Claude Code session data
+.claude/

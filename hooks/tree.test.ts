@@ -36,7 +36,7 @@ const lines = async ($: Engine): Promise<string[]> => {
 test('sub-agents sit under their role, under the manager', async ($, on) => {
   await crew($, on, [
     { type: 'Explore', description: 'Map the repo' },
-    { type: 'savvy-heavy', description: 'Find the bug' },
+    { type: 'mc-heavy', description: 'Find the bug' },
     { type: 'Explore', description: 'Read the tests' },
   ])
   const all = (await lines($)).join('\n')
@@ -47,7 +47,7 @@ test('sub-agents sit under their role, under the manager', async ($, on) => {
 
 test('an agent started by a sub-agent nests under that sub-agent', async ($, on) => {
   await crew($, on, [
-    { type: 'savvy-heavy', description: 'Lead the fix' },
+    { type: 'mc-heavy', description: 'Lead the fix' },
     { type: 'Explore', description: 'Helper search', parent: 'a1' },
   ])
   const all = (await lines($)).join('\n')
@@ -87,7 +87,7 @@ test('the manager card shows the session and weekly limits', async ($, on) => {
 })
 
 test('each agent row names its model, effort and tokens used', async ($, on) => {
-  await crew($, on, [{ type: 'savvy-careful', description: 'Refactor the parser' }])
+  await crew($, on, [{ type: 'mc-careful', description: 'Refactor the parser' }])
   const all = (await lines($)).join('\n')
   expect(all).toMatch(/Opus 5\.5 · effort high · 0 tokens used/)
 })

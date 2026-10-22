@@ -48,7 +48,7 @@ test('a full crew, plan and usage still draw Mission Control', async ($, on) => 
   ]
   for (const [i, [t, d, p]] of spawns.entries())
     await $.agent.spawn({ tool_use_id: `t${i}`, prompt: 'p', description: d, subagentType: t, provider: 'engine', parentModel: 'x', parentAgentId: p, background: false, fork: false } as never)
-  for (let i = 1; i <= 7; i++) await $.turn.complete({ agentId: `a${i}`, reason: 'answer' } as never)
+  for (let i = 1; i <= 7; i++) await $.turn.complete({ agentId: `a${i}`, reason: 'answer', answer: 'ok' } as never)
 
   for (const surface of ['desktop', 'terminal'] as const) {
     const ui = await $.ui.mount({ plugin: 'crab-progress', surface, component: 'Pane', requestId: 'crab-agents', props: pane })
