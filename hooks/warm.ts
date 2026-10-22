@@ -19,7 +19,7 @@ export const MIN_SAVINGS_USD = 0.05
 export const IDLE_CHANCE = 0.15
 /** A refresh's reply is a word, but a thinking model spends a little before it. */
 export const WARM_OUTPUT_TOKENS = 200
-/** Idle refreshes per prompt: with the hour-long cache, about four more warm hours. */
+/** Idle refreshes per prompt: with the hour-long cache, close to three more warm hours. */
 export const IDLE_LIMIT = 3
 /** Refreshes per prompt while agents or background tasks still run. */
 export const BUSY_LIMIT = 12

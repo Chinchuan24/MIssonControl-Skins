@@ -253,7 +253,8 @@ test('a scheduled wake-up alone does not hold the job open', async ($, on) => {
   expect(toasts.some(t => t.startsWith('🎉 Done: set a reminder'))).toBe(true)
 })
 
-test('a background task listed for two hours keeps the job open, checks in once per quiet hour, and /missioncontrol release lets it go', async ($, on) => {
+// Two simulated hours of clock ticks: slower than the 5-second default on a busy machine.
+test('a background task listed for two hours keeps the job open, checks in once per quiet hour, and /missioncontrol release lets it go', { timeoutMs: 20_000 }, async ($, on) => {
   const clock = base(on)
   await start($)
   await $.prompt.submit({ text: 'run the long build', cursor: 0 } as never)

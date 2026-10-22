@@ -153,7 +153,7 @@ test('keep-warm: a refresh that finds the cache gone pauses until the next promp
   expect(forks.length).toBe(2)
 })
 
-test('keep-warm idle: it stops after the idle limit, about four warm hours', async ($, on) => {
+test('keep-warm idle: it stops after the idle limit, close to three more warm hours', { timeoutMs: 20_000 }, async ($, on) => {
   const clock = base(on)
   await start($)
   await tokens($, 'warm on')

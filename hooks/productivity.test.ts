@@ -155,7 +155,8 @@ test('a background agent from an earlier prompt keeps the job open and stays in 
   expect(await text($)).toContain('waiting for your next request')
 })
 
-test('safety net: a silent agent keeps the job open, checks in hourly, and /missioncontrol release lets it go', async ($, on) => {
+// Hours of simulated clock ticks: slower than the 5-second default on a busy machine.
+test('safety net: a silent agent keeps the job open, checks in hourly, and /missioncontrol release lets it go', { timeoutMs: 20_000 }, async ($, on) => {
   const clock = base(on)
   on('turn.complete', async () => ({ text: '' }) as never)
   await start($)

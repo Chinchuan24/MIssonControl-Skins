@@ -112,7 +112,7 @@ Claude's prompt cache keeps your conversation for an hour after each answer. Rea
 
 - 🙈 **Never in your chat**: the refresh is a side request over your own conversation; nothing is added to it.
 - 🧮 **Only when it pays**: it goes out only when the expected saving beats its cost by at least $0.05. Small conversations are left alone.
-- 🏃 **Knows when you'll be back**: while agents or background tasks still run, you're sure to return, so it keeps going (up to 12 refreshes). Idle, it stops after 3 (about four more warm hours).
+- 🏃 **Knows when you'll be back**: while agents or background tasks still run, you're sure to return, so it keeps going (up to 12 refreshes). Idle, it stops after 3 (close to three more warm hours).
 - 🗜️ **Skips a dying context**: at 85%+ context a `/compact` is coming, which rewrites the cache anyway.
 - 📊 **Shows its work**: each refresh's cost and saving in a toast and in the Token Manager; `/tokens` totals them.
 - ⏸️ **Pauses itself** if a refresh finds the cache already gone, until your next prompt.
@@ -223,6 +223,7 @@ Copy an example, give it a new `id`, edit it, then run `/skin reload` and `/skin
   ```
   git clone https://github.com/Chinchuan24/MIssonControl-Skins.git
   ```
+  A clone has no `mission-control/` folder: point Claude Code at the cloned `MIssonControl-Skins/` folder itself (it holds `.claude-plugin/`).
 
 **2. Point Claude Code at the folder** in `~/.claude/settings.json` (Windows: `C:\Users\<you>\.claude\settings.json`):
 
