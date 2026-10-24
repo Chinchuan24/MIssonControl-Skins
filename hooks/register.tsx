@@ -507,10 +507,18 @@ const connectorsOf = (tools: readonly string[]): string[] => {
   return [...new Set(named)].sort().concat(linked ? [`${linked} claude.ai`] : [])
 }
 
+const ENV_EVERY_MS = 1000
 // One at a time, in order: two readings racing could count the same spend twice.
 let envQueue: Promise<unknown> = Promise.resolve()
+// When the last reading was taken, and whether a push came in since that waits for the tick.
+let envReadAt = -Infinity
+let isEnvStale = false
 function refreshEnv($: EngineInterface, isBaseline = false): Promise<void> {
-  const run = envQueue.then(() => refreshEnvNow($, isBaseline))
+  isEnvStale = false
+  const run = envQueue.then(async () => {
+    envReadAt = await $.clock.now().catch(() => envReadAt)
+    return refreshEnvNow($, isBaseline)
+  })
   envQueue = run.catch(() => undefined)
   return run.catch(() => undefined)
 }
@@ -2692,7 +2700,7 @@ const liveSegmentBar = (x: number, y: number, w: number, at: number, pctAt: (t: 
   for (let i = 1; i < LIVE_N; i++) {
     const t = t0 + i * 1000
     const next = litOf(pctAt(t))
-    for (; lit < next; lit++) later.push(`<rect x="${(x + lit * (sw + gap)).toFixed(1)}" y="${y}" width="${sw.toFixed(1)}" height="7" rx="1" fill="${tone}" opacity="0"><set attributeName="opacity" to="1" begin="${pin(t)}s" fill="freeze"/></rect>`)
+    for (; lit < next; lit++) later.push(`<rect x="${(x + lit * (sw + gap)).toFixed(1)}" y="${y}" width="${sw.toFixed(1)}" height="7" rx="1" fill="${tone}" opacity="0"><set attributeName="opacity" to="1" begin="${pin(t)}" fill="freeze"/></rect>`)
   }
   return `${segmentBar(x, y, w, pctAt(t0), tone).replace(/height="8"/g, 'height="7"')}${later.join('')}`
 }
@@ -4634,6 +4642,7 @@ export const register: Register = (on, options) => {
         const isCacheClose = st.cacheUntil !== null && left !== null && left <= 600 && !st.isBusy && last < st.cacheUntil
         const isLive = boss.isWorking || st.isBusy || isRunning || isParty || isCacheClose
         if (isLive || at - last >= 60_000) await update($, now, () => at)
+        if (isEnvStale) await refreshEnv($)
         await keepTime($, at)
         // At rest only minute labels move: a look every few seconds is soon enough.
         if (isLive || ++restTicks % TICK_READ_EVERY === 0) await retick($, at, isLive, { boss, all: list, bg, sess: st }).catch(() => undefined)
@@ -5127,9 +5136,14 @@ export const register: Register = (on, options) => {
   })
 
   // The engine says the usage moved (a sub-agent's spend, a limit window): read it now.
+  // A busy crew pushes one after each request, right after the step that already read
+  // it: a push within a second of the last reading waits for the tick's (one a second).
   on('session.measure', async ($, e, next) => {
     const measured = await next(e)
-    await refreshEnv($)
+    const at = await $.clock.now().catch(() => Infinity)
+    const since = at - envReadAt
+    if (since >= 0 && since < ENV_EVERY_MS) isEnvStale = true
+    else await refreshEnv($)
     return measured
   })
 

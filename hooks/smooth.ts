@@ -62,6 +62,56 @@ const GLIDE = /@@G([\w-]+):(-?[\d.]+)@@/g
 export const glide = (id: string, width: number): string => `@@G${id.replace(/[^\w-]/g, '_')}:${Math.round(width * 10) / 10}@@`
 const glides = (content: string): Map<string, string> => new Map([...content.matchAll(GLIDE)].map(m => [m[1] ?? '', m[2] ?? '']))
 
+// --- fewer bytes for the same picture.
+
+const STYLE = /<style>([\s\S]*?)<\/style>/g
+const RULE = /[^{}]+\{[^{}]*\}/g
+const FAMILY = / font-family="([^"]*)"/g
+
+/**
+ * The same drawing in fewer bytes: each new source is sent to the desktop and decoded
+ * there, so a big crew's every redraw paid for kilobytes nothing reads. Rules whose
+ * every selector starts with a class the markup never uses are dropped (a card with no
+ * crab carries no crab CSS), and a drawing set in one font names it once, on its root.
+ */
+export const compact = (content: string): string => {
+  if (!content.startsWith('<svg')) return content
+  const markup = content.replace(STYLE, '')
+  const used = new Set<string>()
+  for (const m of markup.matchAll(/\bclass="([^"]*)"/g)) for (const c of (m[1] ?? '').split(/\s+/)) if (c) used.add(c)
+  const isDead = (rule: string): boolean =>
+    rule
+      .slice(0, rule.indexOf('{'))
+      .split(',')
+      .every(sel => {
+        const m = /^\s*\.([\w-]+)/.exec(sel)
+        return Boolean(m && !used.has(m[1] ?? ''))
+      })
+  let out = content.replace(STYLE, (all, css: string) => {
+    const kept = css
+      .split('\n')
+      .map(line => {
+        const rules = line.match(RULE)
+        return rules && rules.join('') === line ? rules.filter(r => !isDead(r)).join('') : line
+      })
+      .filter(Boolean)
+      .join('\n')
+    return kept.trim() ? `<style>${kept}</style>` : ''
+  })
+  // One font named once: only when it is the only one, attributes and styles alike.
+  const families = new Set([...out.matchAll(FAMILY)].map(m => m[1]))
+  const root = /^<svg\b[^>]*>/.exec(out)?.[0] ?? ''
+  const rootFamily = / font-family="([^"]*)"/.exec(root)?.[1]
+  if (families.size === 1 && !out.includes('font-family:')) {
+    const family = [...families][0] as string
+    if (rootFamily === undefined || rootFamily === family) {
+      const body = out.slice(root.length).split(` font-family="${family}"`).join('')
+      out = `${rootFamily === undefined ? root.replace(/^<svg\b/, `<svg font-family="${family}"`) : root}${body}`
+    }
+  }
+  return out
+}
+
 type Kept = { content: string; source: string; widths: Map<string, string> }
 const kept = new Map<string, Kept>()
 const KEPT_MAX = 400
@@ -75,7 +125,7 @@ export const steady = (slot: string, content: string, at: number): string => {
   const was = kept.get(slot)
   if (was && was.content === content) return was.source
   const widths = glides(content)
-  const source = phased(content, at).replace(GLIDE, (_, id: string, to: string) => {
+  const source = phased(compact(content), at).replace(GLIDE, (_, id: string, to: string) => {
     const from = was?.widths.get(id)
     return from === undefined || from === to
       ? ''
@@ -131,7 +181,7 @@ export const liveText = (x: number, y: number, at: number, size: number, attrs: 
   const lines: string[] = []
   for (let i = 0; i < LIVE_N; i++) lines.push(`<text y="${i * step}"${fill ? ` fill="${fill}"` : ''}>${esc(value(t0 + i * 1000 + 500))}</text>`)
   const name = `lv${step}`
-  return `<svg x="0" y="${r1(y - size * 1.1)}" width="100%" height="${r1(size * 1.5)}" overflow="hidden"><style>@keyframes ${name}{to{transform:translateY(-${(LIVE_N - 1) * step}px)}}</style><g transform="translate(${r1(x)} ${r1(size * 1.1)})" ${attrs}><g style="animation:${name} ${LIVE_N - 1}s steps(${LIVE_N - 1}) forwards;animation-delay:${pin(t0)}s">${lines.join('')}</g></g></svg>`
+  return `<svg x="0" y="${r1(y - size * 1.1)}" width="100%" height="${r1(size * 1.5)}" overflow="hidden"><style>@keyframes ${name}{to{transform:translateY(-${(LIVE_N - 1) * step}px)}}</style><g transform="translate(${r1(x)} ${r1(size * 1.1)})" ${attrs}><g style="animation:${name} ${LIVE_N - 1}s steps(${LIVE_N - 1}) forwards;animation-delay:${pin(t0)}">${lines.join('')}</g></g></svg>`
 }
 
 /** A bar's width over the same minute, sampled each second: it glides as the time goes. */
@@ -140,7 +190,7 @@ export const liveWidth = (at: number, width: (t: number) => number): { start: nu
   const values = Array.from({ length: LIVE_N }, (_, i) => r1(width(t0 + i * 1000)))
   return {
     start: values[0] ?? 0,
-    animate: `<animate attributeName="width" values="${values.join(';')}" dur="${LIVE_N - 1}s" begin="${pin(t0)}s" fill="freeze"/>`,
+    animate: `<animate attributeName="width" values="${values.join(';')}" dur="${LIVE_N - 1}s" begin="${pin(t0)}" fill="freeze"/>`,
   }
 }
 
