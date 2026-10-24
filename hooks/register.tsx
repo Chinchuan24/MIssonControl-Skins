@@ -400,13 +400,15 @@ const timekeeperStatus = async ($: EngineInterface, tk: Timekeeper): Promise<str
   return `Timekeeper on: ${tk.jobMin} min per job, ${tk.agentMin} min per sub-agent, unless the plan gives \`minutes\`.${job}\n${TK_USAGE}`
 }
 
+const TIMEKEEPER_COMMAND = {
+  name: 'timekeeper',
+  description: 'Timekeeper: time budgets for every job and sub-agent. /timekeeper, /timekeeper on|off, /timekeeper job <minutes>, /timekeeper agent <minutes>',
+}
+
 // At session start: the command, and the settings. A reload keeps the alert marks
 // $.state holds; only the settings come from the store.
 async function startTimekeeper($: EngineInterface): Promise<void> {
-  await $.command.register({
-    name: 'timekeeper',
-    description: 'Timekeeper: time budgets for every job and sub-agent. /timekeeper, /timekeeper on|off, /timekeeper job <minutes>, /timekeeper agent <minutes>',
-  }).catch(() => undefined)
+  await $.command.register(TIMEKEEPER_COMMAND).catch(() => undefined)
   const saved = await readTimekeeper($)
   await update($, timekeeper, prev => ({ ...prev, ...saved }))
   if (!saved.on) await clearBudgets($)
@@ -4519,10 +4521,104 @@ async function retick($: EngineInterface, at: number, isLive: boolean, got: Pick
   if (isNewReading('pane', paneReading(got.all, got.boss, info, w, got.bg, at, isLive))) await update($, paneTick, () => at)
 }
 
+// Every slash command and tool Mission Control offers, in one place. session.start runs it
+// first, before anything there that can fail or run long, and the prompt.submit check in
+// `register` runs it again whenever /missioncontrol is missing from the menu (on 25 Oct the
+// commands and both tools vanished mid-session while the Mac was under heavy load, and only
+// a new session brought them back). Registering a name again replaces it, so a second run
+// is harmless.
+async function registerEntryPoints($: EngineInterface): Promise<void> {
+  await $.tool.register({
+    name: 'progress',
+    description:
+      'Optional: show a multi-agent plan in Mission Control (the band above the prompt and the pane). ' +
+      'Send the plan once it is set (title, total, tasks), then update done as tasks finish, tasks when the plan changes, ' +
+      'and finished: true at the end. Any field you leave out keeps its last value. ' +
+      'Main session only; subagents report their own progress with `step`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Short name of the overall task, a few words.' },
+        total: { type: 'integer', minimum: 0, description: 'Number of planned worker tasks.' },
+        done: { type: 'integer', minimum: 0, description: 'How many tasks are finished.' },
+        phase: { type: 'string', enum: [...PHASES] },
+        finished: { type: 'boolean', description: 'True once the plan is done.' },
+        minutes: { type: 'integer', minimum: 1, description: 'Time budget for the whole job, in minutes. Mission Control alerts at 80% and when it is passed.' },
+        tasks: {
+          type: 'array',
+          description:
+            'The planned worker tasks in order, numbered from 1. Each title must equal the Agent tool `description` the task will be delegated with, so the panel can match runs to tasks.',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string', description: 'A few words; reused verbatim as the Agent description.' },
+              tier: { type: 'string', enum: [...TIERS], description: 'Worker size: fable, heavy, careful, medium or light.' },
+              after: { type: 'array', items: { type: 'integer' }, description: 'Numbers of the tasks this one waits for.' },
+              minutes: { type: 'integer', minimum: 1, description: "Time budget for this task, in minutes; its sub-agent is flagged once it runs past it. Without the plan's own `minutes`, the tasks' sum is the job's budget." },
+            },
+            required: ['title', 'tier'],
+          },
+        },
+      },
+    },
+  }).catch(() => undefined)
+  await $.tool.register({
+    name: 'step',
+    description:
+      'For subagents: show progress on your own task in Mission Control. ' +
+      'Once you know your plan, send `total` (3 to 8 steps) with `done: 0`, ' +
+      'then send `done` again after each step. It only moves a progress bar; nothing else happens.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        done: { type: 'integer', minimum: 0, description: 'Steps finished so far.' },
+        total: { type: 'integer', minimum: 1, description: 'Steps planned; may change if the plan changes.' },
+        note: { type: 'string', description: 'The step in progress, a few words.' },
+      },
+      required: ['done'],
+    },
+    // In every agent's tool list, not behind ToolSearch: workers do not go looking for it.
+    isDeferred: false,
+  }).catch(() => undefined)
+  await $.command.register({
+    name: 'missioncontrol',
+    description: 'Open Mission Control: usage, workflow, the manager and its sub-agents, your answer rules and settings',
+  }).catch(() => undefined)
+  await $.command.register({
+    name: 'prefs',
+    description: 'Memory: how Claude should answer you, in every session. /prefs, /prefs add <rule>, /prefs remove <n>, /prefs clear',
+  }).catch(() => undefined)
+  await $.command.register({
+    name: 'skins',
+    description: 'Open the skin picker: every skin as a live preview, one click to put it on',
+  }).catch(() => undefined)
+  await $.command.register({
+    name: 'skin',
+    description: 'Skins: /skin to list, /skin <name> to switch, /skin reload after editing a file in Custom Claude Skins',
+  }).catch(() => undefined)
+  await $.command.register({
+    name: 'autocrew',
+    description: 'Crew mode for big jobs: /autocrew for its state, /autocrew on|off, /autocrew <context %> to call the crew',
+  }).catch(() => undefined)
+  await $.command.register({
+    name: 'tokens',
+    description: 'Token Manager: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>',
+  }).catch(() => undefined)
+  await $.command.register(TIMEKEEPER_COMMAND).catch(() => undefined)
+}
+
+// Puts the commands and tools back when /missioncontrol is missing from the menu. One
+// `$.command.list()` per prompt.
+async function healEntryPoints($: EngineInterface): Promise<void> {
+  const listed = await $.command.list()
+  if (!listed.some(c => c.name === 'missioncontrol')) await registerEntryPoints($)
+}
+
 export const register: Register = (on, options) => {
   timekeeperHooks(on)
   on('session.start', async ($, e, next) => {
     const started = await next(e)
+    await registerEntryPoints($)
     lang = await detectLang($, options.language)
     // One ticker for every drawing. `now` moves each second only while something on
     // screen moves (work, a crew, the party, the cache's last ten minutes), else once a
@@ -4581,66 +4677,6 @@ export const register: Register = (on, options) => {
         for (const a of stuck) $.ui.toast(`🦀 "${clip(a.description || a.type, 40)}" has gone quiet for 2 min: it may be stuck`)
       })()
     })
-    await $.tool.register({
-      name: 'progress',
-      description:
-        'Optional: show a multi-agent plan in Mission Control (the band above the prompt and the pane). ' +
-        'Send the plan once it is set (title, total, tasks), then update done as tasks finish, tasks when the plan changes, ' +
-        'and finished: true at the end. Any field you leave out keeps its last value. ' +
-        'Main session only; subagents report their own progress with `step`.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          title: { type: 'string', description: 'Short name of the overall task, a few words.' },
-          total: { type: 'integer', minimum: 0, description: 'Number of planned worker tasks.' },
-          done: { type: 'integer', minimum: 0, description: 'How many tasks are finished.' },
-          phase: { type: 'string', enum: [...PHASES] },
-          finished: { type: 'boolean', description: 'True once the plan is done.' },
-          minutes: { type: 'integer', minimum: 1, description: 'Time budget for the whole job, in minutes. Mission Control alerts at 80% and when it is passed.' },
-          tasks: {
-            type: 'array',
-            description:
-              'The planned worker tasks in order, numbered from 1. Each title must equal the Agent tool `description` the task will be delegated with, so the panel can match runs to tasks.',
-            items: {
-              type: 'object',
-              properties: {
-                title: { type: 'string', description: 'A few words; reused verbatim as the Agent description.' },
-                tier: { type: 'string', enum: [...TIERS], description: 'Worker size: fable, heavy, careful, medium or light.' },
-                after: { type: 'array', items: { type: 'integer' }, description: 'Numbers of the tasks this one waits for.' },
-                minutes: { type: 'integer', minimum: 1, description: "Time budget for this task, in minutes; its sub-agent is flagged once it runs past it. Without the plan's own `minutes`, the tasks' sum is the job's budget." },
-              },
-              required: ['title', 'tier'],
-            },
-          },
-        },
-      },
-    }).catch(() => undefined)
-    await $.tool.register({
-      name: 'step',
-      description:
-        'For subagents: show progress on your own task in Mission Control. ' +
-        'Once you know your plan, send `total` (3 to 8 steps) with `done: 0`, ' +
-        'then send `done` again after each step. It only moves a progress bar; nothing else happens.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          done: { type: 'integer', minimum: 0, description: 'Steps finished so far.' },
-          total: { type: 'integer', minimum: 1, description: 'Steps planned; may change if the plan changes.' },
-          note: { type: 'string', description: 'The step in progress, a few words.' },
-        },
-        required: ['done'],
-      },
-      // In every agent's tool list, not behind ToolSearch: workers do not go looking for it.
-      isDeferred: false,
-    }).catch(() => undefined)
-    await $.command.register({
-      name: 'missioncontrol',
-      description: 'Open Mission Control: usage, workflow, the manager and its sub-agents, your answer rules and settings',
-    }).catch(() => undefined)
-    await $.command.register({
-      name: 'prefs',
-      description: 'Memory: how Claude should answer you, in every session. /prefs, /prefs add <rule>, /prefs remove <n>, /prefs clear',
-    }).catch(() => undefined)
     const rules = await loadRules($)
     await update($, memory, () => rules)
     await refreshEnv($, true)
@@ -4654,14 +4690,6 @@ export const register: Register = (on, options) => {
       .then(ms => (Array.isArray(ms) ? ms.filter(m => m.role === 'user' && !m.toolResults?.length && m.text.trim() !== '').length : 0))
       .catch(() => 0)
     await update($, session, prev => (prev.turn ? prev : { ...prev, turn: promptsSoFar, costAtStart: spentAtLoad }))
-    await $.command.register({
-      name: 'skins',
-      description: 'Open the skin picker: every skin as a live preview, one click to put it on',
-    }).catch(() => undefined)
-    await $.command.register({
-      name: 'skin',
-      description: 'Skins: /skin to list, /skin <name> to switch, /skin reload after editing a file in Custom Claude Skins',
-    }).catch(() => undefined)
     await loadSkins($)
     await checkAddon($)
     const chosen = await $.store.get('skin').catch(() => undefined)
@@ -4676,14 +4704,6 @@ export const register: Register = (on, options) => {
     }
     const greet = eggOf()
     if (greet && !isReload) $.ui.toast(GREETING[greet])
-    await $.command.register({
-      name: 'autocrew',
-      description: 'Crew mode for big jobs: /autocrew for its state, /autocrew on|off, /autocrew <context %> to call the crew',
-    }).catch(() => undefined)
-    await $.command.register({
-      name: 'tokens',
-      description: 'Token Manager: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>',
-    }).catch(() => undefined)
     await startTimekeeper($).catch(() => undefined)
     const autopilot = (await $.store.get('autopilot').catch(() => false)) === true
     const budget = Number(await $.store.get('budgetUsd').catch(() => 0)) || 0
@@ -5700,6 +5720,8 @@ export const register: Register = (on, options) => {
   // Kept open: each prompt puts the pane back if it was closed.
   const PERSON_ORIGINS = new Set(['composer', 'bridge', 'sdk'])
   on('prompt.submit', async ($, e, next) => {
+    // Self-heal first (see registerEntryPoints); it never costs the prompt.
+    await healEntryPoints($).catch(() => undefined)
     // A typed request (not a slash command or a system note) is the manager's task.
     // Only the person's own words count: a task notification, a peer or a plugin's
     // prompt is no task of theirs.
