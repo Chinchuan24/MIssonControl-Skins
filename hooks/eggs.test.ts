@@ -47,7 +47,11 @@ test('easter eggs: a cyberpunk skin brings Breach Protocol, the Afterlife, eddie
   const bandSvg = (await svgs($, 'AbovePrompt')).join('')
   expect(bandSvg).toContain('class="rg"')
   expect(bandSvg).toContain('HEAT')
-  expect(bandSvg).toContain('€$')
+  // Costs are in US dollars until the person picks another; Auto brings the eddies.
+  expect(bandSvg).toContain('$0.00')
+  expect(bandSvg).not.toContain('€$')
+  await $.command.run({ command: 'missioncontrol', args: 'currency auto' } as never)
+  expect((await svgs($, 'AbovePrompt')).join('')).toContain('€$')
   for (const src of [...(await svgs($, 'Pane')), ...(await svgs($, 'AbovePrompt'))]) expect(src.length).toBeLessThan(131072)
 })
 

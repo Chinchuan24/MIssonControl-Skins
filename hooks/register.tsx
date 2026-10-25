@@ -942,14 +942,15 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
 
 const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.id)
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
-const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, currency: 'AUTO', sounds: true })
+const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, currency: 'USD', sounds: true })
 const cred = atom({ plugin: 'crab-progress', key: 'cred' } as const, BLANK_CRED)
 const timeline = atom({ plugin: 'crab-progress', key: 'timeline' } as const, [] as Beat[])
 const bdPick = atom({ plugin: 'crab-progress', key: 'bdPick' } as const, -1)
 const readSettings = async ($: EngineInterface) => {
   const saved = (await $.store.get('currency').catch(() => undefined)) as { code?: string; rate?: number } | undefined
-  // A store written by hand or by an older build may hold anything: a bad code is Auto.
-  CURRENCY = currencyOf(typeof saved?.code === 'string' ? saved.code : 'AUTO', typeof saved?.rate === 'number' ? saved.rate : undefined)
+  // Nothing chosen yet is US dollars. A store written by hand or by an older build may
+  // hold anything: a bad code is dollars too.
+  CURRENCY = currencyOf(typeof saved?.code === 'string' ? saved.code : 'USD', typeof saved?.rate === 'number' ? saved.rate : undefined)
   return {
     openOnStart: (await $.store.get('openOnStart').catch(() => undefined)) !== false,
     crewMode: (await readAutoCrew($)).on,
@@ -1635,8 +1636,9 @@ const fmtTokens = (n: number): string =>
 const eggOf = (): Egg | undefined => (SKIN.cast === 'runners' || SKIN.cast === 'netrun' || SKIN.cast === 'corpo' || SKIN.cast === 'samurai' ? SKIN.cast : undefined)
 
 // The money a cost is shown in. Costs are counted in US dollars and converted at an
-// approximate rate (each one can be set with `/missioncontrol currency <code> <rate>`);
-// Auto shows dollars, or Night City's eddies (€$, one to the dollar) on the cyberpunk skins.
+// approximate rate (each one can be set with `/missioncontrol currency <code> <rate>`).
+// US dollars until another is picked; Auto shows dollars, or Night City's eddies (€$,
+// one to the dollar) on the cyberpunk skins.
 type Currency = { code: string; symbol: string; rate: number; decimals: number }
 const CURRENCIES: Currency[] = [
   { code: 'AUTO', symbol: '', rate: 1, decimals: 2 },
@@ -1648,9 +1650,9 @@ const CURRENCIES: Currency[] = [
   { code: 'MYR', symbol: 'RM', rate: 4.4, decimals: 2 },
   { code: 'SGD', symbol: 'S$', rate: 1.34, decimals: 2 },
 ]
-let CURRENCY: Currency = CURRENCIES[0] as Currency
+let CURRENCY: Currency = CURRENCIES[1] as Currency
 const currencyOf = (code: string, rate?: number): Currency => {
-  const base = CURRENCIES.find(c => c.code === code.toUpperCase()) ?? (CURRENCIES[0] as Currency)
+  const base = CURRENCIES.find(c => c.code === code.toUpperCase()) ?? (CURRENCIES[1] as Currency)
   return rate && rate > 0 && base.code !== 'AUTO' ? { ...base, rate } : base
 }
 const currencyLabel = (c: Currency): string => (c.code === 'AUTO' ? 'Auto ($, or €$ on cyberpunk skins)' : `${c.code} ${c.symbol}${c.rate !== 1 ? ` (≈${c.rate} per $)` : ''}`)

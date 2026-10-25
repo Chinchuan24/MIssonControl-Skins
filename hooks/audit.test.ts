@@ -91,11 +91,11 @@ test('a crowd of 24 roles, six agents each, still draws every figure under the l
   expect((src.match(/<rect [^>]*height="20" rx="10"/g) ?? []).length).toBe(25)
 })
 
-test('a stored currency that is not a string falls back to Auto instead of breaking the session', async ($, on) => {
+test('a stored currency that is not a string falls back to US dollars instead of breaking the session', async ($, on) => {
   base(on, { currency: { code: 42, rate: 'lots' } })
   await start($)
   const r = (await $.command.run({ command: 'missioncontrol', args: 'currency' } as never)) as { text?: string }
-  expect(String(r.text)).toContain('Currency: Auto')
+  expect(String(r.text)).toContain('Currency: USD $')
 })
 
 test('a session picked up mid-conversation counts its turns and starts the turn cost at zero', async ($, on) => {
