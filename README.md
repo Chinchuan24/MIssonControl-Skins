@@ -157,6 +157,17 @@ Pick one with `/skins` (a live picker) or `/skin <id>`. Each skin restyles the b
 | 🎸 ??? | — | Not in the picker. Wake up… |
 
 <details open>
+<summary><b>⚪ default</b> · Core</summary>
+<br>
+
+The app's own colours and fonts, with no costumes or effects. Just the data.
+
+![default band](docs/band-default.png)
+![default crew](docs/crew-default.png)
+
+</details>
+
+<details>
 <summary><b>🦀 Crab Classic</b> · Core</summary>
 <br>
 
