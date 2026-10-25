@@ -942,20 +942,35 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
 
 const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.id)
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
-const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, currency: 'AUTO', sounds: true })
+const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, currency: 'USD', sounds: true })
 const cred = atom({ plugin: 'crab-progress', key: 'cred' } as const, BLANK_CRED)
 const timeline = atom({ plugin: 'crab-progress', key: 'timeline' } as const, [] as Beat[])
 const bdPick = atom({ plugin: 'crab-progress', key: 'bdPick' } as const, -1)
 const readSettings = async ($: EngineInterface) => {
   const saved = (await $.store.get('currency').catch(() => undefined)) as { code?: string; rate?: number } | undefined
-  // A store written by hand or by an older build may hold anything: a bad code is Auto.
-  CURRENCY = currencyOf(typeof saved?.code === 'string' ? saved.code : 'AUTO', typeof saved?.rate === 'number' ? saved.rate : undefined)
+  // Nothing chosen yet is US dollars. A store written by hand or by an older build may
+  // hold anything: a bad code is dollars too.
+  CURRENCY = currencyOf(typeof saved?.code === 'string' ? saved.code : 'USD', typeof saved?.rate === 'number' ? saved.rate : undefined)
   return {
     openOnStart: (await $.store.get('openOnStart').catch(() => undefined)) !== false,
     crewMode: (await readAutoCrew($)).on,
     currency: CURRENCY.code,
     sounds: (await $.store.get('sounds').catch(() => undefined)) !== false,
   }
+}
+
+// The pane's two folds, kept in the store so a reload or a new session opens the
+// list as the person left it: long by default.
+const PANE_VIEW = 'paneView'
+const readPaneView = async ($: EngineInterface): Promise<Pick<Panel, 'isCompact' | 'isDoneCollapsed'>> => {
+  const v = (await $.store.get(PANE_VIEW).catch(() => undefined)) as Partial<Panel> | undefined
+  return { isCompact: v?.isCompact === true, isDoneCollapsed: v?.isDoneCollapsed === true }
+}
+const setPaneView = async ($: EngineInterface, change: (p: Pick<Panel, 'isCompact' | 'isDoneCollapsed'>) => Partial<Panel>): Promise<void> => {
+  const prev = await read($, panel)
+  const next = { isCompact: prev.isCompact, isDoneCollapsed: prev.isDoneCollapsed, ...change(prev) }
+  await update($, panel, p => ({ ...p, ...next }))
+  await $.store.set(PANE_VIEW, next).catch(() => undefined)
 }
 
 // A sound, when the person has sounds on. Never in the way: a failure is silent.
@@ -1621,8 +1636,9 @@ const fmtTokens = (n: number): string =>
 const eggOf = (): Egg | undefined => (SKIN.cast === 'runners' || SKIN.cast === 'netrun' || SKIN.cast === 'corpo' || SKIN.cast === 'samurai' ? SKIN.cast : undefined)
 
 // The money a cost is shown in. Costs are counted in US dollars and converted at an
-// approximate rate (each one can be set with `/missioncontrol currency <code> <rate>`);
-// Auto shows dollars, or Night City's eddies (€$, one to the dollar) on the cyberpunk skins.
+// approximate rate (each one can be set with `/missioncontrol currency <code> <rate>`).
+// US dollars until another is picked; Auto shows dollars, or Night City's eddies (€$,
+// one to the dollar) on the cyberpunk skins.
 type Currency = { code: string; symbol: string; rate: number; decimals: number }
 const CURRENCIES: Currency[] = [
   { code: 'AUTO', symbol: '', rate: 1, decimals: 2 },
@@ -1634,9 +1650,9 @@ const CURRENCIES: Currency[] = [
   { code: 'MYR', symbol: 'RM', rate: 4.4, decimals: 2 },
   { code: 'SGD', symbol: 'S$', rate: 1.34, decimals: 2 },
 ]
-let CURRENCY: Currency = CURRENCIES[0] as Currency
+let CURRENCY: Currency = CURRENCIES[1] as Currency
 const currencyOf = (code: string, rate?: number): Currency => {
-  const base = CURRENCIES.find(c => c.code === code.toUpperCase()) ?? (CURRENCIES[0] as Currency)
+  const base = CURRENCIES.find(c => c.code === code.toUpperCase()) ?? (CURRENCIES[1] as Currency)
   return rate && rate > 0 && base.code !== 'AUTO' ? { ...base, rate } : base
 }
 const currencyLabel = (c: Currency): string => (c.code === 'AUTO' ? 'Auto ($, or €$ on cyberpunk skins)' : `${c.code} ${c.symbol}${c.rate !== 1 ? ` (≈${c.rate} per $)` : ''}`)
@@ -2387,7 +2403,7 @@ const roleColor = (type: string): string => {
 
 type TreeRow =
   | { kind: 'role'; key: string; role: string; color: string; count: number; running: number; depth: number; isLast: boolean; lines: boolean[] }
-  | { kind: 'agent'; key: string; a: AgentRun; depth: number; isLast: boolean; lines: boolean[]; color: string; folded?: boolean }
+  | { kind: 'agent'; key: string; a: AgentRun; depth: number; isLast: boolean; lines: boolean[]; color: string; folded?: boolean; slim?: boolean }
 
 // Running first, then the newest finished; finished rows drop out while collapsed.
 const crewOrder = (list: AgentRun[], hideDone: boolean): AgentRun[] => {
@@ -2461,15 +2477,20 @@ const rowInnerW = (W: number, r: TreeRow): number => W - rowInnerX(r) - (isBoxed
 // A finished agent folds to a slim row until the person opens it again.
 const FOLD_H = 36
 const OPEN_W = 64
-const rowHeight = (r: TreeRow): number => (r.kind === 'role' ? ROLE_H : r.folded ? FOLD_H : AGENT_H)
+const isSlim = (r: TreeRow): boolean => r.kind === 'agent' && Boolean(r.folded || r.slim)
+const rowHeight = (r: TreeRow): number => (r.kind === 'role' ? ROLE_H : isSlim(r) ? FOLD_H : AGENT_H)
 // The desktop app refuses a drawing past 262,144 characters and leaves the pane
-// blank; a running agent's card costs ~15K of them. Past this many, the rest share one row.
+// blank; a running agent's card costs ~15K of them. Past this many, each of the rest
+// gets a slim live row of its own: every agent stays listed.
 const MAX_CARDS = 4
 // When the finished rows must fold into one, this many stay to be opened.
 const KEEP_DONE = 3
+// Past this many slim rows each costs too much with its crab: they are drawn without.
+const MAX_CRAB_ROWS = 20
 
-// The slim row of a finished agent: its crab, the outcome, what it was, what it cost.
-const foldedSvg = (W: number, a: AgentRun, at: number): string => {
+// The slim row of a finished agent: its crab (left out when `lite`), the outcome,
+// what it was, what it cost.
+const foldedSvg = (W: number, a: AgentRun, at: number, lite = false): string => {
   const H = FOLD_H - 8
   const ok = a.status !== 'failed'
   const isStopped = a.status === 'stopped'
@@ -2478,11 +2499,37 @@ const foldedSvg = (W: number, a: AgentRun, at: number): string => {
   return stillSvg(
     W,
     H,
-    `${crab(4, 2, costumeFor(a), true, false, 0.82)}
+    `${lite ? '' : crab(4, 2, costumeFor(a), true, false, 0.82)}
 <circle cx="40" cy="${H / 2}" r="7" fill="${isStopped ? '#9a9a96' : ok ? DONE : '#D0453F'}"/>
 ${isStopped ? `<rect x="37.5" y="${H / 2 - 2.5}" width="5" height="5" rx="1" fill="#fff"/>` : ok ? `<path d="M36.5 ${H / 2}l2.5 2.5 4.5-5" fill="none" stroke="${inkOn(DONE)}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>` : `<path d="M37 ${H / 2 - 3}l6 6M43 ${H / 2 - 3}l-6 6" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>`}
 <text class="s" x="54" y="${H / 2 + 4.5}" font-family="${FONT}" font-size="12.5" font-weight="600">${xml(fitText(a.description || a.type, 12.5, W - 54 - metaW - 8))}</text>
 <text class="m" x="${W - 4}" y="${H / 2 + 4}" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${xml(meta)}</text>`,
+  )
+}
+
+// A running agent past the cards, in one slim row: its crab (left out when `lite`),
+// a pulsing dot, what it does, its bar and its clock against the budget. Over budget
+// or quiet, the dot and the words turn the alarm red.
+const liveRowSvg = (W: number, a: AgentRun, at: number, lite = false): string => {
+  const H = FOLD_H - 8
+  const alarm = isOver(a) || isQuiet(a)
+  const color = alarm ? '#E5675E' : runRoleColor(a)
+  const progress = progressOf(a, at)
+  const flag = isOver(a) ? ` · ⏱\uFE0E ${tkStr().overWord}` : isQuiet(a) ? ' · ⚠ quiet' : ''
+  // Whole minutes and no token count: the row reads the same, and is not sent again,
+  // for a minute at a time.
+  const meta = `${progress === null ? '' : `${Math.round(progress * 100)}% · `}${Math.floor(elapsed(a, at) / 60_000)}m${a.budgetMin ? ` / ${a.budgetMin}m` : ''}${flag}`
+  const metaW = textWidth(meta, 11) + 6
+  const barW = progress === null ? 0 : 56
+  const x0 = 40
+  return stillSvg(
+    W,
+    H,
+    `${lite ? '' : crab(4, 2, costumeFor(a), true, false, 0.82)}
+<circle class="live" cx="${x0}" cy="${H / 2}" r="5" fill="${color}"/>
+<text class="t" x="${x0 + 14}" y="${H / 2 + 4.5}" font-family="${FONT}" font-size="12.5" font-weight="600">${xml(fitText(a.description || a.type, 12.5, W - x0 - 14 - metaW - barW - 16))}</text>
+${barW ? `<rect class="k" x="${W - 4 - metaW - barW - 4}" y="${H / 2 - 3}" width="${barW}" height="6" rx="3"/><rect x="${W - 4 - metaW - barW - 4}" y="${H / 2 - 3}" width="${Math.max(3, barW * (progress ?? 0)).toFixed(1)}" height="6" rx="3" fill="${color}"/>` : ''}
+<text ${alarm ? 'fill="#E5675E"' : 'class="m"'} x="${W - 4}" y="${H / 2 + 4}" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${xml(meta)}</text>`,
   )
 }
 
@@ -2506,9 +2553,11 @@ const moreSvg = (W: number, some: AgentRun[], isLive: boolean): string => {
 }
 
 // The connectors of one row, then its own drawing nested at its depth.
-const treeRowSvg = (W: number, r: TreeRow, inner: string): string => {
+// `plain` leaves out the card behind a role's own agent: a big crew's slim rows
+// cost ~1K less each.
+const treeRowSvg = (W: number, r: TreeRow, inner: string, plain = false): string => {
   const H = rowHeight(r)
-  const mid = r.kind === 'role' ? ROLE_H / 2 : r.folded ? FOLD_H / 2 : 31
+  const mid = r.kind === 'role' ? ROLE_H / 2 : isSlim(r) ? FOLD_H / 2 : 31
   const segs: string[] = []
   for (let l = 0; l < r.depth - 1; l++) if (r.lines[l]) segs.push(`M${l * UNIT + 9} 0V${H}`)
   const x = (r.depth - 1) * UNIT + 9
@@ -2521,7 +2570,9 @@ const treeRowSvg = (W: number, r: TreeRow, inner: string): string => {
   const isFolded = r.kind === 'agent' && Boolean(r.folded)
   // The card: a role's own agent on a gradient of the role's colour, its edge
   // pulsing and a sheen sweeping across while it works.
-  const box = isBoxed(r)
+  const box = plain
+    ? ''
+    : isBoxed(r)
     ? `<defs>
 <linearGradient id="bg" x1="0" x2="1"><stop offset="0" stop-color="${color}" stop-opacity=".22"/><stop offset=".55" stop-color="${color}" stop-opacity=".07"/><stop offset="1" stop-color="${color}" stop-opacity=".03"/></linearGradient>
 <linearGradient id="sh" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".10"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
@@ -2938,16 +2989,27 @@ const workSteps = (f: Flow | null, list: AgentRun[], boss: Manager, at?: number)
 
 const STEP_H = 26
 const WORK_HEAD = 46
-// Long plans show a window of rows and a count: an Svg is at most 4096px tall.
-const MAX_STEPS = 12
-const shownSteps = (steps: WorkStep[]): WorkStep[] => {
-  if (steps.length <= MAX_STEPS) return steps
-  const firstOpen = Math.max(0, steps.findIndex(st => st.state !== 'done'))
-  const start = Math.min(firstOpen, steps.length - MAX_STEPS)
-  return steps.slice(start, start + MAX_STEPS)
+// Every step is listed, however long the plan: only past what one Svg can be tall
+// (4096px) does it show a window of rows and a count.
+const MAX_STEPS = 150
+const LIVE_STEPS = 8
+const DONE_FOLD = 'done-fold'
+// With finished work folded, the done steps become one line ahead of the rest.
+const foldSteps = (steps: WorkStep[], foldDone: boolean): WorkStep[] => {
+  const done = steps.filter(st => st.state === 'done').length
+  if (!foldDone || !done) return steps
+  const fold: WorkStep = { key: DONE_FOLD, title: `${done} finished ${done === 1 ? 'step' : 'steps'}`, color: DONE, state: 'done', progress: null, note: '' }
+  return [fold, ...steps.filter(st => st.state !== 'done')]
 }
-const workflowHeight = (steps: WorkStep[]): number =>
-  WORK_HEAD + Math.max(1, shownSteps(steps).length) * STEP_H + (steps.length > MAX_STEPS ? 18 : 0) + 10
+const shownSteps = (steps: WorkStep[], foldDone = false): WorkStep[] => {
+  const all = foldSteps(steps, foldDone)
+  if (all.length <= MAX_STEPS) return all
+  const firstOpen = Math.max(0, all.findIndex(st => st.state !== 'done'))
+  const start = Math.min(firstOpen, all.length - MAX_STEPS)
+  return all.slice(start, start + MAX_STEPS)
+}
+const workflowHeight = (steps: WorkStep[], foldDone = false): number =>
+  WORK_HEAD + Math.max(1, shownSteps(steps, foldDone).length) * STEP_H + (foldSteps(steps, foldDone).length > MAX_STEPS ? 18 : 0) + 10
 
 const stepMark = (st: WorkStep, y: number): string => {
   if (st.state === 'done')
@@ -2958,8 +3020,8 @@ const stepMark = (st: WorkStep, y: number): string => {
   return `<circle cx="24" cy="${y + 13}" r="4.5" fill="none" stroke="#8a8a86" stroke-width="1.4"/>`
 }
 
-const workflowSvg = (W: number, f: Flow | null, steps: WorkStep[], at = 0): string => {
-  const H = workflowHeight(steps)
+const workflowSvg = (W: number, f: Flow | null, steps: WorkStep[], at = 0, foldDone = false): string => {
+  const H = workflowHeight(steps, foldDone)
   const isPlan = Boolean(f && !f.isFinished && f.tasks.length)
   const doneCount = steps.filter(st => st.state === 'done').length
   const overall = isPlan && f ? ratio(f) : steps.length ? doneCount / steps.length : 0
@@ -2968,10 +3030,16 @@ const workflowSvg = (W: number, f: Flow | null, steps: WorkStep[], at = 0): stri
   const barW = W - 28
   const rowBarW = Math.min(140, Math.round(W * 0.28))
   const bx = W - 14 - rowBarW
-  const visible = shownSteps(steps)
-  const hidden = steps.length - visible.length
+  const visible = shownSteps(steps, foldDone)
+  const hidden = foldSteps(steps, foldDone).length - visible.length
+  // A long plan with many steps at work: only the first few count up inside the image
+  // (~2K each); the rest show their share as plain text.
+  const counting = new Set(visible.filter(st => st.est).slice(0, LIVE_STEPS).map(st => st.key))
   const rows = visible.map((st, i) => {
     const y = WORK_HEAD + i * STEP_H
+    if (st.key === DONE_FOLD)
+      return `${stepMark(st, y)}
+<text class="s" x="36" y="${y + 17}" font-family="${FONT}" font-size="12.5">${xml(st.title)}</text>`
     const textW = W - 36 - rowBarW - 56
     const label = st.note ? `${st.title} — ${st.note}` : st.title
     const pct = st.progress === null ? null : Math.round(st.progress * 100)
@@ -2979,7 +3047,7 @@ const workflowSvg = (W: number, f: Flow | null, steps: WorkStep[], at = 0): stri
     let fill = ''
     const widthOf = (p: number) => Math.max(p ? 3 : 0, (rowBarW * p) / 100)
     // An estimate glides and counts inside the image; a reported share glides from the last one.
-    const est = st.est && at ? st.est : undefined
+    const est = st.est && at && counting.has(st.key) ? st.est : undefined
     if (st.state !== 'waiting' && pct === null) {
       fill = `<rect x="${bx}" y="${y + 10}" width="${Math.round(rowBarW * 0.3)}" height="6" rx="3" fill="${st.color}"><animate attributeName="x" values="${bx};${bx + rowBarW * 0.7};${bx}" dur="1.8s" repeatCount="indefinite"/></rect>`
     } else if (pct !== null && est) {
@@ -4731,6 +4799,8 @@ export const register: Register = (on, options) => {
     // The pane opens with the session unless the person turned that off in Settings.
     const prefs = await readSettings($)
     await update($, settings, () => prefs)
+    const view = await readPaneView($)
+    await update($, panel, prev => ({ ...prev, ...view }))
     const savedCred = cleanCred(await $.store.get('cred').catch(() => undefined))
     await update($, cred, () => savedCred)
     if (prefs.openOnStart && !isReload) void $.ui.open({ id: PANE, title: SKIN.tabs.mission }).catch(() => undefined)
@@ -5188,13 +5258,17 @@ export const register: Register = (on, options) => {
     const rules = await read($, memory)
     const opened = new Set(p.expanded ?? [])
     const rows = buildTree(list, p.isDoneCollapsed)
-    // On a desktop only the first few running agents get a card; the rest fold into
-    // one row, so a big crew stays under the app's size limit. A card that ends
-    // hands its place to the next.
-    const spare = e.surface === 'desktop' ? rows.flatMap(r => (r.kind === 'agent' && r.a.status === 'running' ? [r.a] : [])).slice(MAX_CARDS) : []
-    const tree = (spare.length ? withoutRows(rows, new Set(spare.map(a => a.id))) : rows).map(r =>
-      r.kind === 'agent' ? { ...r, folded: r.a.status !== 'running' && !opened.has(r.a.id) } : r,
-    )
+    // On a desktop only the first few running agents get a card; each of the rest
+    // gets a slim live row, so a big crew stays listed in full and under the app's
+    // size limit. A card that ends hands its place to the next.
+    const treeWith = (cards: number): TreeRow[] => {
+      const slim = new Set(e.surface === 'desktop' ? rows.flatMap(r => (r.kind === 'agent' && r.a.status === 'running' ? [r.a.id] : [])).slice(cards) : [])
+      return rows.map(r => (r.kind === 'agent' ? { ...r, folded: r.a.status !== 'running' && !opened.has(r.a.id), slim: slim.has(r.a.id) } : r))
+    }
+    const tree = treeWith(MAX_CARDS)
+    // Finished agents folded away by the person: one summary line stands for them.
+    const listed = new Set(rows.flatMap(r => (r.kind === 'agent' ? [r.a.id] : [])))
+    const hiddenDone = p.isDoneCollapsed ? finished.filter(a => !listed.has(a.id)) : []
     const toggleOpen = (id: string) =>
       update($, panel, prev => {
         const set = new Set(prev.expanded ?? [])
@@ -5236,7 +5310,7 @@ export const register: Register = (on, options) => {
         key="compact"
         label={p.isCompact ? s.expand : s.collapse}
         plain
-        onPress={() => update($, panel, prev => ({ ...prev, isCompact: !prev.isCompact }))}
+        onPress={() => setPaneView($, prev => ({ isCompact: !prev.isCompact }))}
       />
     )
     const toggleDone = (
@@ -5244,7 +5318,7 @@ export const register: Register = (on, options) => {
         key="done"
         label={`${p.isDoneCollapsed ? (isRtl() ? '◂' : '▸') : '▾'} ${s.finished} · ${finished.length}`}
         plain
-        onPress={() => update($, panel, prev => ({ ...prev, isDoneCollapsed: !prev.isDoneCollapsed }))}
+        onPress={() => setPaneView($, prev => ({ isDoneCollapsed: !prev.isDoneCollapsed }))}
       />
     )
     const isEmpty = list.length === 0 && planned.length === 0
@@ -5311,7 +5385,7 @@ export const register: Register = (on, options) => {
         some.length > 0 && <Svg key={isLive ? 'more-working' : 'more-done'} source={moreSvg(W, some, isLive)} alt={moreAlt(some, isLive)} width={W} height={FOLD_H} />
       // The cards stack in plain flow: the desktop pane draws nothing for a tree that
       // lays them over a full-height grid with an absolute Box.
-      const full = (picture: string, shown: TreeRow[], done: AgentRun[]) => (
+      const full = (picture: string, shown: TreeRow[], done: AgentRun[], lite = false) => (
         <Box flexDirection="column" {...(fill ? { backgroundColor: fill } : {})}>
           <Box flexDirection="column" alignItems={align}>
             {egg ? (
@@ -5347,10 +5421,10 @@ export const register: Register = (on, options) => {
             ) : null}
             <Box key="workflow" marginBottom={1}>
               <Svg
-                source={workflowSvg(W, f, steps, clockNow)}
+                source={workflowSvg(W, f, steps, clockNow, p.isDoneCollapsed)}
                 alt={`Workflow: ${steps.map(st => `${st.title} ${st.state}`).join(', ') || 'nothing running'}`}
                 width={W}
-                height={workflowHeight(steps)}
+                height={workflowHeight(steps, p.isDoneCollapsed)}
               />
             </Box>
             {bg.length > 0 && (
@@ -5409,13 +5483,25 @@ export const register: Register = (on, options) => {
                 height={tokenHeight(report)}
               />
             </Box>
+            <Box key="toggles" flexDirection="row" gap={2} marginBottom={1}>
+              {finished.length > 0 && toggleDone}
+              {toggleCompact}
+            </Box>
             {shown.map(r =>
               r.kind === 'role' ? (
                 <Svg key={r.key} source={treeRowSvg(W, r, drawn(r.key, () => roleSvg(rowInnerW(W, r), r)))} alt={`${r.role}: ${r.count} agents, ${r.running} working`} width={W} height={ROLE_H} />
+              ) : r.slim ? (
+                <Svg
+                  key={r.key}
+                  source={treeRowSvg(W, r, drawn(`${lite ? 'lite' : 'slim'}:${r.key}`, () => liveRowSvg(rowInnerW(W, r), r.a, at, lite)), lite)}
+                  alt={`${r.a.description}: ${modelName(r.a.model)}, ${s.isRunning}${isQuiet(r.a) ? ', quiet' : ''}${isOver(r.a) ? `, ${tkStr().overWord}` : ''}`}
+                  width={W}
+                  height={FOLD_H}
+                />
               ) : r.folded ? (
                 <Box key={r.key} flexDirection="row" alignItems="center">
                   <Svg
-                    source={treeRowSvg(W - OPEN_W, r, drawn(r.key, () => foldedSvg(rowInnerW(W - OPEN_W, r), r.a, at)))}
+                    source={treeRowSvg(W - OPEN_W, r, drawn(`${lite ? 'lite-fold' : 'fold'}:${r.key}`, () => foldedSvg(rowInnerW(W - OPEN_W, r), r.a, at, lite)), lite)}
                     alt={`${r.a.description}: ${r.a.status === 'failed' ? s.failed : r.a.status === 'stopped' ? s.stopped : s.isFinished}, ${fmtTokens(r.a.tokens)} tokens`}
                     width={W - OPEN_W}
                     height={FOLD_H}
@@ -5434,15 +5520,10 @@ export const register: Register = (on, options) => {
                 </Box>
               ),
             )}
-            {moreRow(spare, true)}
-            {moreRow(done, false)}
+            {moreRow([...done, ...hiddenDone], false)}
             {isEmpty && (SKIN.dark ? <Text color={SKIN.colors.subtext}>No sub-agents yet. They show up here, under the manager, by role.</Text> : <Text dimColor>No sub-agents yet. They show up here, under the manager, by role.</Text>)}
             {section('h-org', 'Hierarchy')}
             {orgPicture(picture)}
-            <Box key="toggles" flexDirection="row" gap={2} marginTop={1}>
-              {finished.length > 0 && toggleDone}
-              {toggleCompact}
-            </Box>
             {section('h-session', 'Memory')}
             <Svg key="session" source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} width={W} height={sessionHeight(W, info, rules)} />
             {section('h-settings', 'Settings')}
@@ -5502,30 +5583,43 @@ export const register: Register = (on, options) => {
         </Box>
       )
       // The app draws a blank pane for a tree past its size limit: the first that fits
-      // wins. Everything; then the finished rows folded into one (all but the first
-      // few, the opened ones and any with a card under them); then either with the
-      // hierarchy's light drawing; at last the short view.
+      // wins, every agent kept in a row of its own for as long as one can be. Everything;
+      // then the slim rows without their crabs; then the hierarchy's light drawing;
+      // then fewer cards; then the finished rows folded into one (all but the first
+      // few, the opened ones and any with a card under them); at last the short view.
       const rich = orgSource(W, org)
-      const view = full(rich, tree, [])
-      const size = drawnChars(view)
-      if (size <= DRAW_MAX) return keep(view)
-      const fold = new Set(
-        tree.flatMap((r, i) => {
-          if (r.kind !== 'agent' || !r.folded) return []
-          const end = tree.findIndex((n, j) => j > i && n.depth <= r.depth)
-          const under = tree.slice(i + 1, end < 0 ? undefined : end)
-          return under.every(n => n.kind === 'agent' && n.folded) ? [r.a.id] : []
-        }).slice(KEEP_DONE),
-      )
-      const shown = fold.size ? withoutRows(tree, fold) : tree
-      const kept = new Set(shown.flatMap(r => (r.kind === 'agent' ? [r.a.id] : [])))
-      const done = tree.flatMap(r => (r.kind === 'agent' && !kept.has(r.a.id) ? [r.a] : []))
-      const slim = fold.size ? full(rich, shown, done) : view
-      const slimSize = fold.size ? drawnChars(slim) : size
-      if (slimSize <= DRAW_MAX) return keep(slim)
+      // A crew with more slim rows than crabs can fit skips drawing them all to measure.
+      const isCrowd = tree.filter(isSlim).length > MAX_CRAB_ROWS
+      const view = isCrowd ? null : full(rich, tree, [])
+      if (view && drawnChars(view) <= DRAW_MAX) return keep(view)
+      const lite = full(rich, tree, [], true)
+      const liteSize = drawnChars(lite)
+      if (liteSize <= DRAW_MAX) return keep(lite)
+      const fewer = [2, 0].map(cards => full(rich, treeWith(cards), [], true))
+      const fewerSize = fewer.map(drawnChars)
+      for (const [i, v] of fewer.entries()) if ((fewerSize[i] ?? Infinity) <= DRAW_MAX) return keep(v)
       const light = orgSvg(W, org, true)
-      if (size - rich.length + light.length <= DRAW_MAX) return keep(full(light, tree, []))
-      if (slimSize - rich.length + light.length <= DRAW_MAX) return keep(full(light, shown, done))
+      if (liteSize - rich.length + light.length <= DRAW_MAX) return keep(full(light, tree, [], true))
+      for (const [i, cards] of [2, 0].entries())
+        if ((fewerSize[i] ?? Infinity) - rich.length + light.length <= DRAW_MAX) return keep(full(light, treeWith(cards), [], true))
+      const foldFinished = (rows: TreeRow[]) => {
+        const fold = new Set(
+          rows.flatMap((r, i) => {
+            if (r.kind !== 'agent' || !r.folded) return []
+            const end = rows.findIndex((n, j) => j > i && n.depth <= r.depth)
+            const under = rows.slice(i + 1, end < 0 ? undefined : end)
+            return under.every(n => n.kind === 'agent' && n.folded) ? [r.a.id] : []
+          }).slice(KEEP_DONE),
+        )
+        const shown = fold.size ? withoutRows(rows, fold) : rows
+        const kept = new Set(shown.flatMap(r => (r.kind === 'agent' ? [r.a.id] : [])))
+        return { isFolded: fold.size > 0, shown, done: rows.flatMap(r => (r.kind === 'agent' && !kept.has(r.a.id) ? [r.a] : [])) }
+      }
+      const lean = foldFinished(treeWith(0))
+      if (lean.isFolded) {
+        const leanView = full(light, lean.shown, lean.done, true)
+        if (drawnChars(leanView) <= DRAW_MAX) return keep(leanView)
+      }
       const short = compactView(rich)
       if (drawnChars(short) <= DRAW_MAX) return keep(short)
       const shorter = compactView(light)
@@ -5616,7 +5710,7 @@ export const register: Register = (on, options) => {
             </Text>
             <Text bold>Workflow{f && !f.isFinished ? ` ${f.title}` : ''}</Text>
             {steps.length === 0 && <Text dimColor>  nothing running</Text>}
-            {steps.map(st => (
+            {foldSteps(steps, p.isDoneCollapsed).map(st => (
               <Text key={`wf-${st.key}`} wrap="truncate-end">
                 <Text color={st.state === 'done' ? DONE : st.state === 'failed' ? 'red' : st.state === 'stopped' ? 'gray' : st.color}>  {STEP_GLYPH[st.state]} </Text>
                 <Text dimColor={st.state === 'waiting'}>{st.title}</Text>

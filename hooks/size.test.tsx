@@ -97,10 +97,11 @@ for (const skin of ['cyberpunk-2077', 'default'])
         const s = size(await ui.drawn())
         await ui.unmount()
         fits(s)
-        // The full view, not the fallback: four cards, the rest in one row, the hierarchy kept.
+        // The long view, not the fallback: every agent in a row of its own (four as
+        // cards, the rest slim), none lumped into a "+N more" row, the hierarchy kept.
         expect(s.alts.some(a => a.startsWith('Hierarchy:'))).toBe(true)
-        expect(s.alts.filter(a => a.startsWith('Task number')).length).toBe(4)
-        expect(s.alts.some(a => a.startsWith(`+${count - 4} more agents working:`))).toBe(true)
+        expect(s.alts.filter(a => a.startsWith('Task number')).length).toBe(count)
+        expect(s.alts.some(a => /^\+\d+ more agents/.test(a))).toBe(false)
         expect(s.buttons).toContain('Collapse')
       })
 

@@ -98,7 +98,7 @@ Claude works in steps, calls tools and spins up sub-agents. Mission Control show
 | **Workflow** | The plan's steps, live |
 | **Manager** | The boss card: model, effort, sub-agents, cost and time |
 | **Token Manager** | Burn rate, cost per task, cache hits, budget warnings, optional Haiku autopilot and Smart Keep-Warm |
-| **Crew** | Every agent by role (finished ones fold away), plus a hierarchy from the manager down |
+| **Crew** | Every agent by role in one long list, however big the crew, plus a hierarchy from the manager down. **Collapse** folds the whole list into a short view; **▾ Finished** folds finished agents and steps into one line each. Both are remembered. |
 | **Memory** | Answer rules Claude follows in every session (`/prefs`) |
 | **Settings** | ☑ open on start · ☑ crew mode · currency · ☑ sounds · change skin |
 
@@ -275,7 +275,7 @@ Expand-Archive -Force "$env:USERPROFILE\Downloads\cyberpunk-skins-addon.zip" -De
 | Command | What it does |
 |---|---|
 | `/missioncontrol` | Open Mission Control (Settings at the bottom) |
-| `/missioncontrol currency <code> [rate]` | Costs in `USD`, `EDDIES`, `EUR`, `GBP`, `JPY`, `MYR` or `SGD`; optional rate per US dollar |
+| `/missioncontrol currency <code> [rate]` | Costs in `USD` (the default), `AUTO` (eddies on the cyberpunk skins), `EDDIES`, `EUR`, `GBP`, `JPY`, `MYR` or `SGD`; optional rate per US dollar |
 | `/skins` | The skin picker, every skin as a live preview |
 | `/skin` | `/skin` to list, `/skin <id>` to switch, `/skin off`, `/skin reload` |
 | `/autocrew` | Crew mode: state, `on`, `off`, or `<context %>` to call the crew |
