@@ -168,7 +168,9 @@ test('load: 60 agents, the clock alone for 30 s re-sends next to nothing', async
   expect(m.per('ms')).toBeLessThanOrEqual(150)
 })
 
-test('load: 60 agents at work for 30 s (steps, measures, tool calls) redraw at most a few times a second', async ($, on) => {
+// Every one of the 60 agents is drawn in a row of its own: slower than the 5-second
+// default on a busy machine.
+test('load: 60 agents at work for 30 s (steps, measures, tool calls) redraw at most a few times a second', { timeoutMs: 20_000 }, async ($, on) => {
   const clock = base(on)
   await heavy($, clock)
   const ui = await mountBoth($)

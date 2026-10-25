@@ -56,9 +56,10 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
     const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', requestId: 'crab-agents', props: pane })
     const drawn = (await ui.findAll({ type: 'Svg' })).map(el => String(el.props.source)).join('')
-    // The terminal lists the plan; the desktop's workflow card shows a window of it and a count.
+    // The terminal lists the plan; the desktop's workflow card lists as many steps as
+    // one picture can hold (150) and counts the rest.
     if (surface === 'terminal') expect(await ui.find({ text: /Planned · 200/ })).toBeDefined()
-    else expect(drawn).toContain('+188 more steps')
+    else expect(drawn).toContain('+50 more steps')
     expect(drawn).not.toContain('native code')
     expect(drawn).not.toContain('[object')
   })

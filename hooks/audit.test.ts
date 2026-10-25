@@ -47,8 +47,14 @@ const finishAll = async ($: Engine, count: number) => {
   for (let i = 2; i <= count; i += 2) await $.turn.complete({ agentId: `a${i}`, reason: 'answer', answer: 'ok' } as never)
 }
 
-const hierarchy = async ($: Engine): Promise<string> => {
+// `foldDone`: the person folds the finished agents first. A big finished crew lists
+// every agent in a row of its own, and only gets the hierarchy's full drawing folded.
+const hierarchy = async ($: Engine, foldDone = false): Promise<string> => {
   const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', requestId: 'crab-agents', props: pane })
+  if (foldDone) {
+    await ui.press({ key: 'done' })
+    await ui.drawn()
+  }
   const svgs = await ui.findAll({ type: 'Svg' })
   await ui.unmount()
   return String(svgs.find(el => String(el.props.alt).startsWith('Hierarchy:'))?.props.source)
@@ -62,7 +68,7 @@ for (const skin of ['cyberpunk-2077', 'lucy-edgerunners']) {
     await start($)
     await $.command.run({ command: 'skin', args: skin } as never)
     await finishAll($, await bigCrew($, ROLES, 4))
-    const src = await hierarchy($)
+    const src = await hierarchy($, true)
     expect(src.length).toBeLessThan(SVG_MAX)
     // The full drawing: each figure defined once and placed, the shared done badge.
     expect(src).toContain('id="bok"')
@@ -78,7 +84,7 @@ test('a crowd of 24 roles, six agents each, still draws every figure under the l
   await start($)
   await $.command.run({ command: 'skin', args: 'cyberpunk-2077' } as never)
   await finishAll($, await bigCrew($, Array.from({ length: 24 }, (_, i) => `Crew${String.fromCharCode(65 + i)}`), 6))
-  const src = await hierarchy($)
+  const src = await hierarchy($, true)
   expect(src.length).toBeLessThan(SVG_MAX)
   expect(src).toContain('id="bok"')
   // A banner for each role and the token manager.
