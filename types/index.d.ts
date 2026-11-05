@@ -243,7 +243,7 @@ declare module 'claude-code' {
       /** The id of the skin Mission Control and the band are drawn in. */
       skin: string
       /** Mission Control's settings, mirrored from `$.store` so the pane redraws. */
-      settings: { openOnStart: boolean; crewMode: boolean; currency: string; sounds: boolean }
+      settings: { openOnStart: boolean; crewMode: boolean; currency: string; sounds: boolean; simple: boolean; calm: boolean; voice: boolean; staffing: boolean }
       /** Street Cred: XP, the counts badges are earned on, the badges. Mirrored from `$.store`. */
       cred: { xp: number; jobs: number; longJobs: number; agents: number; crewJobs: number; nightJobs: number; chromed: boolean; samurai: boolean; badges: string[] }
       /** The session's tool calls, for the Braindance replay. */

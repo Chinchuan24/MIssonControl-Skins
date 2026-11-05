@@ -942,7 +942,7 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
 
 const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.id)
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
-const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, currency: 'USD', sounds: true })
+const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false })
 const cred = atom({ plugin: 'crab-progress', key: 'cred' } as const, BLANK_CRED)
 const timeline = atom({ plugin: 'crab-progress', key: 'timeline' } as const, [] as Beat[])
 const bdPick = atom({ plugin: 'crab-progress', key: 'bdPick' } as const, -1)
@@ -956,7 +956,22 @@ const readSettings = async ($: EngineInterface) => {
     crewMode: (await readAutoCrew($)).on,
     currency: CURRENCY.code,
     sounds: (await $.store.get('sounds').catch(() => undefined)) !== false,
+    // The plain skins draw a 3-row band unless the person asked for the full one.
+    simple: (await $.store.get('simpleBand').catch(() => undefined)) !== false,
+    calm: (await $.store.get('calm').catch(() => undefined)) === true,
+    voice: (await $.store.get('voice').catch(() => undefined)) === true,
+    staffing: (await $.store.get(STAFF_KEY).catch(() => undefined)) === true,
   }
+}
+
+// One switch of the Settings section: the store keeps it, the atom redraws the pane.
+type Flag = 'simple' | 'calm' | 'voice' | 'staffing'
+const FLAG_KEY: Record<Flag, string> = { simple: 'simpleBand', calm: 'calm', voice: 'voice', staffing: 'smartStaffing' }
+async function setFlag($: EngineInterface, flag: Flag, isOn: boolean): Promise<void> {
+  await $.store.set(FLAG_KEY[flag], isOn).catch(() => undefined)
+  if (flag === 'staffing') smartStaffing = isOn
+  if (flag === 'calm' && !isOn) $.ui.status(undefined)
+  await update($, settings, prev => ({ ...prev, [flag]: isOn }))
 }
 
 // The pane's two folds, kept in the store so a reload or a new session opens the
@@ -1608,6 +1623,21 @@ async function loadModelAliases($: EngineInterface): Promise<void> {
   ]
   for (const [id, family] of pairs) if (id && !hasFamily(id)) fromEnv[id.toLowerCase()] = FAMILY_LATEST[family] as string
   modelAliases = { ...fromEnv, ...(kept && typeof kept === 'object' ? kept : {}) }
+}
+
+// Smart staffing: an agent launched with no model chosen gets the cheapest model and
+// effort its job needs. Reading goes to Haiku, routine edits to Sonnet, hard calls keep
+// the session's model at high effort. Off unless `/tokens staffing on`.
+type Staff = { model?: string; effort: 'low' | 'medium' | 'high'; why: string }
+const STAFF_KEY = 'smartStaffing'
+let smartStaffing = false
+const staffEffort = new Map<string, Staff['effort']>()
+const staffFor = (type: string, description: string): Staff | null => {
+  const text = `${type} ${description}`.toLowerCase()
+  if (type === 'Explore' || /\b(read|reads|research|explore|search|find|scan|look up|summari[sz]e|inventory|list|lore|survey)\b/.test(text)) return { model: 'haiku', effort: 'low', why: 'reading' }
+  if (/\b(security|architect|architecture|design|plan|planner|review|reviewer|debug|refactor|audit|verify|judge|migrate)\b/.test(text)) return { effort: 'high', why: 'a hard call' }
+  if (/\b(test|tests|tester|write|writer|edit|fix|implement|build|engineer|doc|docs|readme|copy|rename|format)\b/.test(text)) return { model: 'sonnet', effort: 'medium', why: 'routine work' }
+  return null
 }
 
 const priceOf = (model: string, prompt: number): Price => {
@@ -4716,7 +4746,7 @@ async function registerEntryPoints($: EngineInterface): Promise<void> {
   }).catch(() => undefined)
   await $.command.register({
     name: 'tokens',
-    description: 'Token Manager: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>',
+    description: 'Token Manager: /tokens for a report, budget <dollars|off>, daily <dollars|off>, autopilot <on|off>, staffing <on|off>, warm <on|off>, receipt, model <id> <model>',
   }).catch(() => undefined)
   await $.command.register(TIMEKEEPER_COMMAND).catch(() => undefined)
 }
@@ -4822,6 +4852,7 @@ export const register: Register = (on, options) => {
     if (greet && !isReload) $.ui.toast(GREETING[greet])
     await startTimekeeper($).catch(() => undefined)
     const autopilot = (await $.store.get('autopilot').catch(() => false)) === true
+    smartStaffing = (await $.store.get(STAFF_KEY).catch(() => false)) === true
     const budget = Number(await $.store.get('budgetUsd').catch(() => 0)) || 0
     const keepWarmOn = (await $.store.get('keepWarm').catch(() => false)) === true
     await update($, watch, prev => ({ ...prev, autopilot, budgetUsd: budget, warm: { ...(prev.warm ?? BLANK_WARM), on: keepWarmOn } }))
@@ -4979,10 +5010,16 @@ export const register: Register = (on, options) => {
     // Autopilot: read-only explorers go to Haiku, unless a model was chosen for them.
     const w = await read($, watch)
     const isReadOnly = e.subagentType === 'Explore'
-    const routed = w.autopilot && isReadOnly && !e.model ? { ...briefed, model: 'haiku' } : briefed
-    if (routed !== briefed) $.ui.toast(`Token Manager: "${clip(e.description, 30)}" runs on Haiku`)
+    const piloted = w.autopilot && isReadOnly && !e.model ? { ...briefed, model: 'haiku' } : briefed
+    if (piloted !== briefed) $.ui.toast(`Token Manager: "${clip(e.description, 30)}" runs on Haiku`)
+    const staff = smartStaffing && !e.model && !isWorker(e.subagentType) && piloted === briefed ? staffFor(e.subagentType, e.description) : null
+    const routed = staff?.model ? { ...piloted, model: staff.model } : piloted
     const started = await next(routed)
     if (started.deny !== undefined) return started
+    if (staff && started.agentId) {
+      staffEffort.set(started.agentId, staff.effort)
+      $.ui.toast(`Staffing: "${clip(e.description, 30)}" is ${staff.why}: ${staff.model ? `${staff.model[0]?.toUpperCase()}${staff.model.slice(1)}` : 'session model'} · ${staff.effort} effort`)
+    }
 
     const at = await $.clock.now()
     const boss = await read($, manager)
@@ -5062,8 +5099,10 @@ export const register: Register = (on, options) => {
 
   on('turn.step', async function* ($, e, next) {
     if (warmTurns.has(e.turnId)) return yield* next(e)
+    // A staffed agent asks for the effort its job was given (where the model takes one).
+    const staffed = e.agentId ? staffEffort.get(e.agentId) : undefined
     // Timed from the response's first chunk, so the wait for the first token is left out.
-    const stream = next(e)
+    const stream = next(staffed && e.effort !== undefined && e.effort !== staffed ? { ...e, effort: staffed } : e)
     let firstAt: number | null = null
     let stampedAt = 0
     let step = await stream.next()
@@ -5608,6 +5647,12 @@ export const register: Register = (on, options) => {
                   await update($, settings, prev => ({ ...prev, sounds: isOn }))
                 }}
               />
+              {SKIN.cast ? null : (
+                <Button key="set-simple" label={`${prefs.simple ? '☑\uFE0E' : '☐'} Simple band: 3 rows (what's happening, the crew, the cost)`} plain onPress={async () => setFlag($, 'simple', !(await read($, settings)).simple)} />
+              )}
+              <Button key="set-calm" label={`${prefs.calm ? '☑\uFE0E' : '☐'} Calm mode: one status line instead of the band`} plain onPress={async () => setFlag($, 'calm', !(await read($, settings)).calm)} />
+              <Button key="set-voice" label={`${prefs.voice ? '☑\uFE0E' : '☐'} Spoken status: say when a job is done and what it cost`} plain onPress={async () => setFlag($, 'voice', !(await read($, settings)).voice)} />
+              <Button key="set-staffing" label={`${prefs.staffing ? '☑\uFE0E' : '☐'} Smart staffing: each agent gets the model and effort its job needs`} plain onPress={async () => setFlag($, 'staffing', !(await read($, settings)).staffing)} />
               <Button
                 key="set-timekeeper"
                 label={`${tkNow.on ? '☑\uFE0E' : '☐'} ${tkStr().setting(tkNow.jobMin, tkNow.agentMin)}`}
@@ -6074,8 +6119,8 @@ export const register: Register = (on, options) => {
       return { text: `${arg} now prices as ${modelName(to)}.` }
     }
     // Anything but a report, a budget or autopilot on|off gets the usage line.
-    if ((verb && verb !== 'autopilot' && verb !== 'budget' && verb !== 'warm') || ((verb === 'autopilot' || verb === 'warm') && arg && arg !== 'on' && arg !== 'off')) {
-      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>, /tokens model <id> <model|off>' }
+    if ((verb && verb !== 'autopilot' && verb !== 'budget' && verb !== 'warm' && verb !== 'staffing') || ((verb === 'autopilot' || verb === 'warm') && arg && arg !== 'on' && arg !== 'off')) {
+      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>, /tokens staffing <on|off>, /tokens model <id> <model|off>' }
     }
     if (verb === 'warm') {
       const isOn = arg !== 'off'
@@ -6086,6 +6131,11 @@ export const register: Register = (on, options) => {
           ? 'Keep-warm on: a small side request refreshes the prompt cache before it lapses, only when it should save more than it costs. It never enters the chat. On a Pro or Max plan it uses a little quota instead of money.'
           : 'Keep-warm off.',
       }
+    }
+    if (verb === 'staffing') {
+      if (arg && arg !== 'on' && arg !== 'off') return { text: 'Usage: /tokens staffing <on|off>' }
+      await setFlag($, 'staffing', arg !== 'off')
+      return { text: smartStaffing ? 'Smart staffing on: agents launched without a model get one by job. Reading: Haiku, low effort. Routine edits: Sonnet, medium. Design, review, security and debugging: the session model, high.' : 'Smart staffing off.' }
     }
     if (verb === 'autopilot') {
       const isOn = arg !== 'off'
@@ -6109,6 +6159,7 @@ export const register: Register = (on, options) => {
       text: [
         `Token Manager: ${MOOD_WORD[r.mood]}`,
         ...unpriced,
+        `Smart staffing ${smartStaffing ? 'on' : 'off (/tokens staffing on)'} · autopilot ${watched.autopilot ? 'on' : 'off'}`,
         `Burn ${fmtTokens(r.burnPerMin)}/min · this task ${fmtTokens(r.taskTokens)} (≈${fmtCost(r.taskCost)})${r.cachedPct === null ? '' : ` · ${r.cachedPct}% cached`}`,
         ...(() => {
           const kw = (watched.warm ?? BLANK_WARM)
