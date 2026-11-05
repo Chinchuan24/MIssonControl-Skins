@@ -9,7 +9,9 @@ import type { Beat, Cred } from './extras'
 import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, unifiedDiff } from './richtext'
 import { LIVE_N, glide, isNewReading, isSame, liveText, liveWidth, pin, steady, steadyTree, wallMinute } from './smooth'
 import { WARM_PROMPT, WARM_TAG, isWarmDue, isWarmed, warmCall, warmLimitHit } from './warm'
-import type { AgentRun, AgentStatus, AllTime, Background, BgCron, BgTask, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Today, Watch } from '../types'
+import { SPEND_KINDS, TODAY_PERIOD, exportSpend, isRescanDue, loadSpend, logSpendDay, monthLabel, monthOf, monthsWithData, parseSpendArgs, pickSpendKind, pickSpendMonth, readSpend, setSpendPeriod, shiftMonth, spendCard, typeSpendDay } from './spend'
+import type { SpendDirs, SpendIo, SpendKind, SpendRecord } from './spend'
+import type { AgentRun, AgentStatus, AllTime, Background, BgCron, BgTask, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Spend, Today, Watch } from '../types'
 import type { On } from 'claude-code'
 import type { Timekeeper } from '../types'
 
@@ -46,6 +48,9 @@ const BLANK_BG: Background = { tasks: [], crons: [], at: 0 }
 const background = atom({ plugin: 'crab-progress', key: 'background' } as const, BLANK_BG)
 // Today and All-time as this session last read or wrote them in the store.
 const saved = atom({ plugin: 'crab-progress', key: 'saved' } as const, { today: BLANK_TODAY, allTime: { since: '', models: {} } as AllTime })
+// The spend card: today, this week, one month, or a custom range (hooks/spend.ts).
+const BLANK_SPEND: Spend = { period: TODAY_PERIOD, days: {}, status: 'idle', draft: { from: '', to: '' }, error: '' }
+const spend = atom({ plugin: 'crab-progress', key: 'spend' } as const, BLANK_SPEND)
 // Crew mode: a big job is split across sub-agents. On by default; `/autocrew` turns
 // it off or moves the context line. Kept in the store, so it holds across sessions.
 type AutoCrew = { on: boolean; ctxPct: number }
@@ -199,6 +204,8 @@ async function saveTotalsNow($: EngineInterface): Promise<void> {
     await update($, today, prev => (prev.date !== day.date ? prev : { ...prev, ...Object.fromEntries(keys.map(k => [k, merged[k] + prev[k] - day[k]])) }))
     await update($, saved, prev => ({ ...prev, today: merged }))
     todayCostUsd = (await read($, today)).costUsd
+    // The spend card's own log: this day's merged count, kept for 13 months.
+    await logSpendDay($, spendIo, day.date, merged.costUsd, merged.tokens, await $.clock.now()).catch(() => undefined)
   }
   const keptAll = (await $.store.get('allTime').catch(() => undefined)) as AllTime | undefined
   const onAll = keptAll && typeof keptAll === 'object' && keptAll.models ? keptAll : { since: '', models: {} }
@@ -1230,6 +1237,23 @@ const STRINGS = {
     bgAgo: (min: number): string => (min < 1 ? 'updated just now' : min < 60 ? `updated ${min} min ago` : `updated ${Math.floor(min / 60)} h ago`),
     tier: { light: 'light', medium: 'medium', careful: 'careful', heavy: 'heavy', fable: 'fable', other: 'other' },
     effort: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' },
+    spend: {
+      title: 'Spent',
+      today: 'Today',
+      week: 'This week',
+      month: 'Month',
+      custom: 'Custom',
+      period: 'Period',
+      from: 'From',
+      to: 'To',
+      reading: 'Reading history…',
+      days: 'Days',
+      tasks: 'Tasks',
+      agents: 'Agents run',
+      badDay: (v: string): string => `"${v}" is not a date. Write it as YYYY-MM-DD, e.g. 2026-10-01.`,
+      months: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+      short: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+    },
   },
   ru: {
     pane: 'Центр управления',
@@ -1272,6 +1296,23 @@ const STRINGS = {
     bgAgo: (min: number): string => (min < 1 ? 'обновлено только что' : min < 60 ? `обновлено ${min} мин назад` : `обновлено ${Math.floor(min / 60)} ч назад`),
     tier: { light: 'light', medium: 'medium', careful: 'careful', heavy: 'heavy', fable: 'fable', other: 'other' },
     effort: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' },
+    spend: {
+      title: 'Потрачено',
+      today: 'Сегодня',
+      week: 'Эта неделя',
+      month: 'Месяц',
+      custom: 'Свой период',
+      period: 'Период',
+      from: 'С',
+      to: 'По',
+      reading: 'Читаю историю…',
+      days: 'Дней',
+      tasks: 'Задачи',
+      agents: 'Агенты',
+      badDay: (v: string): string => `«${v}» — не дата. Пишите ГГГГ-ММ-ДД, например 2026-10-01.`,
+      months: ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'],
+      short: ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'],
+    },
   },
   he: {
     pane: 'מרכז בקרה',
@@ -1314,6 +1355,23 @@ const STRINGS = {
     bgAgo: (min: number): string => (min < 1 ? 'עודכן עכשיו' : min < 60 ? `עודכן לפני ${min} דק׳` : `עודכן לפני ${Math.floor(min / 60)} שע׳`),
     tier: { light: 'קל', medium: 'בינוני', careful: 'זהיר', heavy: 'כבד', fable: 'פייבל', other: 'אחר' },
     effort: { low: 'נמוך', medium: 'בינוני', high: 'גבוה', xhigh: 'גבוה מאוד', max: 'מקסימלי' },
+    spend: {
+      title: 'הוצאה',
+      today: 'היום',
+      week: 'השבוע',
+      month: 'חודש',
+      custom: 'טווח אחר',
+      period: 'תקופה',
+      from: 'מ־',
+      to: 'עד',
+      reading: 'קורא היסטוריה…',
+      days: 'ימים',
+      tasks: 'משימות',
+      agents: 'סוכנים',
+      badDay: (v: string): string => `"${v}" אינו תאריך. כתבו YYYY-MM-DD, למשל 2026-10-01.`,
+      months: ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'],
+      short: ['ינו׳', 'פבר׳', 'מרץ', 'אפר׳', 'מאי', 'יוני', 'יולי', 'אוג׳', 'ספט׳', 'אוק׳', 'נוב׳', 'דצמ׳'],
+    },
   },
 } as const
 
@@ -1702,6 +1760,22 @@ const costOf = (model: string, u: Usage, isRequest: boolean): number => {
       (u.cache_creation_input_tokens || 0) * w) /
     1e6
   )
+}
+
+// The spend card reads Claude Code's own transcripts (hooks/spend.ts) and prices each
+// message as the panel prices one request.
+const spendIo: SpendIo = {
+  get: $ => read($, spend),
+  patch: ($, change) => update($, spend, change).then(() => undefined),
+  price: (r: SpendRecord) => costOf(r.model, { input_tokens: r.input, output_tokens: r.output, cache_read_input_tokens: r.cacheRead, cache_creation_input_tokens: r.cacheWrite }, true),
+  badDay: v => tr().spend.badDay(v),
+}
+// Claude Code's configuration folder (CLAUDE_CONFIG_DIR, else ~/.claude) and the home folder.
+async function spendDirs($: EngineInterface): Promise<SpendDirs> {
+  const trim = (v: string | undefined): string => (v ?? '').trim().replace(/[\\/]+$/, '')
+  const custom = trim(await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined))
+  const home = trim((await $.env.get('HOME').catch(() => undefined)) || (await $.env.get('USERPROFILE').catch(() => undefined)))
+  return { config: custom || (home ? `${home}/.claude` : ''), home }
 }
 
 // Haiku 4.5 and the Claude 3 models have a 200K window; the rest, Haiku 5.5 included, 1M.
@@ -3659,22 +3733,35 @@ ${tips}`,
   )
 }
 
-// --- the daily scoreboard: what the crew did for you today --------------------
+// --- the spend card: what the period cost (Today unless another is picked) --------
 
+type SpendView = ReturnType<typeof spendCard> & { isReading: boolean }
 const TODAY_H = 30 + 48
-const todaySvg = (W: number, d: Today): string =>
-  svg(
+const todaySvg = (W: number, d: Today, v: SpendView): string => {
+  const sw = tr().spend
+  // Today keeps its scoreboard; another period shows what it cost, in tokens, over how many days.
+  const right = v.isReading ? sw.reading : v.isToday ? `≈${fmtCost(v.cost)} spent` : ''
+  const stats = v.isToday
+    ? [
+        { k: sw.tasks, v: String(d.tasks) },
+        { k: sw.agents, v: String(d.agents) },
+        { k: tr().tokens, v: fmtTokens(v.tokens) },
+      ]
+    : [
+        { k: tr().cost, v: `≈${fmtCost(v.cost)}` },
+        { k: tr().tokens, v: fmtTokens(v.tokens) },
+        { k: sw.days, v: String(v.days) },
+      ]
+  return svg(
     W,
     TODAY_H,
     `${cardShape(0.5, 0.5, W - 1, TODAY_H - 1, `class="tile"`, 14)}
-<text class="t" x="14" y="22" font-family="${FONT}" font-size="13" font-weight="600">Today</text>
-<text class="m" x="${W - 14}" y="22" text-anchor="end" font-family="${FONT}" font-size="11">≈${fmtCost(d.costUsd)} spent</text>
-${statGrid(14, 30, W - 28, [
-  { k: 'Tasks', v: String(d.tasks) },
-  { k: 'Agents run', v: String(d.agents) },
-  { k: 'Tokens', v: fmtTokens(d.tokens) },
-])}`,
+<text class="t" ${startText(W, 14, 22)} font-family="${FONT}" font-size="13" font-weight="600">${xml(fitText(v.label, 13, W - 28 - (right ? textWidth(right, 11) + 12 : 0)))}</text>${
+      right ? `\n<text class="m" ${endText(W, W - 14, 22, v.isReading)} font-family="${FONT}" font-size="11">${xml(right)}</text>` : ''
+    }
+${statGrid(14, 30, W - 28, stats)}`,
   )
+}
 
 // --- background work: shells, subagents, monitors and workflows left running, and
 // the wake-ups scheduled for later, as the engine last listed them.
@@ -4920,7 +5007,7 @@ async function registerEntryPoints($: EngineInterface): Promise<void> {
   }).catch(() => undefined)
   await $.command.register({
     name: 'tokens',
-    description: 'Token Manager: /tokens for a report, budget <dollars|off>, daily <dollars|off>, autopilot <on|off>, staffing <on|off>, warm <on|off>, receipt, model <id> <model>',
+    description: 'Token Manager: /tokens for a report, budget <dollars|off>, daily <dollars|off>, autopilot <on|off>, staffing <on|off>, warm <on|off>, receipt, model <id> <model>, spend today|week|month|<from> <to>, export [period]',
   }).catch(() => undefined)
   await $.command.register(TIMEKEEPER_COMMAND).catch(() => undefined)
 }
@@ -5051,6 +5138,10 @@ export const register: Register = (on, options) => {
     const savedCred = cleanCred(await $.store.get('cred').catch(() => undefined))
     await update($, cred, () => savedCred)
     if (prefs.openOnStart && !isReload) void $.ui.open({ id: PANE, title: SKIN.tabs.mission }).catch(() => undefined)
+    // The spend card: the kept pick and ledger now; the transcripts are read in the
+    // background, never holding the start up.
+    await loadSpend($, spendIo).catch(() => undefined)
+    void (async () => readSpend($, spendIo, await spendDirs($), true))().catch(() => undefined)
 
     return started
   })
@@ -5442,6 +5533,8 @@ export const register: Register = (on, options) => {
     // Saved at every end, a sub-agent's too: its tokens are no less spent.
     await saveTotals($)
     await finishIfIdle($).catch(() => undefined)
+    // The session's own transcript grew: the spend ledger catches up, once a minute at most.
+    if (!agentId && isRescanDue(await $.clock.now().catch(() => 0))) void (async () => readSpend($, spendIo, await spendDirs($), false))().catch(() => undefined)
     return done
   })
 
@@ -5537,6 +5630,8 @@ export const register: Register = (on, options) => {
     const tw = await read($, watch)
     const every = await read($, allTime)
     const day = todayOn(await read($, today), clockNow)
+    const sp = await read($, spend)
+    const spent: SpendView = { ...spendCard(sp, { date: day.date, cost: day.costUsd, tokens: day.tokens }, clockNow, s.spend), isReading: sp.status === 'reading' }
     const legends = cleanLegends(await $.store.get('legends').catch(() => []))
     const prefs = await read($, settings)
     const tkNow = await read($, timekeeper)
@@ -5569,6 +5664,55 @@ export const register: Register = (on, options) => {
         onPress={() => setPaneView($, prev => ({ isCompact: !prev.isCompact }))}
       />
     )
+    // The spend card's period: a list (and, for a custom range, two date fields) where the
+    // surface draws them, else buttons. Without the fields a custom range is `/tokens spend <from> <to>`.
+    const spendControls = (() => {
+      const sw = s.spend
+      const row = isRtl() ? 'row-reverse' : 'row'
+      const thisMonth = monthOf(clockNow)
+      const month = sp.period.kind === 'month' ? sp.period.month || thisMonth : ''
+      if ('Select' in ui && 'Input' in ui) {
+        const { Select, Input } = ui
+        return (
+          <Box key="spend-controls" flexDirection="column">
+            <Box flexDirection={row} gap={2}>
+              <Select
+                key="spend-period"
+                label={sw.period}
+                value={sp.period.kind}
+                options={SPEND_KINDS.map(k => ({ value: k, label: sw[k] }))}
+                onSelect={v => void pickSpendKind($, spendIo, (SPEND_KINDS as readonly string[]).includes(v) ? (v as SpendKind) : 'today')}
+              />
+              {month ? (
+                <Select
+                  key="spend-month"
+                  label={sw.month}
+                  value={month}
+                  options={[...new Set([month, ...monthsWithData(sp.days, clockNow).slice(0, 14)])].sort().reverse().map(m => ({ value: m, label: monthLabel(m, sw) }))}
+                  onSelect={v => void pickSpendMonth($, spendIo, v)}
+                />
+              ) : null}
+            </Box>
+            {sp.period.kind === 'custom' ? (
+              <Box flexDirection={row} gap={2}>
+                <Input key="spend-from" label={sw.from} placeholder="YYYY-MM-DD" value={sp.draft.from || sp.period.from} onSubmit={v => void typeSpendDay($, spendIo, 'from', v)} />
+                <Input key="spend-to" label={sw.to} placeholder="YYYY-MM-DD" value={sp.draft.to || sp.period.to} onSubmit={v => void typeSpendDay($, spendIo, 'to', v)} />
+              </Box>
+            ) : null}
+            {sp.error ? <Text color="#E5675E">{sp.error}</Text> : null}
+          </Box>
+        )
+      }
+      return (
+        <Box key="spend-controls" flexDirection={row} gap={2}>
+          {SPEND_KINDS.filter(k => k !== 'custom').map(k => (
+            <Button key={`spend-${k}`} label={`${k === sp.period.kind ? '● ' : ''}${sw[k]}`} plain onPress={() => pickSpendKind($, spendIo, k)} />
+          ))}
+          {month ? <Button key="spend-prev" label={'◀︎'} plain onPress={() => pickSpendMonth($, spendIo, shiftMonth(month, -1))} /> : null}
+          {month && month < thisMonth ? <Button key="spend-next" label={'▶︎'} plain onPress={() => pickSpendMonth($, spendIo, shiftMonth(month, 1))} /> : null}
+        </Box>
+      )
+    })()
     const toggleDone = (
       <Button
         key="done"
@@ -5656,8 +5800,12 @@ export const register: Register = (on, options) => {
                 alt={usageAlt(info)}
               />
             </Box>
-            <Box key="today" marginBottom={1}>
-              <Svg source={todaySvg(W, day)} alt={`Today: ${day.tasks} tasks, ${day.agents} agents, ${fmtTokens(day.tokens)} tokens, ≈${fmtCost(day.costUsd)}`} />
+            <Box key="today" flexDirection="column" marginBottom={1}>
+              <Svg
+                source={todaySvg(W, day, spent)}
+                alt={`${spent.isToday ? `Today: ${day.tasks} tasks, ${day.agents} agents, ${fmtTokens(day.tokens)} tokens, ≈${fmtCost(day.costUsd)}` : `${spent.label}: ≈${fmtCost(spent.cost)}, ${fmtTokens(spent.tokens)} ${s.tokensWord}, ${spent.days} ${s.spend.days.toLowerCase()}`}${spent.isReading ? `. ${s.spend.reading}` : ''}`}
+              />
+              {spendControls}
             </Box>
             {egg ? (
               <Box key="cred" marginBottom={1}>
@@ -5960,6 +6108,14 @@ export const register: Register = (on, options) => {
             <Text dimColor>
               Today {day.tasks} tasks · {day.agents} agents · {fmtTokens(day.tokens)} tokens · ≈{fmtCost(day.costUsd)}
             </Text>
+            {spent.isToday ? null : (
+              <Text wrap="truncate-end">
+                {spent.label} <Text bold>≈{fmtCost(spent.cost)}</Text>
+                <Text dimColor> · {fmtTokens(spent.tokens)} {s.tokensWord}</Text>
+              </Text>
+            )}
+            {spent.isReading ? <Text dimColor>{s.spend.reading}</Text> : null}
+            {spendControls}
             <Text bold>Workflow{f && !f.isFinished ? ` ${f.title}` : ''}</Text>
             {steps.length === 0 && <Text dimColor>  nothing running</Text>}
             {foldSteps(steps, p.isDoneCollapsed).map(st => (
@@ -6286,9 +6442,27 @@ export const register: Register = (on, options) => {
       await loadModelAliases($)
       return { text: `${arg} now prices as ${modelName(to)}.` }
     }
+    // `/tokens spend <period>`: the card follows the pick, and the answer says the sums.
+    // `/tokens export [period]`: the same period as a FOCUS-style CSV in Downloads.
+    if (verb === 'spend' || verb === 'export') {
+      const got = parseSpendArgs((e.args ?? '').trim().split(/\s+/).slice(1))
+      if (got.error) return { text: got.error }
+      const at = await $.clock.now()
+      if (verb === 'export') {
+        const r = await exportSpend($, spendIo, await spendDirs($), got.period ?? (await read($, spend)).period, at)
+        if (r.error) return { text: r.error }
+        return { text: `Saved ${r.lines} line${r.lines === 1 ? '' : 's'} · ${r.from} to ${r.to} · ${fmtTokens(r.tokens)} tokens · ≈$${r.cost.toFixed(2)} USD${r.note ? ` (${r.note})` : ''}\n${r.path}` }
+      }
+      if (got.period) await setSpendPeriod($, spendIo, got.period)
+      const sp = await read($, spend)
+      const day = todayOn(await read($, today), at)
+      const v = spendCard(sp, { date: day.date, cost: day.costUsd, tokens: day.tokens }, at, tr().spend)
+      const note = sp.status === 'reading' ? tr().spend.reading : sp.status === 'off' ? 'no transcripts to read: the log only' : ''
+      return { text: `${v.label}: ≈${fmtCost(v.cost)} · ${fmtTokens(v.tokens)} ${tr().tokensWord}${note ? ` (${note})` : ''}` }
+    }
     // Anything but a report, a budget or autopilot on|off gets the usage line.
     if ((verb && verb !== 'autopilot' && verb !== 'budget' && verb !== 'warm' && verb !== 'staffing' && verb !== 'daily' && verb !== 'receipt') || ((verb === 'autopilot' || verb === 'warm') && arg && arg !== 'on' && arg !== 'off')) {
-      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>, /tokens staffing <on|off>, /tokens daily <dollars|off>, /tokens receipt, /tokens model <id> <model|off>' }
+      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>, /tokens staffing <on|off>, /tokens daily <dollars|off>, /tokens receipt, /tokens model <id> <model|off>, /tokens spend today|week|month [YYYY-MM]|<from YYYY-MM-DD> <to YYYY-MM-DD>, /tokens export [period]' }
     }
     if (verb === 'warm') {
       const isOn = arg !== 'off'

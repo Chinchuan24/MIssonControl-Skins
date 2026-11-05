@@ -192,6 +192,21 @@ export type Today = {
   costUsd: number
 }
 
+/**
+ * The spend card's period and what it shows: `days` is the per-day ledger (estimated
+ * US dollars and tokens per local day) read from the store, `status` whether Claude
+ * Code's transcripts are being read ('reading'), were read ('done'), or cannot be on
+ * this system ('off': the ledger alone). `draft` holds the custom range's days as
+ * typed, `error` the last date that was not one.
+ */
+export type Spend = {
+  period: { kind: 'today' | 'week' | 'month' | 'custom'; month: string; from: string; to: string }
+  days: Record<string, [number, number]>
+  status: 'idle' | 'reading' | 'done' | 'off'
+  draft: { from: string; to: string }
+  error: string
+}
+
 /** One piece of background work, as the last Stop or SubagentStop hook listed it. */
 export type BgTask = {
   id: string
@@ -257,6 +272,8 @@ declare module 'claude-code' {
       background: Background
       /** Today and All-time as this session last read or wrote them: a save adds only its own share. */
       saved: { today: Today; allTime: AllTime }
+      /** The spend card: its period, the per-day ledger, and whether history is being read. */
+      spend: Spend
     }
   }
 }
