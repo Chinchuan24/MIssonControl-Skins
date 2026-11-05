@@ -5584,7 +5584,9 @@ export const register: Register = (on, options) => {
       const { Svg } = ui
       // Each card keeps its source while it reads the same: no new image, no restart.
       const keep = <T,>(tree: T): T => steadyTree(tree, `pane:${e.surface}`, clockNow)
-      const W = Math.max(240, Math.min(900, (e.props.bodyColumns || 40) * 8 - 8))
+      // Drawn wider than the pane's columns suggest, then shrunk to the pane by the app:
+      // the cards fill it edge to edge instead of leaving a dark strip at the right.
+      const W = Math.max(240, Math.min(1100, Math.round((e.props.bodyColumns || 40) * 10) - 8))
       // Section labels in the skin's colours; the classic skins keep the app's dim grey.
       const section = (key: string, text: string) =>
         SKIN.dark ? (
@@ -5751,8 +5753,6 @@ export const register: Register = (on, options) => {
                   <Svg
                     source={treeRowSvg(W - OPEN_W, r, drawn(`${lite ? 'lite-fold' : 'fold'}:${r.key}`, () => foldedSvg(rowInnerW(W - OPEN_W, r), r.a, at, lite)), lite)}
                     alt={`${r.a.description}: ${r.a.status === 'failed' ? s.failed : r.a.status === 'stopped' ? s.stopped : s.isFinished}, ${fmtTokens(r.a.tokens)} tokens`}
-                    width={W - OPEN_W}
-                    height={FOLD_H}
                   />
                   <Button key={`open-${r.key}`} label="Open ▸" plain onPress={() => toggleOpen(r.a.id)} />
                 </Box>
@@ -6167,7 +6167,9 @@ export const register: Register = (on, options) => {
     const skins = [...SKINS.values()].filter(k => canWear(k) && (!k.hidden || k.id === active.id))
     if (e.surface === 'desktop' && 'Svg' in ui) {
       const { Svg } = ui
-      const W = Math.max(240, Math.min(900, (e.props.bodyColumns || 40) * 8 - 8))
+      // Drawn wider than the pane's columns suggest, then shrunk to the pane by the app:
+      // the cards fill it edge to edge instead of leaving a dark strip at the right.
+      const W = Math.max(240, Math.min(1100, Math.round((e.props.bodyColumns || 40) * 10) - 8))
       return (
         <Box flexDirection="column" gap={1}>
           <Text dimColor>Pick a look for Mission Control and the band. Your own skins go in the Custom Claude Skins folder.</Text>
