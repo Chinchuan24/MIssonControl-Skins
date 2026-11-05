@@ -81,6 +81,7 @@ Claude works in steps, calls tools and spins up sub-agents. Mission Control show
 - 👥 **Crew** and 🪜 **Steps**: every sub-agent by role, the plan as pips
 - 💸 **Token Manager**: cost per task, cache hits, budget warnings; optional **Haiku autopilot** for read-only explorers
 - 🧊 **Smart Keep-Warm**: refreshes the prompt cache just before it expires, only when that saves more than it costs (`/tokens warm on`)
+- 🗓️ **Spend card**: what Today, this week (Mon–Sun), one calendar month or your own date range cost, read from Claude Code's own history (`/tokens spend week`, `/tokens spend month 2026-06`, `/tokens spend 2026-10-01 2026-10-15`); `/tokens export` saves the period as a FinOps-style CSV in Downloads ([Athena sample](docs/athena.sql))
 - 🚀 **Crew mode**: big jobs get split across sub-agents automatically
 - 🚨 **Stuck alarm** (2 min quiet) and 🔔 **done chime** (toast, notification, sound)
 - 🧾 **Rich replies**: diffs, code, tables, math and mermaid as cards
@@ -300,7 +301,7 @@ Expand-Archive -Force "$env:USERPROFILE\Downloads\cyberpunk-skins-addon.zip" -De
 | `/skins` | The skin picker, every skin as a live preview |
 | `/skin` | `/skin` to list, `/skin <id>` to switch, `/skin off`, `/skin reload` |
 | `/autocrew` | Crew mode: state, `on`, `off`, or `<context %>` to call the crew |
-| `/tokens` | Token Manager report, `budget <dollars\|off>`, `autopilot <on\|off>`, `warm <on\|off>` (Smart Keep-Warm) |
+| `/tokens` | Token Manager report, `budget <dollars\|off>`, `autopilot <on\|off>`, `warm <on\|off>` (Smart Keep-Warm), `spend today\|week\|month [YYYY-MM]\|<from> <to>`, `export [period]` (CSV in Downloads) |
 | `/prefs` | How Claude should answer you, in every session: `add <rule>`, `remove <n>`, `clear` |
 
 ---
@@ -315,6 +316,7 @@ Expand-Archive -Force "$env:USERPROFILE\Downloads\cyberpunk-skins-addon.zip" -De
 - `hooks/richtext.ts`: diffs, tables, math and mermaid in replies
 - `hooks/warm.ts`: Smart Keep-Warm's arithmetic (when a refresh pays)
 - `hooks/billing.ts` and `scripts/anthropic-key-helper.sh`: the API key in the macOS Keychain and the `apiKeyHelper` link ([docs/SECURITY-billing.md](docs/SECURITY-billing.md))
+- `hooks/spend.ts`: the spend card's periods, the transcript reader and per-day ledger, the CSV export
 - Tests: `claude plugin test /path/to/MIssonControl-Skins` (and `claude plugin validate …`)
 - `.claude-plugin/types/` is generated on each machine by the CLI and is git-ignored.
 
