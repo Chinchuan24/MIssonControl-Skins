@@ -13,6 +13,10 @@ Skins load from, in order: the folder you used last, a `Custom Claude Skins/` fo
 - `/skin crab-classic`: switch, live
 - `/skin off`: back to Default (no skin)
 - `/skin reload`: re-read this folder after you edit or add a file
+- `/skin new <idea>`: Claude drafts a skin from a one-line idea and saves it
+- `/skin check <file>`: check a skin file; `skin.schema.json` lets your editor do it too
+
+Guide: [`docs/SKINS.md`](../docs/SKINS.md).
 
 ## Make your own
 

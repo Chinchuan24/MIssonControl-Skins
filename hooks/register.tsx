@@ -8,6 +8,7 @@ import { BEATS_KEPT, BLANK_CRED, BOOT_H, award, rockerRankOf, bdHeight, bootStri
 import type { Beat, Cred } from './extras'
 import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, unifiedDiff } from './richtext'
 import { LIVE_N, glide, isNewReading, isSame, liveText, liveWidth, pin, steady, steadyTree, wallMinute } from './smooth'
+import { COLOR_RE, FONT_BAD_RE, ID_RE, TOOL_KEY_RE, skinCheck, skinNew } from './skinkit'
 import { WARM_PROMPT, WARM_TAG, isWarmDue, isWarmed, warmCall, warmLimitHit } from './warm'
 import type { AgentRun, AgentStatus, AllTime, Background, BgCron, BgTask, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Today, Watch } from '../types'
 import type { On } from 'claude-code'
@@ -935,13 +936,12 @@ const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, CYBER_SKIN, ARASAKA_SKI
 
 // Only plain colour and font values reach the drawings: a skin file cannot
 // smuggle markup into an Svg.
-const COLOR_RE = /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\))$/i
 const cleanColor = (v: unknown, fallback: string): string => (typeof v === 'string' && COLOR_RE.test(v.trim()) ? v.trim() : fallback)
 // A JSON file's text, without the byte-order mark Windows editors may write.
 const parseJson = (text: unknown): unknown => JSON.parse(String(text).replace(/^\uFEFF/, ''))
 
 const cleanFont = (v: unknown, fallback: string): string =>
-  typeof v === 'string' && v.trim() && !/["<>&;{}]/.test(v) ? v.trim().slice(0, 200) : fallback
+  typeof v === 'string' && v.trim() && !FONT_BAD_RE.test(v) ? v.trim().slice(0, 200) : fallback
 
 const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
   if (!raw || typeof raw !== 'object') return null
@@ -949,7 +949,7 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
   const base = CRAB_SKIN
   const colors = (r.colors ?? {}) as Record<string, unknown>
   const effects = (r.effects ?? {}) as Record<string, unknown>
-  const id = typeof r.id === 'string' && /^[a-z0-9-]{1,40}$/.test(r.id) ? r.id : fallbackId
+  const id = typeof r.id === 'string' && ID_RE.test(r.id) ? r.id : fallbackId
   const list = (v: unknown, fb: string[], n: number) =>
     Array.isArray(v) && v.length ? v.slice(0, n).map((c, i) => cleanColor(c, fb[i % fb.length] ?? '#888888')) : fb
   return {
@@ -978,7 +978,7 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
     words: Array.isArray(r.words) ? r.words.filter((w): w is string => typeof w === 'string' && w.trim() !== '').map(w => clip(w.trim(), 32)).slice(0, 20) : base.words,
     toolWords: Object.fromEntries(
       Object.entries((r.toolWords ?? {}) as Record<string, unknown>)
-        .filter(([k, v]) => /^[A-Za-z_]{1,40}$/.test(k) && typeof v === 'string' && v.trim())
+        .filter(([k, v]) => TOOL_KEY_RE.test(k) && typeof v === 'string' && v.trim())
         .map(([k, v]) => [k, clip(String(v).trim(), 20)]),
     ),
   }
@@ -4912,7 +4912,7 @@ async function registerEntryPoints($: EngineInterface): Promise<void> {
   }).catch(() => undefined)
   await $.command.register({
     name: 'skin',
-    description: 'Skins: /skin to list, /skin <name> to switch, /skin reload after editing a file in Custom Claude Skins',
+    description: 'Skins: /skin to list, /skin <name> to switch, /skin new <idea> to draft one, /skin check <file>, /skin reload after editing a file in Custom Claude Skins',
   }).catch(() => undefined)
   await $.command.register({
     name: 'autocrew',
@@ -6218,6 +6218,16 @@ export const register: Register = (on, options) => {
       applySkin(current)
       await update($, skin, () => `${current.id}`)
       return { text: folder ? `Reloaded ${loaded} skin file(s) from ${folder}.${skipped.length ? `\nSkipped: ${skipped.join('; ')}` : ''}\n${listing()}` : `No "${SKINS_FOLDER}" folder found.\n${listing()}` }
+    }
+    const word = /^(new|check)(?:\s+([\s\S]*))?$/i.exec((e.args ?? '').trim())
+    if (word) {
+      const reload = async () => {
+        await loadSkins($)
+        const found = SKINS.get(SKIN.id)
+        if (found) applySkin(found)
+      }
+      const deps = { folderName: SKINS_FOLDER, taken: () => new Set(SKINS.keys()), reload }
+      return { text: word[1]!.toLowerCase() === 'new' ? await skinNew($, word[2] ?? '', deps) : await skinCheck($, word[2] ?? '', deps) }
     }
     if (arg === 'folder') {
       const folder = await $.store.get('skinsFolder').catch(() => undefined)
