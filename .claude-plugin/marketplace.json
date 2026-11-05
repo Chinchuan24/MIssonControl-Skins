@@ -1,0 +1,5 @@
+{
+  "name": "mission-control",
+  "owner": { "name": "Chinchuan24" },
+  "plugins": [{ "name": "crab-progress", "source": "./" }]
+}

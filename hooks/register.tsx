@@ -1587,8 +1587,31 @@ type Usage = {
   cache_creation_input_tokens: number
 }
 
+// A model id with no family in it (a Bedrock application inference profile ARN, a
+// gateway's own name) prices as the model it stands for: one the person mapped with
+// `/tokens model`, else the family whose ANTHROPIC_DEFAULT_*_MODEL names it.
+const FAMILY_LATEST: Record<string, string> = { fable: 'claude-fable-5-1', opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' }
+const MODEL_KEY = 'modelAliases'
+let modelAliases: Record<string, string> = {}
+const hasFamily = (id: string): boolean => /fable|mythos|opus|sonnet|haiku/i.test(id)
+const resolveModel = (model: string): string => (hasFamily(model) ? model : (modelAliases[model.toLowerCase()] ?? model))
+
+// The person's own map first; the env's defaults fill in only ids it does not name.
+async function loadModelAliases($: EngineInterface): Promise<void> {
+  const kept = (await $.store.get(MODEL_KEY).catch(() => undefined)) as Record<string, string> | undefined
+  const fromEnv: Record<string, string> = {}
+  const pairs: [string | undefined, string][] = [
+    [await $.env.get('ANTHROPIC_DEFAULT_OPUS_MODEL').catch(() => undefined), 'opus'],
+    [await $.env.get('ANTHROPIC_DEFAULT_SONNET_MODEL').catch(() => undefined), 'sonnet'],
+    [await $.env.get('ANTHROPIC_DEFAULT_HAIKU_MODEL').catch(() => undefined), 'haiku'],
+    [await $.env.get('ANTHROPIC_SMALL_FAST_MODEL').catch(() => undefined), 'haiku'],
+  ]
+  for (const [id, family] of pairs) if (id && !hasFamily(id)) fromEnv[id.toLowerCase()] = FAMILY_LATEST[family] as string
+  modelAliases = { ...fromEnv, ...(kept && typeof kept === 'object' ? kept : {}) }
+}
+
 const priceOf = (model: string, prompt: number): Price => {
-  const id = model.toLowerCase()
+  const id = resolveModel(model).toLowerCase()
   if (prompt > HAIKU_LONG_PROMPT && /haiku-5-5/.test(id)) return HAIKU_LONG
   return PRICES.find(([re]) => re.test(id))?.[1] ?? [4, 20, 0.2, 8]
 }
@@ -1620,7 +1643,8 @@ const tierOf = (type: string): string => {
   return Object.hasOwn(TIER_COLOR, t) && bare.startsWith('mc-') ? t : 'other'
 }
 
-const modelName = (id: string): string => {
+const modelName = (raw: string): string => {
+  const id = resolveModel(raw)
   const m = /(fable|mythos|opus|sonnet|haiku)-(\d+)(?:-(\d{1,2})(?!\d))?/i.exec(id)
   const [, family = '', major = '', minor] = m ?? []
   if (!family) return id.replace(/^claude-/, '').replace(/\[.*\]$/, '') || '—'
@@ -1710,7 +1734,8 @@ const paneCss = (k: Skin): string => {
 ${scheme}
 .live{animation:p 1.6s ease-in-out infinite}@keyframes p{50%{opacity:.3}}
 ${glitch}
-@media (prefers-reduced-motion: reduce){.live,.gl{animation:none}}
+.still{display:none}
+@media (prefers-reduced-motion: reduce){.live,.gl{animation:none}.smil{display:none}.still{display:inline}}
 </style>`
 }
 let PANE_CSS = paneCss(CRAB_SKIN)
@@ -2175,7 +2200,7 @@ const progressBar = (x: number, y: number, w: number, pct: number | null, color:
   const fill =
     pct === null
       ? isRunning
-        ? `<rect x="${x}" y="${y + 12}" width="${Math.round(barW * 0.28)}" height="6" rx="3" fill="${color}"><animate attributeName="x" values="${x};${x + barW * 0.72};${x}" dur="1.8s" repeatCount="indefinite"/></rect>`
+        ? `<rect x="${x}" y="${y + 12}" width="${Math.round(barW * 0.28)}" height="6" rx="3" fill="${color}" class="smil"><animate attributeName="x" values="${x};${x + barW * 0.72};${x}" dur="1.8s" repeatCount="indefinite"/></rect>`
         : ''
       : live
         ? `<rect x="${x}" y="${y + 12}" width="${live.start}" height="6" rx="3" fill="${color}">${live.animate}</rect>`
@@ -2227,11 +2252,11 @@ const agentSvg = (W: number, a: AgentRun, at: number, hasRule = true): string =>
   return svg(
     W,
     H,
-    `${rowCrab(W, 0, 10, costumeFor(a), false, a.status === 'running')}
+    `${rowCrab(W, 0, 10, costumeFor(a), false, a.status === 'running' && !isQuiet(a))}
 <text class="t" x="42" y="18" font-family="${FONT}" font-size="13" font-weight="600">${xml(fitText(a.description || a.type, 13, textW))}</text>
 <text x="42" y="35" font-family="${FONT}" font-size="11"><tspan fill="${color}">${xml(sub[0] ?? '')}</tspan><tspan class="s">${xml(fitText(sub.slice(1).map(x => `  ·  ${x}`).join(''), 11, textW - 60))}</tspan></text>
 ${statGrid(42, 46, W - 42 - 6, agentStats(a, at))}
-${progressBar(42, 46 + statGridHeight(6), W - 42 - 6, agentProgress(a, at), color, a.status === 'running', 'Progress', isEstimated(a), isEstimated(a) ? { at, read: t => estimateOf(a, t) } : undefined)}
+${progressBar(42, 46 + statGridHeight(6), W - 42 - 6, agentProgress(a, at), color, a.status === 'running' && !isQuiet(a), 'Progress', isEstimated(a), isEstimated(a) && !isQuiet(a) ? { at, read: t => estimateOf(a, t) } : undefined)}
 ${statusMark(W - 8, 16, a.status, color)}
 ${hasRule ? `<line class="ln" x1="0" y1="${H - 0.5}" x2="${W}" y2="${H - 0.5}"/>` : ''}`,
   )
@@ -2622,14 +2647,17 @@ const bossFrame = (W: number, H: number, isWorking: boolean): string => {
 ${[0, 0.3, 0.55, 0.8, 1].map((o, i) => `<stop offset="${o}" stop-color="${SKIN.boss[i] ?? SKIN.colors.accent}"/>`).join('')}
 <animateTransform attributeName="gradientTransform" type="rotate" from="0 ${cx} ${cy}" to="360 ${cx} ${cy}" dur="${dur}s" repeatCount="indefinite"/>
 </linearGradient>
+<linearGradient id="bossStill" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${W}" y2="${H}">
+${[0, 0.3, 0.55, 0.8, 1].map((o, i) => `<stop offset="${o}" stop-color="${SKIN.boss[i] ?? SKIN.colors.accent}"/>`).join('')}
+</linearGradient>
 <linearGradient id="bossbg" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="${SKIN.boss[0]}" stop-opacity=".16"/><stop offset=".5" stop-color="${SKIN.boss[2]}" stop-opacity=".06"/><stop offset="1" stop-color="${SKIN.boss[3]}" stop-opacity=".10"/></linearGradient>
 <filter id="glow" x="-10%" y="-30%" width="120%" height="160%"><feGaussianBlur stdDeviation="3.5"/></filter>
 </defs>
 <style>.bossglow{animation:bg ${isWorking ? 1.6 : 3.2}s ease-in-out infinite}@keyframes bg{50%{opacity:.25}}@media (prefers-reduced-motion: reduce){.bossglow{animation:none}}</style>
-${cardShape(4, 4, W - 8, H - 8, `class="bossglow" fill="none" stroke="url(#boss)" stroke-width="5" opacity=".55" filter="url(#glow)"`, 14)}
+<g class="smil">${cardShape(4, 4, W - 8, H - 8, `class="bossglow" fill="none" stroke="url(#boss)" stroke-width="5" opacity=".55" filter="url(#glow)"`, 14)}</g><g class="still">${cardShape(4, 4, W - 8, H - 8, `fill="none" stroke="url(#bossStill)" stroke-width="5" opacity=".4" filter="url(#glow)"`, 14)}</g>
 ${cardShape(4, 4, W - 8, H - 8, `class="tile"`, 14)}
 ${cardShape(4, 4, W - 8, H - 8, `fill="url(#bossbg)"`, 14)}
-${cardShape(4, 4, W - 8, H - 8, `fill="none" stroke="url(#boss)" stroke-width="1.8"`, 14)}`
+<g class="smil">${cardShape(4, 4, W - 8, H - 8, `fill="none" stroke="url(#boss)" stroke-width="1.8"`, 14)}</g><g class="still">${cardShape(4, 4, W - 8, H - 8, `fill="none" stroke="url(#bossStill)" stroke-width="1.8"`, 14)}</g>`
 }
 
 // A pixel crown on the manager crab's head, in the crab's own 30×28 grid.
@@ -2899,7 +2927,7 @@ const managerSvg = (
 ): string => {
   const textW = W - 68 - 18
   const isParty = (m.celebrateUntil ?? 0) > at
-  const status = isParty ? 'Done!' : m.isWorking ? 'Working' : waitingOn ? tr().bgWait : 'Idle'
+  const status = isParty ? 'Done!' : m.isWorking ? 'Working' : waitingOn ? tr().bgWait : outcomeWord(m) || 'Idle'
   // Held open by background work: the bar stops short of whole.
   if (waitingOn && progress !== null) progress = Math.min(0.95, progress)
   const pillW = Math.round(20 + textWidth(status, 11))
@@ -3049,7 +3077,7 @@ const workflowSvg = (W: number, f: Flow | null, steps: WorkStep[], at = 0, foldD
     // An estimate glides and counts inside the image; a reported share glides from the last one.
     const est = st.est && at && counting.has(st.key) ? st.est : undefined
     if (st.state !== 'waiting' && pct === null) {
-      fill = `<rect x="${bx}" y="${y + 10}" width="${Math.round(rowBarW * 0.3)}" height="6" rx="3" fill="${st.color}"><animate attributeName="x" values="${bx};${bx + rowBarW * 0.7};${bx}" dur="1.8s" repeatCount="indefinite"/></rect>`
+      fill = `<rect x="${bx}" y="${y + 10}" width="${Math.round(rowBarW * 0.3)}" height="6" rx="3" fill="${st.color}" class="smil"><animate attributeName="x" values="${bx};${bx + rowBarW * 0.7};${bx}" dur="1.8s" repeatCount="indefinite"/></rect>`
     } else if (pct !== null && est) {
       const live = liveWidth(at, t => widthOf(Math.round(est(t) * 100)))
       fill = `<rect x="${bx}" y="${y + 10}" width="${live.start}" height="6" rx="3" fill="${st.color}">${live.animate}</rect>`
@@ -3084,6 +3112,8 @@ const STEP_GLYPH: Record<StepState, string> = { done: '✓', running: '●', fai
 
 type OrgNode = {
   isStuck?: boolean
+  /** Running but silent: drawn still, so the motion never says "working" when the text says "quiet". */
+  isQuiet?: boolean
   party?: boolean
   id: string
   label: string
@@ -3143,7 +3173,8 @@ const visibleCrew = (all: AgentRun[], boss: Manager, at: number): AgentRun[] =>
   isCleared(boss, at) ? all.filter(a => a.status === 'running' || a.startedAt > (boss.doneAt ?? 0)) : crewOf(all, boss)
 const managerView = (boss: Manager, at: number): Manager => (isCleared(boss, at) ? { ...boss, task: '', plan: [], activity: '' } : boss)
 // How a job that ended short reads in place of "Idle" until the next request.
-const outcomeWord = (boss: Manager): string => (boss.outcome === 'error' ? 'Error' : boss.outcome === 'stopped' ? 'Stopped' : '')
+// A small job that ended well keeps a still "Done" until the next prompt: no hop, no confetti.
+const outcomeWord = (boss: Manager): string => (boss.outcome === 'error' ? 'Error' : boss.outcome === 'stopped' ? 'Stopped' : boss.settled ? 'Done' : '')
 
 const orgTree = (all: AgentRun[], boss: Manager, at = 0, mood: 0 | 1 | 2 = 0): OrgNode => {
   const list = currentCrew(all, boss)
@@ -3156,6 +3187,7 @@ const orgTree = (all: AgentRun[], boss: Manager, at = 0, mood: 0 | 1 | 2 = 0): O
     color: runRoleColor(a),
     costume: costumeFor(a),
     isStuck: isQuiet(a) || isOver(a),
+    isQuiet: isQuiet(a),
     kind: 'agent',
     status: a.status,
     children: depth >= ORG_MAX_DEPTH ? [] : ordered.filter(k => a.agentId && k.parentAgentId === a.agentId).map(k => agentNode(k, depth + 1)),
@@ -3258,24 +3290,24 @@ const orgSvg = (W: number, root: OrgNode, isLight = false): string => {
       const cy = yOf(c) - 4
       const midY = (y0 + cy) / 2
       const path = `M${x.toFixed(1)} ${y0}C${x.toFixed(1)} ${midY.toFixed(1)} ${cx.toFixed(1)} ${midY.toFixed(1)} ${cx.toFixed(1)} ${cy}`
-      const isLive = c.status === 'running'
+      const isLive = c.status === 'running' && !c.isQuiet
       edges.push(`<path class="${isLive ? 'oe flow' : 'oe'}" d="${path}" stroke="${c.color}"/>`)
       // Work travels down the line: a glowing packet from boss to worker.
       if (isLive && !isLight) {
         const delay = ((packet++ % 4) * 0.3).toFixed(1)
-        edges.push(`<circle r="3.2" fill="${c.color}" filter="url(#pglow)"><animateMotion dur="1.4s" begin="-${delay}s" repeatCount="indefinite" path="${path}"/></circle>`)
+        edges.push(`<circle class="smil" r="3.2" fill="${c.color}" filter="url(#pglow)"><animateMotion dur="1.4s" begin="-${delay}s" repeatCount="indefinite" path="${path}"/></circle>`)
       }
       walk(c)
     }
     const { sc, w, h } = crabSize(n)
     const y = yOf(n)
     const left = r2(x - w / 2)
-    const isWorking = n.status === 'running'
+    const isWorking = n.status === 'running' && !n.isQuiet
 
     if (n.kind === 'manager') {
       // The boss: a pulsing gold aura, a big crab, the crown.
       nodes.push(`<circle class="aura" cx="${x}" cy="${y + h / 2 + 2}" r="${w * 0.78}" fill="url(#aura)"/>
-<circle cx="${x}" cy="${y + h / 2 + 2}" r="${w * 0.62}" fill="none" stroke="url(#ring)" stroke-width="2"><animateTransform attributeName="transform" type="rotate" from="0 ${x} ${y + h / 2 + 2}" to="360 ${x} ${y + h / 2 + 2}" dur="${isWorking ? 3 : 8}s" repeatCount="indefinite"/></circle>
+<circle class="still" cx="${x}" cy="${y + h / 2 + 2}" r="${w * 0.62}" fill="none" stroke="url(#ring)" stroke-width="2"/><circle class="smil" cx="${x}" cy="${y + h / 2 + 2}" r="${w * 0.62}" fill="none" stroke="url(#ring)" stroke-width="2"><animateTransform attributeName="transform" type="rotate" from="0 ${x} ${y + h / 2 + 2}" to="360 ${x} ${y + h / 2 + 2}" dur="${isWorking ? 3 : 8}s" repeatCount="indefinite"/></circle>
 ${(() => {
   const figure = `${crab(left, y, 'boss', false, isWorking, sc)}${crown(left, y, sc)}`
   const egg = eggOf()
@@ -3318,7 +3350,7 @@ ${slot >= 46 ? `<text${isWorking ? ' class="t"' : ' class="s"'} x="${x}" y="${y 
     const label = fitText(n.label, 11, Math.max(30, slot - 8))
     const badge = n.status === 'done' || n.status === 'failed' ? `<use href="#${n.status === 'done' ? 'bok' : 'bno'}" x="${r2(left + w - 2)}" y="${y + 4}"/>` : ''
     nodes.push(`<ellipse cx="${x}" cy="${y + h + 1}" rx="${r2(w * 0.45)}" ry="2.5" fill="#000" fill-opacity=".25"/>
-${dancing(crab(left, y, n.costume ?? 'other', n.status === 'done' && n.kind !== 'tokens', isWorking, sc), isParty)}${n.isStuck ? `<circle class="live" cx="${x}" cy="${y + h / 2}" r="${(w * 0.62).toFixed(1)}" fill="none" stroke="#E5675E" stroke-width="2"/><path d="M${left + 4} ${y + 6}q-2 4 0 5q2 -1 0 -5z" fill="#5EC8D8"/>` : ''}
+${dancing(crab(left, y, n.costume ?? 'other', n.status === 'done' && n.kind !== 'tokens', isWorking, sc), isParty)}${n.isStuck ? `<circle${n.isQuiet ? ' stroke-opacity=".9"' : ' class="live"'} cx="${x}" cy="${y + h / 2}" r="${(w * 0.62).toFixed(1)}" fill="none" stroke="#E5675E" stroke-width="2"/><path d="M${left + 4} ${y + 6}q-2 4 0 5q2 -1 0 -5z" fill="#5EC8D8"/>` : ''}
 ${isWorking ? sparks(x + w * 0.25, y + 2, n.color) : ''}${badge}
 ${slot >= 46 ? `<text${isWorking ? ' class="t"' : ' class="s"'} x="${x}" y="${y + h + 15}" text-anchor="middle" font-size="11" font-weight="${isWorking ? 700 : 500}">${xml(label)}</text>` : ''}`)
   }
@@ -3861,12 +3893,14 @@ type HudData = {
   progressAt?: (t: number) => number
   isWorking: boolean
   isParty: boolean
+  /** When the job finished: the cheer is pinned to it, so a redraw resumes it instead of replaying it. */
+  partyAt?: number
   ctxPct: number
   limitPct: number | null
   burnPerMin: number
   mood: 0 | 1 | 2
   /** Line 3: the crew at work, one small crab each, and a count per role. */
-  crew: { costume: string; color: string; status: AgentStatus }[]
+  crew: { costume: string; color: string; status: AgentStatus; isQuiet?: boolean }[]
   roles: { role: string; color: string; count: number }[]
   /** Line 4: the manager's steps as pips, and the one in hand. */
   steps: StepState[]
@@ -3951,16 +3985,16 @@ ${egg ? heatStars(rx + 178, 43, burnStars(d.burnPerMin), egg) : ''}
       ? liveSegmentBar(left, gaugeY, barW, d.at, t => Math.round(climb(t) * 100), c.accent)
       : pct !== null
       ? `${segmentBar(left, gaugeY, barW, pct, d.isParty ? c.done : c.accent).replace(/height="8"/g, 'height="7"')}`
-      : `<rect x="${left}" y="${gaugeY}" width="${barW}" height="7" rx="1" class="k"/>${d.isWorking ? `<rect class="scan" x="${left}" y="${gaugeY}" width="${Math.round(barW * 0.22)}" height="7" rx="1" fill="${c.accent}"/>` : ''}`
+      : `<rect x="${left}" y="${gaugeY}" width="${barW}" height="7" rx="1" class="k"/>${d.isWorking ? `<rect class="hscan" x="${left}" y="${gaugeY}" width="${Math.round(barW * 0.22)}" height="7" rx="1" fill="${c.accent}"/>` : ''}`
   const css = `<style>
 .ekg{animation:ekg 1.8s linear infinite}@keyframes ekg{from{stroke-dashoffset:${barW * 2}}to{stroke-dashoffset:0}}
-.scan{animation:scan 1.6s ease-in-out infinite alternate}@keyframes scan{to{transform:translateX(${Math.round(barW * 0.78)}px)}}
+.hscan{animation:hscan 1.6s ease-in-out infinite alternate}@keyframes hscan{to{transform:translateX(${Math.round(barW * 0.78)}px)}}
 .hedge{animation:hedge 1.8s ease-in-out infinite}@keyframes hedge{50%{stroke-opacity:.95}}
 .beam{animation:beam ${d.isWorking ? 3.2 : 9}s linear infinite}@keyframes beam{from{transform:translateX(-180px)}to{transform:translateX(${OW + 180}px)}}
 .brk{animation:brk 2.4s ease-in-out infinite}@keyframes brk{50%{opacity:.35}}
 .shine{animation:shine 2.2s ease-in-out infinite}@keyframes shine{from{transform:translateX(-30px);opacity:0}30%{opacity:1}to{transform:translateX(${Math.max(40, Math.round((barW * (pct ?? 0)) / 100))}px);opacity:0}}
 .cur{animation:cur 1.1s steps(1) infinite}@keyframes cur{50%{opacity:0}}
-@media (prefers-reduced-motion: reduce){.ekg,.scan,.hedge,.beam,.brk,.shine,.cur{animation:none}}
+@media (prefers-reduced-motion: reduce){.ekg,.hscan,.hedge,.beam,.brk,.shine,.cur{animation:none}}
 ${egg ? EGG_CSS : ''}
 </style>`
   // A beam of light that crosses the card, clipped to its shape.
@@ -4017,7 +4051,7 @@ ${hudLines(W, d)}
 </g>
 ${hudSpare(W)}
 </g>
-${egg && d.isParty ? celebration(OW, OH, egg, FONT) : ''}`,
+${egg && d.isParty ? celebration(OW, OH, egg, FONT, d.partyAt) : ''}`,
   )
 }
 
@@ -4108,10 +4142,13 @@ const hudLines = (W: number, d: HudData): string => {
     d.crew.slice(0, room).forEach((m, i) => {
       if (d.lite) {
         out.push(`<circle cx="${crabX + i * 24 + 10}" cy="${y3 + 10}" r="5" fill="${m.color}" fill-opacity="${m.status === 'running' ? 1 : 0.4}"/>`)
+        // Quiet: a still ring in the skin's alert colour, so the band says it too.
+        if (m.isQuiet) out.push(`<circle cx="${crabX + i * 24 + 10}" cy="${y3 + 10}" r="8" fill="none" stroke="${c.alert}" stroke-width="1.5"/>`)
         return
       }
-      out.push(crab(crabX + i * 24, y3, m.costume, m.status !== 'running', m.status === 'running', 0.72))
-      if (m.status === 'running') out.push(`<circle class="live" cx="${crabX + i * 24 + 21}" cy="${y3 + 2}" r="2.2" fill="${m.color}"/>`)
+      out.push(crab(crabX + i * 24, y3, m.costume, m.status !== 'running', m.status === 'running' && !m.isQuiet, 0.72))
+      if (m.isQuiet) out.push(`<circle cx="${crabX + i * 24 + 10}" cy="${y3 + 10}" r="11" fill="none" stroke="${c.alert}" stroke-width="1.5"/>`)
+      else if (m.status === 'running') out.push(`<circle class="live" cx="${crabX + i * 24 + 21}" cy="${y3 + 2}" r="2.2" fill="${m.color}"/>`)
     })
     if (d.crew.length > room) out.push(`<text class="m" x="${crabX + room * 24 + 2}" y="${y3 + 14}" font-family="${FONT}" font-size="11">+${d.crew.length - room}</text>`)
   }
@@ -4292,7 +4329,7 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
     isMine = false
     if (prev.doneAt || prev.isWorking || prev.task !== boss.task) return prev
     isMine = true
-    return { ...prev, doneAt: at, activity: '', reportDue: undefined, ...(isQuietEnd ? { outcome } : { celebrateUntil: at + CELEBRATE_MS }) }
+    return { ...prev, doneAt: at, activity: '', reportDue: undefined, ...(isQuietEnd ? { outcome } : isWorthACheer ? { celebrateUntil: at + CELEBRATE_MS } : { settled: true }) }
   })
   if (!isMine) return
   // A follow-up Claude started after the job was done ends as quietly as it began.
@@ -4393,7 +4430,7 @@ async function mainAtWork($: EngineInterface): Promise<void> {
     ...p,
     isWorking: true,
     reportDue: undefined,
-    ...(p.doneAt ? { doneAt: undefined, celebrateUntil: undefined, isFollowUp: true } : {}),
+    ...(p.doneAt ? { doneAt: undefined, celebrateUntil: undefined, settled: undefined, isFollowUp: true } : {}),
   }))
 }
 
@@ -4488,13 +4525,14 @@ const bandView = (i: BandInput, bandAt: number, isWorkingProp: boolean) => {
     progressAt: !reported && isWorking && !isParty ? managerEstimate(null, list, boss, bandAt) : undefined,
     isWorking,
     isParty,
+    partyAt: isParty ? bandBoss.doneAt : undefined,
     ctxPct: info.contextPct,
     limitPct: five ? five.percentUsed : null,
     burnPerMin: report.burnPerMin,
     mood: report.mood,
     crew: list
       .slice(-24)
-      .map(a => ({ costume: costumeFor(a), color: runRoleColor(a), status: a.status })),
+      .map(a => ({ costume: costumeFor(a), color: runRoleColor(a), status: a.status, isQuiet: isQuiet(a) })),
     roles: [...new Set(list.map(runRole))].map(role => {
       const members = list.filter(a => runRole(a) === role)
       return { role, color: members[0] ? runRoleColor(members[0]) : SKIN.colors.accent, count: members.length }
@@ -4695,6 +4733,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await registerEntryPoints($)
+    await loadModelAliases($).catch(() => undefined)
     lang = await detectLang($, options.language)
     // One ticker for every drawing. `now` moves each second only while something on
     // screen moves (work, a crew, the party, the cache's last ten minutes), else once a
@@ -6012,10 +6051,31 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'tokens' }, async ($, e) => {
-    const [verb = '', arg = ''] = (e.args ?? '').trim().split(/\s+/)
+    const [verb = '', arg = '', target = ''] = (e.args ?? '').trim().split(/\s+/)
+    // `/tokens model <id> <model|off>`: price an id with no model name in it (a Bedrock
+    // application inference profile ARN) as the model it stands for.
+    if (verb === 'model') {
+      if (!arg) {
+        const rows = Object.entries(modelAliases)
+        return { text: rows.length ? `Model map:\n${rows.map(([id, to]) => `${id} → ${modelName(to)}`).join('\n')}` : 'No mapped models. Usage: /tokens model <id or ARN> <opus|sonnet|haiku|fable or a full model id>' }
+      }
+      const kept = ((await $.store.get(MODEL_KEY).catch(() => undefined)) ?? {}) as Record<string, string>
+      const id = arg.toLowerCase()
+      if (target === 'off') {
+        const { [id]: _gone, ...rest } = kept
+        await $.store.set(MODEL_KEY, rest)
+        await loadModelAliases($)
+        return { text: `Unmapped ${arg}.` }
+      }
+      const to = FAMILY_LATEST[target.toLowerCase()] ?? (hasFamily(target) ? target : '')
+      if (!to) return { text: 'Usage: /tokens model <id or ARN> <opus|sonnet|haiku|fable or a full model id like claude-sonnet-5-5>, or /tokens model <id> off' }
+      await $.store.set(MODEL_KEY, { ...kept, [id]: to })
+      await loadModelAliases($)
+      return { text: `${arg} now prices as ${modelName(to)}.` }
+    }
     // Anything but a report, a budget or autopilot on|off gets the usage line.
     if ((verb && verb !== 'autopilot' && verb !== 'budget' && verb !== 'warm') || ((verb === 'autopilot' || verb === 'warm') && arg && arg !== 'on' && arg !== 'off')) {
-      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>' }
+      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>, /tokens model <id> <model|off>' }
     }
     if (verb === 'warm') {
       const isOn = arg !== 'off'
@@ -6043,9 +6103,12 @@ export const register: Register = (on, options) => {
     const at = await $.clock.now()
     const watched = await read($, watch)
     const r = tokenReport(liveEnv(await read($, env), at), await read($, agents), await read($, manager), watched, at)
+    const current = (await read($, env)).model ?? ''
+    const unpriced = current && !hasFamily(resolveModel(current)) ? [`! ${current} has no model name in it, so costs assume Opus 5.5 prices. Fix: /tokens model ${current} sonnet (or opus, haiku)`] : []
     return {
       text: [
         `Token Manager: ${MOOD_WORD[r.mood]}`,
+        ...unpriced,
         `Burn ${fmtTokens(r.burnPerMin)}/min · this task ${fmtTokens(r.taskTokens)} (≈${fmtCost(r.taskCost)})${r.cachedPct === null ? '' : ` · ${r.cachedPct}% cached`}`,
         ...(() => {
           const kw = (watched.warm ?? BLANK_WARM)

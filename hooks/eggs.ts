@@ -6,6 +6,7 @@
 // pink and the moon), `corpo` (Arasaka red).
 
 import { inkOn, textW } from './extras'
+import { pin } from './smooth'
 
 export type Egg = 'runners' | 'netrun' | 'corpo' | 'samurai'
 
@@ -147,16 +148,19 @@ export const skyline = (W: number, y0: number, h: number, egg: Egg): string => {
 }
 
 // The cheer when a job is done: Night City's "preem", the moon, the corporation's stamp.
-export const celebration = (W: number, H: number, egg: Egg, font: string): string => {
+// `startAt` pins the cheer to the moment the job finished: a band redrawn mid-cheer
+// resumes it where it was instead of playing it again from the start.
+export const celebration = (W: number, H: number, egg: Egg, font: string, startAt?: number): string => {
   const c = COLORS[egg]
+  const at = startAt ? ` style="animation-delay:${pin(startAt)}"` : ''
   if (egg === 'netrun') {
-    return `<g class="rise"><circle cx="${W - 70}" cy="${H / 2}" r="${H * 0.36}" fill="#FFD6F2"/><circle cx="${W - 78}" cy="${H / 2 - 6}" r="${H * 0.08}" fill="#E6A8D8"/></g>
-<text class="rise" x="${W - 130}" y="${H / 2 + 5}" text-anchor="end" font-family="${font}" font-size="15" font-weight="800" letter-spacing="1.5" fill="${c.a}">TO THE MOON ☾</text>`
+    return `<g class="rise"${at}><circle cx="${W - 70}" cy="${H / 2}" r="${H * 0.36}" fill="#FFD6F2"/><circle cx="${W - 78}" cy="${H / 2 - 6}" r="${H * 0.08}" fill="#E6A8D8"/></g>
+<text class="rise"${at} x="${W - 130}" y="${H / 2 + 5}" text-anchor="end" font-family="${font}" font-size="15" font-weight="800" letter-spacing="1.5" fill="${c.a}">TO THE MOON ☾</text>`
   }
   const label = egg === 'corpo' ? 'PROTOCOL COMPLETE · 任務完了' : egg === 'samurai' ? 'NEVER FADE AWAY' : 'PREEM. JOB DONE, CHOOM'
   const w = textW(label, 15, 1.5) + 30
   if (egg === 'corpo') font = `${font.replace(/,?sans-serif$/, '')},${CJK_FONT}`
-  return `<g class="flash"><rect x="${(W - w) / 2}" y="${H / 2 - 13}" width="${w}" height="24" fill="${c.a}" transform="rotate(-2 ${W / 2} ${H / 2})"/>
+  return `<g class="flash"${at}><rect x="${(W - w) / 2}" y="${H / 2 - 13}" width="${w}" height="24" fill="${c.a}" transform="rotate(-2 ${W / 2} ${H / 2})"/>
 <text x="${W / 2}" y="${H / 2 + 5}" text-anchor="middle" font-family="${font}" font-size="15" font-weight="900" letter-spacing="1.5" fill="${inkOn(c.a)}" transform="rotate(-2 ${W / 2} ${H / 2})">${esc(label)}</text></g>`
 }
 

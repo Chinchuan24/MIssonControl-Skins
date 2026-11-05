@@ -113,6 +113,8 @@ export type Manager = {
   budgetMin?: number
   /** How the job ended short: Esc (`stopped`) or an API error or refusal (`error`). Never cheered. */
   outcome?: 'stopped' | 'error'
+  /** A small job that ended well without a cheer (solo and under 20 s): it shows a still "Done". */
+  settled?: boolean
   /** When a background agent of the job ended: its report waits on a main turn to answer it. */
   reportDue?: number
   /** An earlier job still held open by its background work when this prompt came: the one that finishes. */

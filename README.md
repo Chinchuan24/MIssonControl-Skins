@@ -216,6 +216,24 @@ Copy an example, give it a new `id`, edit it, then run `/skin reload` and `/skin
 
 ## ⚡ Install
 
+### Fastest: one line
+
+At the prompt of a terminal session:
+
+```
+/plugin install crab-progress --marketplace Chinchuan24/MIssonControl-Skins
+```
+
+Or from a shell:
+
+```
+claude plugin install crab-progress --marketplace Chinchuan24/MIssonControl-Skins
+```
+
+Answer `y` to add the marketplace, then pick a scope (user is first). In the desktop app, where `/plugin` does not run: click **+** next to the prompt box, then **Plugins**, **Add marketplace** with `Chinchuan24/MIssonControl-Skins`, then **Add plugin**. This installs the full mod, Cyberpunk add-on included. Then run `/missioncontrol`.
+
+### By hand, from a zip or a clone
+
 **1. Get it** (one of):
 
 - Download a zip above and unzip it anywhere. It holds one folder, `mission-control/` (the one with `.claude-plugin/` inside): that is the folder to point Claude Code at. Windows' "Extract All" may wrap it in a second folder; use the inner one. Or
