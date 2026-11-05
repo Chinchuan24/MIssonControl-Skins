@@ -112,20 +112,63 @@ const dayOf = (at: number): string => {
   const d = new Date(at)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
+// Tab-to-Save: after a main turn, the Token Manager's top tip that has a command goes
+// into the prompt box as its dim suggestion, Tab to take. The same one waits 10 minutes.
+let lastSuggest = { cmd: '', at: 0 }
+async function suggestSaving($: EngineInterface, at: number): Promise<void> {
+  const r = tokenReport(liveEnv(await read($, env), at), await read($, agents), await read($, manager), await read($, watch), at)
+  const tip = r.tips.find(tp => tp.cmd && tp.level >= 1)
+  if (!tip?.cmd || (tip.cmd === lastSuggest.cmd && at - lastSuggest.at < 600_000)) return
+  const shown = await $.prompt.suggest({ text: tip.cmd })
+  if (shown.isShown) lastSuggest = { cmd: tip.cmd, at }
+}
+
+// The daily soft cap (/tokens daily 2): the Token Manager warns at 80% and 100% of
+// today's spend. Today's spend is kept here as the atom changes, for the sync report.
+const DAILY_KEY = 'dailyUsd'
+let dailyCapUsd = 0
+let todayCostUsd = 0
+let capWarned = { date: '', level: 0 }
+// Which provider bills the session: Bedrock or Vertex (and the region) when the env says so.
+let PROVIDER = ''
+async function loadProvider($: EngineInterface): Promise<void> {
+  const bedrock = await $.env.get('CLAUDE_CODE_USE_BEDROCK').catch(() => undefined)
+  const vertex = await $.env.get('CLAUDE_CODE_USE_VERTEX').catch(() => undefined)
+  const on = (v?: string) => Boolean(v) && v !== '0' && v?.toLowerCase() !== 'false'
+  if (on(bedrock)) {
+    const region = (await $.env.get('AWS_REGION').catch(() => undefined)) || (await $.env.get('AWS_DEFAULT_REGION').catch(() => undefined)) || ''
+    PROVIDER = `Bedrock${region ? ` ${region}` : ''}`
+  } else if (on(vertex)) {
+    const region = (await $.env.get('CLOUD_ML_REGION').catch(() => undefined)) || ''
+    PROVIDER = `Vertex${region ? ` ${region}` : ''}`
+  } else PROVIDER = ''
+}
+
 // Today's totals, rolled over at midnight; persisted at each turn's end.
 async function bumpToday($: EngineInterface, change: Partial<Omit<Today, 'date'>>): Promise<void> {
   const at = await $.clock.now()
   const date = dayOf(at)
   await update($, today, prev => {
     const base = prev.date === date ? prev : { ...BLANK_TODAY, date }
-    return {
+    const next = {
       ...base,
       tasks: base.tasks + (change.tasks ?? 0),
       agents: base.agents + (change.agents ?? 0),
       tokens: base.tokens + (change.tokens ?? 0),
       costUsd: base.costUsd + Math.max(0, change.costUsd ?? 0),
     }
+    todayCostUsd = next.costUsd
+    return next
   })
+  if (dailyCapUsd > 0) {
+    const pct = (todayCostUsd / dailyCapUsd) * 100
+    const level = pct >= 100 ? 2 : pct >= 80 ? 1 : 0
+    const was = capWarned.date === date ? capWarned.level : 0
+    if (level > was) {
+      capWarned = { date, level }
+      $.ui.toast(level === 2 ? `‼ Daily cap hit: ≈${fmtCost(todayCostUsd)} of ${fmtCost(dailyCapUsd)} today` : `! ${Math.round(pct)}% of today's ${fmtCost(dailyCapUsd)} cap used`)
+    }
+  }
 }
 
 // What the day's card shows: past midnight with nothing new yet, the new day's empty count.
@@ -155,6 +198,7 @@ async function saveTotalsNow($: EngineInterface): Promise<void> {
     // What came in meanwhile stays on top of the merged count.
     await update($, today, prev => (prev.date !== day.date ? prev : { ...prev, ...Object.fromEntries(keys.map(k => [k, merged[k] + prev[k] - day[k]])) }))
     await update($, saved, prev => ({ ...prev, today: merged }))
+    todayCostUsd = (await read($, today)).costUsd
   }
   const keptAll = (await $.store.get('allTime').catch(() => undefined)) as AllTime | undefined
   const onAll = keptAll && typeof keptAll === 'object' && keptAll.models ? keptAll : { since: '', models: {} }
@@ -3142,6 +3186,8 @@ const STEP_GLYPH: Record<StepState, string> = { done: '✓', running: '●', fai
 
 type OrgNode = {
   isStuck?: boolean
+  /** What the agent has cost so far: its price tag in the tree. */
+  costUsd?: number
   /** Running but silent: drawn still, so the motion never says "working" when the text says "quiet". */
   isQuiet?: boolean
   party?: boolean
@@ -3218,6 +3264,7 @@ const orgTree = (all: AgentRun[], boss: Manager, at = 0, mood: 0 | 1 | 2 = 0): O
     costume: costumeFor(a),
     isStuck: isQuiet(a) || isOver(a),
     isQuiet: isQuiet(a),
+    costUsd: a.costUsd,
     kind: 'agent',
     status: a.status,
     children: depth >= ORG_MAX_DEPTH ? [] : ordered.filter(k => a.agentId && k.parentAgentId === a.agentId).map(k => agentNode(k, depth + 1)),
@@ -3304,8 +3351,18 @@ const orgSvg = (W: number, root: OrgNode, isLight = false): string => {
   const H = orgHeight(root)
   const yOf = (n: OrgNode) => ORG_TOP + (n.depth ? BOSS_EXTRA : 0) + (n.depth ?? 0) * ORG_LEVEL_H
   // The crab's box per kind: the boss is drawn larger.
+  // Price tags: the priciest agent so far is drawn a size larger, its tag in the warn colour.
+  const costs: number[] = []
+  const gather = (n: OrgNode): void => {
+    if (n.kind === 'agent' && (n.costUsd ?? 0) > 0) costs.push(n.costUsd ?? 0)
+    n.children.forEach(gather)
+  }
+  gather(root)
+  const priciest = costs.length > 1 ? Math.max(...costs) : Infinity
+  const isPriciest = (n: OrgNode) => n.kind === 'agent' && (n.costUsd ?? 0) >= priciest && priciest >= 0.01
   const crabSize = (n: OrgNode) => {
-    const sc = n.kind === 'manager' ? BOSS_SCALE : slot < 46 ? 0.8 : CREW_SCALE
+    const base = n.kind === 'manager' ? BOSS_SCALE : slot < 46 ? 0.8 : CREW_SCALE
+    const sc = isPriciest(n) ? base * 1.15 : base
     return { sc, w: r2(CRAB_BOX * sc), h: r2(28 * sc) }
   }
   const bottomOf = (n: OrgNode) => yOf(n) + crabSize(n).h + (n.kind === 'role' || n.kind === 'manager' || n.kind === 'tokens' ? 30 : 22)
@@ -3378,10 +3435,13 @@ ${slot >= 46 ? `<text${isWorking ? ' class="t"' : ' class="s"'} x="${x}" y="${y 
     // A worker (or the token manager): its crab, sparks while it works, a badge once
     // it is done, its task under it.
     const label = fitText(n.label, 11, Math.max(30, slot - 8))
+    const tag = n.kind === 'agent' && (n.costUsd ?? 0) >= 0.005 && slot >= 46
+      ? `<text x="${r2(x + w / 2 + 2)}" y="${r2(y + 6)}" font-size="9.5" font-weight="${isPriciest(n) ? 800 : 600}" font-variant-numeric="tabular-nums"${isPriciest(n) ? ` fill="${SKIN.colors.warn}"` : ' class="m"'}>≈${fmtCost(n.costUsd ?? 0)}</text>`
+      : ''
     const badge = n.status === 'done' || n.status === 'failed' ? `<use href="#${n.status === 'done' ? 'bok' : 'bno'}" x="${r2(left + w - 2)}" y="${y + 4}"/>` : ''
     nodes.push(`<ellipse cx="${x}" cy="${y + h + 1}" rx="${r2(w * 0.45)}" ry="2.5" fill="#000" fill-opacity=".25"/>
 ${dancing(crab(left, y, n.costume ?? 'other', n.status === 'done' && n.kind !== 'tokens', isWorking, sc), isParty)}${n.isStuck ? `<circle${n.isQuiet ? ' stroke-opacity=".9"' : ' class="live"'} cx="${x}" cy="${y + h / 2}" r="${(w * 0.62).toFixed(1)}" fill="none" stroke="#E5675E" stroke-width="2"/><path d="M${left + 4} ${y + 6}q-2 4 0 5q2 -1 0 -5z" fill="#5EC8D8"/>` : ''}
-${isWorking ? sparks(x + w * 0.25, y + 2, n.color) : ''}${badge}
+${isWorking ? sparks(x + w * 0.25, y + 2, n.color) : ''}${badge}${tag}
 ${slot >= 46 ? `<text${isWorking ? ' class="t"' : ' class="s"'} x="${x}" y="${y + h + 15}" text-anchor="middle" font-size="11" font-weight="${isWorking ? 700 : 500}">${xml(label)}</text>` : ''}`)
   }
   castGrow = CAST_GROW
@@ -3412,7 +3472,8 @@ ${nodes.join('\n')}${SKIN.effects.scanlines && !isLight ? scanlines(W, H) : ''}<
 // --- the token manager: watches the spend and says how to spend less. Pure
 // arithmetic in this module: it costs no tokens of its own.
 
-type Tip = { level: 0 | 1 | 2; text: string }
+// `cmd`: what Tab-to-Save proposes in the prompt box for this tip.
+type Tip = { level: 0 | 1 | 2; text: string; cmd?: string }
 type TokenReport = { mood: 0 | 1 | 2; tips: Tip[]; burnPerMin: number; taskTokens: number; taskCost: number; cachedPct: number | null; budget: number }
 
 const BURN_WINDOW = 600_000
@@ -3430,8 +3491,13 @@ const tokenReport = (info: Env, list: AgentRun[], boss: Manager, w: Watch, at: n
     if (pct >= 100) tips.push({ level: 2, text: `Over budget: ≈${fmtCost(taskCost)} of ${fmtCost(w.budgetUsd)} on this task` })
     else if (pct >= 80) tips.push({ level: 1, text: `${Math.round(pct)}% of the ${fmtCost(w.budgetUsd)} budget used on this task` })
   }
-  if (info.contextPct >= 85) tips.push({ level: 2, text: `Context ${info.contextPct}%: /compact now, every request re-reads it` })
-  else if (info.contextPct >= 70) tips.push({ level: 1, text: `Context ${info.contextPct}%: /compact soon to cut each request's cost` })
+  if (dailyCapUsd > 0) {
+    const pct = (todayCostUsd / dailyCapUsd) * 100
+    if (pct >= 100) tips.push({ level: 2, text: `Daily cap hit: ≈${fmtCost(todayCostUsd)} of ${fmtCost(dailyCapUsd)} today` })
+    else if (pct >= 80) tips.push({ level: 1, text: `${Math.round(pct)}% of today's ${fmtCost(dailyCapUsd)} cap used` })
+  }
+  if (info.contextPct >= 85) tips.push({ level: 2, text: `Context ${info.contextPct}%: /compact now, every request re-reads it`, cmd: '/compact' })
+  else if (info.contextPct >= 70) tips.push({ level: 1, text: `Context ${info.contextPct}%: /compact soon to cut each request's cost`, cmd: '/compact' })
   for (const l of info.limits ?? []) {
     const name = limitName(l.kind)
     if (l.percentUsed >= 90) tips.push({ level: 2, text: `${name} at ${Math.round(l.percentUsed)}%` })
@@ -3443,12 +3509,13 @@ const tokenReport = (info: Env, list: AgentRun[], boss: Manager, w: Watch, at: n
     tips.push({
       level: 1,
       text: `"${clip(pricey.description || pricey.type, 26)}" reads on ${modelName(pricey.model)}: Haiku does read-only work ~5× cheaper${w.autopilot ? '' : ' (/tokens autopilot on)'}`,
+      ...(w.autopilot ? {} : { cmd: '/tokens autopilot on' }),
     })
   }
   const heavy = [...list].sort((x, y) => y.tokens - x.tokens)[0]
   if (heavy && heavy.tokens > 400_000) tips.push({ level: 1, text: `"${clip(heavy.description || heavy.type, 28)}" burned ${fmtTokens(heavy.tokens)} tokens` })
   if (burnPerMin > 150_000) tips.push({ level: 1, text: `Burning ${fmtTokens(burnPerMin)} tokens a minute` })
-  if (cachedPct !== null && cachedPct < 50) tips.push({ level: 1, text: `Only ${cachedPct}% cached: long pauses and early edits break the cache` })
+  if (cachedPct !== null && cachedPct < 50) tips.push({ level: 1, text: `Only ${cachedPct}% cached: long pauses and early edits break the cache`, ...((w.warm ?? BLANK_WARM).on ? {} : { cmd: '/tokens warm on' }) })
   if (running.length > 6) tips.push({ level: 0, text: `${running.length} agents at once: each re-reads its own context` })
   if (w.autopilot) tips.push({ level: 0, text: 'Autopilot on: explorers run on Haiku' })
   const kw = w.warm ?? BLANK_WARM
@@ -3456,6 +3523,23 @@ const tokenReport = (info: Env, list: AgentRun[], boss: Manager, w: Watch, at: n
   const mood = tips.reduce<0 | 1 | 2>((m, tp) => (tp.level > m ? tp.level : m), 0)
   if (!tips.some(tp => tp.level > 0)) tips.unshift({ level: 0, text: 'Lean and on budget ✓' })
   return { mood, tips: tips.sort((a, b) => b.level - a.level).slice(0, 3), burnPerMin, taskTokens, taskCost, cachedPct, budget: w.budgetUsd }
+}
+
+// The job's receipt, as markdown for a PR or a chat: the task, its time and cost, and
+// one row per agent with its model, effort, tokens and cost. Costs are estimates.
+const receiptText = (boss: Manager, all: AgentRun[], info: Env, at: number): string => {
+  const crew = crewOf(all, boss)
+  const total = Math.max(0, info.costUsd - (boss.costAtStart ?? info.costUsd))
+  const ms = boss.startedAt ? Math.max(0, (boss.doneAt ?? at) - boss.startedAt) : 0
+  const rows = [...crew].sort((x, y) => y.costUsd - x.costUsd).map(a => `| ${(a.description || a.type).replace(/\|/g, '/')} | ${modelName(a.model)} · ${effortWord(runEffort(a))} | ${fmtTokens(a.tokens)} | ≈${fmtCost(a.costUsd)} |`)
+  return [
+    `**Claude Code receipt**${boss.task ? ` · ${clip(boss.task.replace(/\s+/g, ' '), 80)}` : ''}`,
+    '',
+    `Time ${fmtTime(ms)} · ${crew.length} ${crew.length === 1 ? 'agent' : 'agents'} · total ≈${fmtCost(total)}`,
+    ...(rows.length ? ['', '| Agent | Model · effort | Tokens | Cost |', '|---|---|---|---|', ...rows] : []),
+    '',
+    '_Estimated by Mission Control from token counts._',
+  ].join('\n')
 }
 
 let MOOD_COLOR: readonly [string, string, string] = ['#5fbf8f', '#E9B44C', '#E5675E']
@@ -3480,7 +3564,12 @@ async function keepWarm($: EngineInterface): Promise<void> {
     const isLikely = list.some(a => a.status === 'running') || bg.tasks.length + bg.crons.length > 0
     if (warmLimitHit(isLikely, kw.idle, kw.busy)) return void (await halt(isLikely ? 'refresh limit reached' : 'idle limit reached'))
     const call = warmCall(priceOf(st.model, st.promptTokens), st.promptTokens, isLikely, info.contextPct)
-    if (!call.isWarm) return void (await halt(call.reason ?? 'does not pay'))
+    if (!call.isWarm) {
+      await halt(call.reason ?? 'does not pay')
+      // Keep-Warm explains itself: the one time it decides not to, it says why in money.
+      $.ui.toast(`🧊 Keep-warm ${call.reason ?? 'skipped: it would not pay'}`, { timeoutMs: 15000 })
+      return
+    }
     const reply = await $.model.fork({ prompt: WARM_PROMPT }).catch((err: unknown) => (err instanceof Error ? err : new Error(String(err))))
     if (reply instanceof Error) return void (await halt(`refused: ${clip(reply.message, 40)}`))
     if (!reply.isAnswered && reply.reason === 'nothing-to-fork') return void (await halt('nothing to refresh'))
@@ -4107,7 +4196,7 @@ const hudHead = (W: number, d: HudData): string => {
   const egg = eggOf()
   const psy = egg ? psychoChip(mx, y, d.ctxPct, FONT) : { svg: '', w: 0 }
   const mx2 = mx + (psy.w ? psy.w + 10 : 0)
-  const model = [d.model, d.effort].filter(Boolean).join(' · ')
+  const model = [PROVIDER, d.model, d.effort].filter(Boolean).join(' · ')
   const clock = d.budget ? `⏱\uFE0E ${budgetLabel(d.budget.usedMs, d.budget.min)}` : d.taskMs > 0 ? `⏱\uFE0E ${fmtTime(d.taskMs)}` : ''
   const parts = [egg ? `♪ ${radio(d.at)}` : '', d.folder ? `▤ ${d.folder}` : '', clock].filter(Boolean)
   const widthOf = (xs: string[]) => (xs.length ? textWidth(xs.join('   '), 11) + 8 : 0)
@@ -4398,6 +4487,11 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
   if (egg && legend.ms >= 180_000) $.ui.toast(egg === 'corpo' ? `▣ Engram filed in Mikoshi: ${clip(legend.task, 40)}` : `🍸 The Afterlife named a drink after you: The ${clip(legend.task, 40)}`)
   $.ui.toast(`🎉 Done: ${clip(job.task, 60)}`)
   void $.ui.notify(`Claude finished: ${clip(job.task, 80)}`).catch(() => undefined)
+  // Spoken status (opt-in): the crew, then what the job cost, after the chime.
+  if ((await read($, settings)).voice) {
+    const who = crew.length ? `${crew.length} ${crew.length === 1 ? 'agent' : 'agents'}, ` : ''
+    void $.audio.speak(`Job done. ${who}about ${fmtCost(legend.costUsd)}.`).catch(() => undefined)
+  }
   // One chime, not two cut short: the level-up's when the job earned one, else the skin's.
   const isCheer = await paid.catch(() => false)
   void play($, !egg ? 'assets/done.wav' : isCheer ? `${ADDON}/assets/levelup.wav` : `${ADDON}/assets/done-${egg}.wav`)
@@ -4764,6 +4858,8 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     await registerEntryPoints($)
     await loadModelAliases($).catch(() => undefined)
+    await loadProvider($).catch(() => undefined)
+    dailyCapUsd = Number(await $.store.get(DAILY_KEY).catch(() => 0)) || 0
     lang = await detectLang($, options.language)
     // One ticker for every drawing. `now` moves each second only while something on
     // screen moves (work, a crew, the party, the cache's last ten minutes), else once a
@@ -4869,6 +4965,7 @@ export const register: Register = (on, options) => {
     // The pane opens with the session unless the person turned that off in Settings.
     const prefs = await readSettings($)
     await update($, settings, () => prefs)
+    todayCostUsd = todayOn(await read($, today), await $.clock.now()).costUsd
     const view = await readPaneView($)
     await update($, panel, prev => ({ ...prev, ...view }))
     const savedCred = cleanCred(await $.store.get('cred').catch(() => undefined))
@@ -5219,6 +5316,7 @@ export const register: Register = (on, options) => {
     if (!agentId) {
       const doneAt = await $.clock.now()
       await update($, session, prev => ({ ...prev, cacheUntil: doneAt + CACHE_TTL_MS, cacheLeft: CACHE_TTL_MS / 1000, isBusy: false, warned: 0 }))
+      void suggestSaving($, doneAt).catch(() => undefined)
     }
     if (agentId) {
       const at = await $.clock.now()
@@ -5561,6 +5659,20 @@ export const register: Register = (on, options) => {
                 height={tokenHeight(report)}
               />
             </Box>
+            {boss.task ? (
+              <Box key="receipt" flexDirection="row" gap={2} marginBottom={1}>
+                <Button
+                  key="copy-receipt"
+                  label="🧾 Copy receipt"
+                  plain
+                  onPress={async (press: { surface?: 'terminal' | 'desktop' | 'vscode' | 'mobile' }) => {
+                    const text = receiptText(await read($, manager), await read($, agents), await read($, env), await $.clock.now())
+                    const done = await $.ui.copy({ text, surface: press?.surface }).catch(() => ({ isCopied: false }))
+                    $.ui.toast(done.isCopied ? '🧾 Receipt copied: paste it into a PR or a chat' : '🧾 Could not copy here: run /tokens receipt')
+                  }}
+                />
+              </Box>
+            ) : null}
             <Box key="toggles" flexDirection="row" gap={2} marginBottom={1}>
               {finished.length > 0 && toggleDone}
               {toggleCompact}
@@ -6119,8 +6231,8 @@ export const register: Register = (on, options) => {
       return { text: `${arg} now prices as ${modelName(to)}.` }
     }
     // Anything but a report, a budget or autopilot on|off gets the usage line.
-    if ((verb && verb !== 'autopilot' && verb !== 'budget' && verb !== 'warm' && verb !== 'staffing') || ((verb === 'autopilot' || verb === 'warm') && arg && arg !== 'on' && arg !== 'off')) {
-      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>, /tokens staffing <on|off>, /tokens model <id> <model|off>' }
+    if ((verb && verb !== 'autopilot' && verb !== 'budget' && verb !== 'warm' && verb !== 'staffing' && verb !== 'daily' && verb !== 'receipt') || ((verb === 'autopilot' || verb === 'warm') && arg && arg !== 'on' && arg !== 'off')) {
+      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>, /tokens staffing <on|off>, /tokens daily <dollars|off>, /tokens receipt, /tokens model <id> <model|off>' }
     }
     if (verb === 'warm') {
       const isOn = arg !== 'off'
@@ -6131,6 +6243,18 @@ export const register: Register = (on, options) => {
           ? 'Keep-warm on: a small side request refreshes the prompt cache before it lapses, only when it should save more than it costs. It never enters the chat. On a Pro or Max plan it uses a little quota instead of money.'
           : 'Keep-warm off.',
       }
+    }
+    if (verb === 'receipt') {
+      const text = receiptText(await read($, manager), await read($, agents), await read($, env), await $.clock.now())
+      const copied = await $.ui.copy({ text }).catch(() => ({ isCopied: false }))
+      return { text: `${text}\n\n${copied.isCopied ? '(Copied: paste it into a PR or a chat.)' : '(Select and copy it from here.)'}` }
+    }
+    if (verb === 'daily') {
+      const dollars = arg === 'off' ? 0 : Number(arg.replace(/^\$/, ''))
+      if (!arg || !Number.isFinite(dollars) || dollars < 0) return { text: `Usage: /tokens daily 2  (dollars a day), or /tokens daily off${dailyCapUsd ? `. Now: ${fmtCost(dailyCapUsd)} a day, ≈${fmtCost(todayCostUsd)} spent today` : ''}` }
+      dailyCapUsd = dollars
+      await $.store.set(DAILY_KEY, dollars)
+      return { text: dollars ? `Daily cap set: ${fmtCost(dollars)} a day (≈${fmtCost(todayCostUsd)} so far today). The Token Manager warns at 80% and 100%.` : 'Daily cap off.' }
     }
     if (verb === 'staffing') {
       if (arg && arg !== 'on' && arg !== 'off') return { text: 'Usage: /tokens staffing <on|off>' }
@@ -6373,6 +6497,16 @@ export const register: Register = (on, options) => {
     const isDesktop = e.surface !== 'terminal' && 'Svg' in ui
     const band = bandView(await bandInput($, isDesktop), bandAt, e.props.isWorking)
     const { list, info, crew, isWorking, bgCount, waitingOn, idleText, tkBand } = band
+    // Calm mode: the band steps aside for one line under the prompt.
+    if ((await read($, settings)).calm) {
+      const working = list.filter(a => a.status === 'running').length
+      const quiet = list.filter(isQuiet).length
+      const hud = band.hud
+      const pct = hud?.progress === null || hud?.progress === undefined ? '' : ` · ${Math.round(hud.progress * 100)}%`
+      $.ui.status(`🦀 ${hud?.status ?? (isWorking ? 'Working' : 'Idle')}${pct}${working ? ` · ${working} working` : ''}${quiet ? ` · ⚠ ${quiet} quiet` : ''} · ≈${fmtCost(info.costUsd)} · ctx ${info.contextPct}%`)
+      // Other mods' rows still show; this one's band steps aside.
+      return <Box flexDirection="column">{below}</Box>
+    }
     const text = idleText ?? label(f)
     // The desktop draws a Button's label, not its children, in a slot about 96px wide
     // beside the band: a long label spilled out of it. Keep both labels short.

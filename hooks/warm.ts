@@ -53,7 +53,7 @@ export const warmCall = (price: WarmPrice, promptTokens: number, isLikely: boole
   const expectedUsd = chance * missUsd - warmUsd
   if (contextPct >= COMPACT_PCT) return { isWarm: false, warmUsd, missUsd, chance, expectedUsd, reason: `context ${contextPct}%: a /compact rewrites the cache anyway` }
   if (promptTokens <= 0) return { isWarm: false, warmUsd, missUsd, chance, expectedUsd, reason: 'nothing cached yet' }
-  if (expectedUsd < MIN_SAVINGS_USD) return { isWarm: false, warmUsd, missUsd, chance, expectedUsd, reason: `too small to pay (saves under $${MIN_SAVINGS_USD.toFixed(2)})` }
+  if (expectedUsd < MIN_SAVINGS_USD) return { isWarm: false, warmUsd, missUsd, chance, expectedUsd, reason: `skipped: a refresh costs $${warmUsd.toFixed(2)} and would likely save $${Math.max(0, chance * missUsd).toFixed(2)}` }
   return { isWarm: true, warmUsd, missUsd, chance, expectedUsd }
 }
 
