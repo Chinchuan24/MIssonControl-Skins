@@ -224,6 +224,24 @@ export type BgCron = { id: string; schedule: string; recurring: boolean; prompt:
 /** Claude's background work. The engine lists it only as a turn or a subagent stops: `at` says when. */
 export type Background = { tasks: BgTask[]; crons: BgCron[]; at: number }
 
+/** How Claude Code is paid for: no apiKeyHelper (plan), ours (keychain), ours under another path (moved), someone else's (other). */
+export type BillingMode = 'plan' | 'keychain' | 'moved' | 'other'
+
+/** What the pane's Billing section draws. Never the key: only its last 4 characters and when it was saved. */
+export type Billing = {
+  mode: BillingMode
+  /** The Keychain has the item (found by its attributes; the secret is never read). */
+  inKeychain: boolean
+  saved: { last4: string; savedAt: number } | null
+  isMac: boolean
+  /** One plain line for the last Save or Remove. Never holds any part of a key. */
+  note: string
+  /** Bumped after a Save, so the key box is drawn new and empty. */
+  nonce: number
+  /** The four steps are open in the pane. */
+  isGuideOpen: boolean
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'crab-progress': {
@@ -246,6 +264,8 @@ declare module 'claude-code' {
       skin: string
       /** Mission Control's settings, mirrored from `$.store` so the pane redraws. */
       settings: { openOnStart: boolean; crewMode: boolean; currency: string; sounds: boolean; simple: boolean; calm: boolean; voice: boolean; staffing: boolean; oneShot: 'ask' | 'on' | 'off' }
+      /** Billing: the Keychain key's status and the apiKeyHelper mode. See hooks/billing.ts. */
+      billing: Billing
       /** Street Cred: XP, the counts badges are earned on, the badges. Mirrored from `$.store`. */
       cred: { xp: number; jobs: number; longJobs: number; agents: number; crewJobs: number; nightJobs: number; chromed: boolean; samurai: boolean; badges: string[] }
       /** The session's tool calls, for the Braindance replay. */

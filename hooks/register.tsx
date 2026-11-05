@@ -1,6 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
+import { BLANK_BILLING, KEY_IN_COMMAND, draft, guideText, isApiCredits, isMacOS, keyStatus, keychainHas, looksLikeKey, MAC_ONLY, modeChip, noteApiSpend, readMode, readSaved, removeKey, saveKey, spendLine, terminalAlternative, cleanSpend, SPEND_KEY } from './billing'
 import { CASTS, CAST_CSS, hashOf, spriteMarkup } from './cast'
 import { BREACH_H, BREACH_W, CJK_FONT, EGG_CSS, EGG_TOOLS, EGG_WORDS, GREETING, KATAKANA, breachCard, breachTicker, celebration, heatStars, legendsCard, legendsHeight, psychoChip, radio, relicText, sandevistan, skyline, sysTag } from './eggs'
 import type { Egg, Legend } from './eggs'
@@ -13,7 +14,7 @@ import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, uni
 import { LIVE_N, glide, isNewReading, isSame, liveText, liveWidth, pin, steady, steadyTree, wallMinute } from './smooth'
 import { COLOR_RE, FONT_BAD_RE, ID_RE, TOOL_KEY_RE, skinCheck, skinNew } from './skinkit'
 import { WARM_PROMPT, WARM_TAG, isWarmDue, isWarmed, warmCall, warmLimitHit } from './warm'
-import type { AgentRun, AgentStatus, AllTime, Background, BgCron, BgTask, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Today, Watch } from '../types'
+import type { AgentRun, AgentStatus, AllTime, Background, Billing, BillingMode, BgCron, BgTask, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Today, Watch } from '../types'
 import type { On } from 'claude-code'
 import type { Timekeeper } from '../types'
 
@@ -604,6 +605,8 @@ async function refreshEnvNow($: EngineInterface, isBaseline: boolean): Promise<v
   // The ledger starts over at /clear: after a drop, the whole new total is new spend.
   const spent = cost >= before ? cost - before : cost
   if (spent > 0) await bumpToday($, { costUsd: spent })
+  // Spend through the Keychain key is also kept on its own: that one is real money.
+  if (spent > 0 && isApiCredits(BILLING)) API_SPEND = await noteApiSpend($, spent, dayOf(await $.clock.now())).catch(() => API_SPEND)
 }
 
 // A window whose reset time has passed reads empty until the next reply says otherwise.
@@ -991,6 +994,11 @@ const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.i
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
 const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot })
 const cred = atom({ plugin: 'crab-progress', key: 'cred' } as const, BLANK_CRED)
+// Billing (hooks/billing.ts): which way Claude Code is paid for, and the Keychain key's
+// status. Never the key: the typed text lives in billing.ts's `draft`, in memory only.
+const billing = atom({ plugin: 'crab-progress', key: 'billing' } as const, BLANK_BILLING as Billing)
+// The mode the Token Manager labels its costs by: API credits when apiKeyHelper is our script.
+let BILLING: BillingMode = 'plan'
 const timeline = atom({ plugin: 'crab-progress', key: 'timeline' } as const, [] as Beat[])
 const bdPick = atom({ plugin: 'crab-progress', key: 'bdPick' } as const, -1)
 const readSettings = async ($: EngineInterface) => {
@@ -1037,6 +1045,31 @@ async function toggleUltra($: EngineInterface, id: string): Promise<void> {
   if (run.agentId) ultraExplicit.set(run.agentId, isOn)
   await update($, agents, list => list.map(a => (a.id === id ? { ...a, isUltra: isOn } : a)))
   $.ui.toast(isOn ? `⚡ Ultra: "${clip(run.description || run.type, 30)}" goes to max effort from its next request` : `Ultra off for "${clip(run.description || run.type, 30)}"`)
+}
+// Billing (see billing.ts): the status the pane shows is read from the Keychain's
+// attributes and the merged apiKeyHelper setting; the key itself is never read.
+let API_SPEND = cleanSpend(undefined)
+async function refreshBilling($: EngineInterface, note?: string): Promise<void> {
+  const isMac = await isMacOS($)
+  BILLING = await readMode($)
+  API_SPEND = cleanSpend(await $.store.get(SPEND_KEY).catch(() => undefined))
+  const saved = await readSaved($)
+  const inKeychain = isMac ? await keychainHas($) : false
+  await update($, billing, prev => ({ ...prev, mode: BILLING, isMac, saved, inKeychain, note: note ?? prev.note }))
+}
+// Save and Remove: the result's message never holds the key. The field is drawn new and empty after.
+async function billingSave($: EngineInterface, raw: string): Promise<void> {
+  const done = await saveKey($, raw)
+  draft.clear()
+  await refreshBilling($, done.message)
+  await update($, billing, prev => ({ ...prev, nonce: prev.nonce + 1 }))
+  $.ui.toast(done.ok ? '🔑 Key saved in your Keychain' : `🔑 ${done.message}`, { timeoutMs: 8000 })
+}
+async function billingRemove($: EngineInterface): Promise<void> {
+  const done = await removeKey($)
+  draft.clear()
+  await refreshBilling($, done.message)
+  await update($, billing, prev => ({ ...prev, nonce: prev.nonce + 1 }))
 }
 
 // The pane's two folds, kept in the store so a reload or a new session opens the
@@ -3570,6 +3603,7 @@ const tokenReport = (info: Env, list: AgentRun[], boss: Manager, w: Watch, at: n
   // The coach's "what if": a cheaper setup that would save over a fifth of the session.
   const coachTip = whatIfTip(coachWhatIf(info, list, w), fmtCost)
   if (coachTip) tips.push(coachTip)
+  if (isApiCredits(BILLING)) tips.push({ level: 0, text: spendLine(API_SPEND, dayOf(at), fmtCost) })
   const mood = tips.reduce<0 | 1 | 2>((m, tp) => (tp.level > m ? tp.level : m), 0)
   if (!tips.some(tp => tp.level > 0)) tips.unshift({ level: 0, text: 'Lean and on budget ✓' })
   return { mood, tips: tips.sort((a, b) => b.level - a.level).slice(0, 3), burnPerMin, taskTokens, taskCost, cachedPct, budget: w.budgetUsd }
@@ -3681,7 +3715,7 @@ const tokenSvg = (W: number, r: TokenReport, isWatching: boolean): string => {
   const pillW = Math.round(22 + textWidth(word, 11))
   const stats: Stat[] = [
     { k: 'Burn rate', v: `${fmtTokens(r.burnPerMin)}/min`, color: r.burnPerMin > 150_000 ? '#E9B44C' : undefined },
-    { k: r.budget ? `This task · of ${fmtCost(r.budget)}` : 'This task', v: `${fmtTokens(r.taskTokens)} · ≈${fmtCost(r.taskCost)}`, color: r.budget && r.taskCost >= r.budget ? '#E5675E' : undefined },
+    { k: isApiCredits(BILLING) ? (r.budget ? `API credits · of ${fmtCost(r.budget)}` : 'API credits · task') : r.budget ? `This task · of ${fmtCost(r.budget)}` : 'This task', v: `${fmtTokens(r.taskTokens)} · ≈${fmtCost(r.taskCost)}`, color: r.budget && r.taskCost >= r.budget ? '#E5675E' : undefined },
     { k: 'Cached', v: r.cachedPct === null ? '—' : `${r.cachedPct}%`, viz: r.cachedPct === null ? undefined : { kind: 'ring', pct: 100 - r.cachedPct } },
   ]
   const tips = r.tips
@@ -3700,7 +3734,7 @@ ${cardShape(0.5, 0.5, W - 1, H - 1, `fill="none" stroke="${color}" stroke-opacit
 ${crab(10, 4, 'role:banker', false, isWatching, 1.05)}
 <text x="50" y="22" font-family="${FONT}" font-size="13" font-weight="800" fill="${color}" class="gl">Token Manager<tspan class="s" font-weight="400" font-size="11.5">${(() => {
   const room = W - 14 - pillW - 8 - 50 - textWidth('Token Manager', 13) - 12
-  return room >= 60 ? `   ${xml(fitText('watching every token, at no cost', 11.5, room))}` : ''
+  return room >= 60 ? `   ${xml(fitText(isApiCredits(BILLING) ? 'paid with API credits: real money' : 'watching every token, at no cost', 11.5, room))}` : ''
 })()}</tspan></text>
 <rect x="${W - 14 - pillW}" y="10" width="${pillW}" height="18" rx="9" fill="${color}"/>
 <text x="${W - 14 - pillW / 2}" y="22.5" text-anchor="middle" font-family="${FONT}" font-size="11" font-weight="700" fill="${inkOn(color)}">${word}</text>
@@ -4989,6 +5023,7 @@ export const register: Register = (on, options) => {
     await registerEntryPoints($)
     await loadModelAliases($).catch(() => undefined)
     await loadProvider($).catch(() => undefined)
+    await refreshBilling($).catch(() => undefined)
     dailyCapUsd = Number(await $.store.get(DAILY_KEY).catch(() => 0)) || 0
     lang = await detectLang($, options.language)
     // One ticker for every drawing. `now` moves each second only while something on
@@ -5108,6 +5143,8 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'missioncontrol' }, async ($, e) => {
+    // A key pasted after the command is refused before anything echoes it, and never saved.
+    if (looksLikeKey(e.args ?? '')) return { text: KEY_IN_COMMAND }
     // Anything starting with "currency" is a currency request: a bad one gets an error, never "opened".
     const money = /^currency(?:\s+(\S+))?(?:\s+(\S+))?(\s.*)?$/i.exec((e.args ?? '').trim())
     if (money) {
@@ -5129,6 +5166,12 @@ export const register: Register = (on, options) => {
       if (!mode) return { text: `One-shot is ${oneShotWord(cleanOneShot((await read($, settings)).oneShot))}. Use /missioncontrol oneshot on, off or ask.` }
       await setOneShot($, mode)
       return { text: oneShotSaid(mode) }
+    }
+    // Billing: how to pay with API credits instead of the plan, in four steps (nothing is edited).
+    if (/^billing$/i.test((e.args ?? '').trim())) {
+      await refreshBilling($).catch(() => undefined)
+      const b = await read($, billing)
+      return { text: [guideText($.plugin.root, b.mode), '', keyStatus(b), 'Typing it in your own terminal instead: ' + terminalAlternative()].join('\n') }
     }
     // `/missioncontrol` and `/missioncontrol open` open the panel, or bring it forward
     // from behind another tab, without toggling it. Anything else gets the usage line.
@@ -5155,7 +5198,7 @@ export const register: Register = (on, options) => {
       ]
       return { text: said.filter(Boolean).join(' ') }
     }
-    if (verb !== '' && verb.toLowerCase() !== 'open') return { text: `Unknown option "${verb}". Use /missioncontrol, /missioncontrol open, /missioncontrol release, /missioncontrol oneshot <on|off|ask> or /missioncontrol currency <code> [rate per US dollar].` }
+    if (verb !== '' && verb.toLowerCase() !== 'open') return { text: `Unknown option "${verb}". Use /missioncontrol, /missioncontrol open, /missioncontrol release, /missioncontrol oneshot <on|off|ask>, /missioncontrol billing or /missioncontrol currency <code> [rate per US dollar].` }
     const at = await $.clock.now()
     await update($, now, () => at)
     const shown = await showPane($, PANE, SKIN.tabs.mission)
@@ -5651,6 +5694,47 @@ export const register: Register = (on, options) => {
         onPress={() => setPaneView($, prev => ({ isDoneCollapsed: !prev.isDoneCollapsed }))}
       />
     )
+    // Billing: a status chip, the key box, Save / Clear / Remove, the four steps. Never the key:
+    // the box's text lives in billing.ts's `draft` (memory only) until a Save sends it to the Keychain.
+    const bill = await read($, billing)
+    const Field = 'Input' in ui ? ui.Input : null
+    const typed = draft.get(clockNow)
+    const billingBlock = (
+      <Box key="billing" flexDirection="column">
+        <Text bold color={isApiCredits(bill.mode) ? ACCENT : undefined}>{modeChip(bill.mode)}</Text>
+        <Text>{bill.isMac ? keyStatus(bill) : MAC_ONLY}</Text>
+        {bill.note ? <Text dimColor wrap="wrap">{bill.note}</Text> : null}
+        {bill.isMac && Field ? (
+          <Box key="bill-form" flexDirection="column">
+            <Text dimColor wrap="wrap">The box shows your key while you type: it cannot hide it. Paste, press Enter, and the box clears. To type it hidden, run this in your own terminal: {terminalAlternative()}</Text>
+            <Field
+              key={`bill-key-${bill.nonce}`}
+              label="Claude API key"
+              placeholder="sk-ant-…"
+              value={typed}
+              submitLabel="save"
+              onInput={async (v: string) => draft.set(v, await $.clock.now())}
+              onSubmit={(v: string) => billingSave($, v)}
+            />
+            <Box flexDirection="row" gap={2}>
+              <Button key="bill-save" label="🔑 Save to Keychain" plain onPress={async () => billingSave($, draft.get(await $.clock.now()))} />
+              <Button key="bill-clear" label="✕ Clear box" plain onPress={async () => { draft.clear(); await update($, billing, prev => ({ ...prev, nonce: prev.nonce + 1 })) }} />
+              {bill.saved || bill.inKeychain ? <Button key="bill-remove" label="🗑 Remove key" plain onPress={() => billingRemove($)} /> : null}
+            </Box>
+          </Box>
+        ) : null}
+        <Button
+          key="bill-guide"
+          label={`${bill.isGuideOpen ? '▾' : '▸'} Use it for Claude Code: 4 steps`}
+          plain
+          onPress={async () => {
+            await refreshBilling($).catch(() => undefined)
+            await update($, billing, prev => ({ ...prev, isGuideOpen: !prev.isGuideOpen }))
+          }}
+        />
+        {bill.isGuideOpen ? <Text wrap="wrap">{guideText($.plugin.root, bill.mode)}</Text> : null}
+      </Box>
+    )
     const isEmpty = list.length === 0 && planned.length === 0
     const summary = `≈${fmtCost(t.cost)}, ${fmtTokens(t.tokens)} ${s.tokensWord}, ${fmtTime(t.time)}`
 
@@ -5854,6 +5938,8 @@ export const register: Register = (on, options) => {
             {orgPicture(picture)}
             {section('h-session', 'Memory')}
             <Svg key="session" source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} />
+            {section('h-billing', 'Billing')}
+            {billingBlock}
             {section('h-settings', 'Settings')}
             <Box key="settings" flexDirection="column">
               <Button
@@ -6150,6 +6236,10 @@ export const register: Register = (on, options) => {
           </Box>
         )}
         <Box flexDirection="column" marginTop={1}>
+          <Text dimColor>Billing</Text>
+          {billingBlock}
+        </Box>
+        <Box flexDirection="column" marginTop={1}>
           <Text dimColor>Memory</Text>
           {rules.map((r, i) => (
             <Text key={`rule-${i}`} wrap="truncate-end">
@@ -6174,7 +6264,7 @@ export const register: Register = (on, options) => {
     const isNote = e.origin?.kind === 'task-notification'
     if (isNote) await dropNotified($, e.text ?? '').catch(() => undefined)
     const asked = e.isMeta || e.command || !isPersons ? '' : e.text.trim()
-    if (!e.isMeta) pendingCommand = isPersons && e.command ? `/${e.command.name}${e.command.args ? ` ${e.command.args}` : ''}` : ''
+    if (!e.isMeta) pendingCommand = isPersons && e.command ? `/${e.command.name}${e.command.args && !looksLikeKey(e.command.args) ? ` ${e.command.args}` : ''}` : '' // a pasted key never becomes a job's name
     if (asked) await startJob($, asked)
     // A turn Claude starts on its own (a report to answer, a schedule, a peer) is work
     // in hand; a report read inside the running turn is answered there.
@@ -6476,6 +6566,7 @@ export const register: Register = (on, options) => {
         ...unpriced,
         `Smart staffing ${smartStaffing ? 'on' : 'off (/tokens staffing on)'} · autopilot ${watched.autopilot ? 'on' : 'off'}`,
         ultraLine((await read($, agents)).filter(a => a.status === 'running' && a.isUltra).length, ultraRules.length),
+        ...(isApiCredits(BILLING) ? [`${modeChip(BILLING)} · ${spendLine(API_SPEND, dayOf(at), fmtCost)}`] : []),
         `Burn ${fmtTokens(r.burnPerMin)}/min · this task ${fmtTokens(r.taskTokens)} (≈${fmtCost(r.taskCost)})${r.cachedPct === null ? '' : ` · ${r.cachedPct}% cached`}`,
         ...(() => {
           const kw = (watched.warm ?? BLANK_WARM)
