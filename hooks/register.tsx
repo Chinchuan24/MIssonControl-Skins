@@ -7,6 +7,8 @@ import type { Egg, Legend } from './eggs'
 import { canNudge, nudge, pickQuiet, prBadge, quietOf, rememberTask, repoAndBranch, rescueText, retryOnHaiku, whatIf, whatIfText, whatIfTip } from './coach'
 import { BEATS_KEPT, BLANK_CRED, BOOT_H, award, rockerRankOf, bdHeight, bootStrip, braindanceCard, cleanCred, credCard, credHeight, levelOf, rankOf, shiftPick, stepPick } from './extras'
 import type { Beat, Cred } from './extras'
+import { ONESHOT_KEY, ULTRA_KEY, cleanOneShot, cleanUltraRules, isUltraAgent, matchUltra, nextOneShot, oneShotChip, oneShotSaid, oneShotSection, oneShotWord, parseOneShot, resolveEffort, ultraCommand, ultraLine, withUltraBrief } from './crewcontrol'
+import type { OneShot } from './crewcontrol'
 import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, unifiedDiff } from './richtext'
 import { LIVE_N, glide, isNewReading, isSame, liveText, liveWidth, pin, steady, steadyTree, wallMinute } from './smooth'
 import { COLOR_RE, FONT_BAD_RE, ID_RE, TOOL_KEY_RE, skinCheck, skinNew } from './skinkit'
@@ -987,7 +989,7 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
 
 const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.id)
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
-const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false })
+const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot })
 const cred = atom({ plugin: 'crab-progress', key: 'cred' } as const, BLANK_CRED)
 const timeline = atom({ plugin: 'crab-progress', key: 'timeline' } as const, [] as Beat[])
 const bdPick = atom({ plugin: 'crab-progress', key: 'bdPick' } as const, -1)
@@ -1006,6 +1008,7 @@ const readSettings = async ($: EngineInterface) => {
     calm: (await $.store.get('calm').catch(() => undefined)) === true,
     voice: (await $.store.get('voice').catch(() => undefined)) === true,
     staffing: (await $.store.get(STAFF_KEY).catch(() => undefined)) === true,
+    oneShot: cleanOneShot(await $.store.get(ONESHOT_KEY).catch(() => undefined)),
   }
 }
 
@@ -1017,6 +1020,23 @@ async function setFlag($: EngineInterface, flag: Flag, isOn: boolean): Promise<v
   if (flag === 'staffing') smartStaffing = isOn
   if (flag === 'calm' && !isOn) $.ui.status(undefined)
   await update($, settings, prev => ({ ...prev, [flag]: isOn }))
+}
+
+// One-shot: what Claude does once a roadmap is approved. Kept in the store, mirrored for the pane.
+async function setOneShot($: EngineInterface, mode: OneShot): Promise<void> {
+  oneShotMode = mode
+  await $.store.set(ONESHOT_KEY, mode).catch(() => undefined)
+  await update($, settings, prev => ({ ...prev, oneShot: mode }))
+}
+
+// The ⚡ button on a running agent's card: max effort from its next request, no prompt change.
+async function toggleUltra($: EngineInterface, id: string): Promise<void> {
+  const run = (await read($, agents)).find(a => a.id === id)
+  if (!run || run.status !== 'running') return
+  const isOn = !run.isUltra
+  if (run.agentId) ultraExplicit.set(run.agentId, isOn)
+  await update($, agents, list => list.map(a => (a.id === id ? { ...a, isUltra: isOn } : a)))
+  $.ui.toast(isOn ? `⚡ Ultra: "${clip(run.description || run.type, 30)}" goes to max effort from its next request` : `Ultra off for "${clip(run.description || run.type, 30)}"`)
 }
 
 // The pane's two folds, kept in the store so a reload or a new session opens the
@@ -1611,10 +1631,10 @@ const tierModel = (tier: string): string => {
 }
 
 // The effort a run works at: what its requests carried, else its tier's, else the default.
-const runEffort = (a: AgentRun): string => a.effort ?? TIER_MODEL[tierOf(a.type)]?.[1] ?? 'default'
+const runEffort = (a: AgentRun): string => (a.isUltra ? 'max' : a.effort) ?? TIER_MODEL[tierOf(a.type)]?.[1] ?? 'default'
 
 // "Opus 5.5 · effort low" for a run.
-const runModel = (a: AgentRun): string => `${modelName(a.model)} · effort ${effortWord(runEffort(a))}`
+const runModel = (a: AgentRun): string => `${modelName(a.model)} · effort ${a.isUltra ? '⚡ ' : ''}${effortWord(runEffort(a))}`
 
 // USD per million tokens: input, output, cache read, cache write. The first row that
 // matches a model id wins, so a release sits above its family.
@@ -1677,6 +1697,11 @@ type Staff = { model?: string; effort: 'low' | 'medium' | 'high'; why: string }
 const STAFF_KEY = 'smartStaffing'
 let smartStaffing = false
 const staffEffort = new Map<string, Staff['effort']>()
+// Per-agent Ultra: the role rules (kept in the store) and the mode for a plan's approval.
+let ultraRules: string[] = []
+let oneShotMode: OneShot = 'ask'
+const ultraFlag = new Map<string, boolean>() // matched a rule at spawn
+const ultraExplicit = new Map<string, boolean>() // the card's ⚡ button, which beats the rule
 const staffFor = (type: string, description: string): Staff | null => {
   const text = `${type} ${description}`.toLowerCase()
   if (type === 'Explore' || /\b(read|reads|research|explore|search|find|scan|look up|summari[sz]e|inventory|list|lore|survey)\b/.test(text)) return { model: 'haiku', effort: 'low', why: 'reading' }
@@ -2216,7 +2241,7 @@ const modelColor = (name: string): string => {
 
 const EFFORT_LEVEL: Record<string, number> = { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 }
 const PIP_COLORS = ['#5EC8D8', '#7FB6F0', '#B58BE5', '#E9B44C', '#E5675E']
-const effortStat = (effort: string): Stat => ({ k: 'Effort', v: effortWord(effort), viz: { kind: 'pips', n: EFFORT_LEVEL[effort] ?? 0 } })
+const effortStat = (effort: string, isUltra = false): Stat => ({ k: 'Effort', v: `${isUltra ? '⚡\uFE0E ' : ''}${effortWord(effort)}`, viz: { kind: 'pips', n: EFFORT_LEVEL[effort] ?? 0 } })
 
 const statViz = (st: Stat, x: number, y: number): string => {
   if (st.viz?.kind === 'pips') {
@@ -2288,7 +2313,7 @@ ${estimate && pct !== null ? liveText(x + w, y + 19, estimate.at, 12, attrs, t =
 
 const agentStats = (a: AgentRun, at: number): Stat[] => [
   { k: 'Model', v: modelName(a.model), color: modelColor(modelName(a.model)) },
-  effortStat(runEffort(a)),
+  effortStat(runEffort(a), a.isUltra),
   { k: 'Tokens used', v: fmtTokens(a.tokens) },
   { k: 'Context', v: `${ctxOf(a)}%`, viz: { kind: 'ring', pct: ctxOf(a) } },
   { k: 'Cost', v: `≈${fmtCost(a.costUsd)}` },
@@ -3260,7 +3285,7 @@ const orgTree = (all: AgentRun[], boss: Manager, at = 0, mood: 0 | 1 | 2 = 0): O
   const agentNode = (a: AgentRun, depth: number): OrgNode => ({
     id: a.id,
     // The role is drawn above it: "Designer: palette ideas" reads "palette ideas".
-    label: (a.description || a.type).replace(NAMED_ROLE_PREFIX, ''),
+    label: `${a.isUltra ? '⚡ ' : ''}${(a.description || a.type).replace(NAMED_ROLE_PREFIX, '')}`,
     color: runRoleColor(a),
     costume: costumeFor(a),
     isStuck: isQuiet(a) || isOver(a),
@@ -4945,7 +4970,7 @@ async function registerEntryPoints($: EngineInterface): Promise<void> {
   }).catch(() => undefined)
   await $.command.register({
     name: 'tokens',
-    description: 'Token Manager: /tokens for a report, budget <dollars|off>, daily <dollars|off>, autopilot <on|off>, staffing <on|off>, warm <on|off>, receipt, model <id> <model>',
+    description: 'Token Manager: /tokens for a report, budget <dollars|off>, daily <dollars|off>, autopilot <on|off>, staffing <on|off>, ultra <add|remove|list|off> <role>, warm <on|off>, receipt, pr, whatif, rescue, model <id> <model>',
   }).catch(() => undefined)
   await $.command.register(TIMEKEEPER_COMMAND).catch(() => undefined)
 }
@@ -5054,6 +5079,8 @@ export const register: Register = (on, options) => {
     await startTimekeeper($).catch(() => undefined)
     const autopilot = (await $.store.get('autopilot').catch(() => false)) === true
     smartStaffing = (await $.store.get(STAFF_KEY).catch(() => false)) === true
+    ultraRules = cleanUltraRules(await $.store.get(ULTRA_KEY).catch(() => undefined))
+    oneShotMode = cleanOneShot(await $.store.get(ONESHOT_KEY).catch(() => undefined))
     const budget = Number(await $.store.get('budgetUsd').catch(() => 0)) || 0
     const keepWarmOn = (await $.store.get('keepWarm').catch(() => false)) === true
     await update($, watch, prev => ({ ...prev, autopilot, budgetUsd: budget, warm: { ...(prev.warm ?? BLANK_WARM), on: keepWarmOn } }))
@@ -5095,6 +5122,14 @@ export const register: Register = (on, options) => {
       await setCurrency($, currencyOf(found.code, rate))
       return { text: `Costs now show in ${currencyLabel(CURRENCY)}.` }
     }
+    // `/missioncontrol oneshot on|off|ask`: what to do once a roadmap is approved.
+    const shot = /^oneshot(?:\s+(\S+))?\s*$/i.exec((e.args ?? '').trim())
+    if (shot) {
+      const mode = parseOneShot(shot[1] ?? '')
+      if (!mode) return { text: `One-shot is ${oneShotWord(cleanOneShot((await read($, settings)).oneShot))}. Use /missioncontrol oneshot on, off or ask.` }
+      await setOneShot($, mode)
+      return { text: oneShotSaid(mode) }
+    }
     // `/missioncontrol` and `/missioncontrol open` open the panel, or bring it forward
     // from behind another tab, without toggling it. Anything else gets the usage line.
     const verb = (e.args ?? '').trim()
@@ -5120,7 +5155,7 @@ export const register: Register = (on, options) => {
       ]
       return { text: said.filter(Boolean).join(' ') }
     }
-    if (verb !== '' && verb.toLowerCase() !== 'open') return { text: `Unknown option "${verb}". Use /missioncontrol, /missioncontrol open, /missioncontrol release or /missioncontrol currency <code> [rate per US dollar].` }
+    if (verb !== '' && verb.toLowerCase() !== 'open') return { text: `Unknown option "${verb}". Use /missioncontrol, /missioncontrol open, /missioncontrol release, /missioncontrol oneshot <on|off|ask> or /missioncontrol currency <code> [rate per US dollar].` }
     const at = await $.clock.now()
     await update($, now, () => at)
     const shown = await showPane($, PANE, SKIN.tabs.mission)
@@ -5215,10 +5250,17 @@ export const register: Register = (on, options) => {
     const piloted = w.autopilot && isReadOnly && !e.model ? { ...briefed, model: 'haiku' } : briefed
     if (piloted !== briefed) $.ui.toast(`Token Manager: "${clip(e.description, 30)}" runs on Haiku`)
     const staff = smartStaffing && !e.model && !isWorker(e.subagentType) && piloted === briefed ? staffFor(e.subagentType, e.description) : null
-    const routed = staff?.model ? { ...piloted, model: staff.model } : piloted
+    // Ultra: a role with a rule gets a deep-check brief and max effort from its first request.
+    const ultraRule = matchUltra(ultraRules, e.subagentType, e.description)
+    const routed0 = staff?.model ? { ...piloted, model: staff.model } : piloted
+    const routed = ultraRule ? { ...routed0, prompt: withUltraBrief(routed0.prompt) } : routed0
     const started = await next(routed)
     if (started.deny !== undefined) return started
     rememberTask(started.agentId, { prompt: e.prompt, description: e.description, subagentType: e.subagentType })
+    if (ultraRule && started.agentId) {
+      ultraFlag.set(started.agentId, true)
+      $.ui.toast(`⚡ Ultra: "${clip(e.description, 30)}" runs at max effort with a deep check`)
+    }
     if (staff && started.agentId) {
       staffEffort.set(started.agentId, staff.effort)
       $.ui.toast(`Staffing: "${clip(e.description, 30)}" is ${staff.why}: ${staff.model ? `${staff.model[0]?.toUpperCase()}${staff.model.slice(1)}` : 'session model'} · ${staff.effort} effort`)
@@ -5259,6 +5301,7 @@ export const register: Register = (on, options) => {
         steps: 0,
         round,
         parentAgentId: e.parentAgentId,
+        ...(ultraRule ? { isUltra: true } : {}),
         // Its end queues a report the main loop answers in a turn of its own (one an
         // agent started reports to that agent, a workflow's to its script).
         ...(e.background && !e.workflow && !e.parentAgentId ? { isBackground: true } : {}),
@@ -5304,8 +5347,11 @@ export const register: Register = (on, options) => {
     if (warmTurns.has(e.turnId)) return yield* next(e)
     // A staffed agent asks for the effort its job was given (where the model takes one).
     const staffed = e.agentId ? staffEffort.get(e.agentId) : undefined
+    // Order: the person's ⚡ button > an Ultra rule > Smart staffing > the engine's own.
+    const ultra = e.agentId ? isUltraAgent(ultraExplicit.get(e.agentId), ultraFlag.get(e.agentId) === true) : false
+    const wanted = resolveEffort(e.effort, staffed, ultra)
     // Timed from the response's first chunk, so the wait for the first token is left out.
-    const stream = next(staffed && e.effort !== undefined && e.effort !== staffed ? { ...e, effort: staffed } : e)
+    const stream = next(wanted !== e.effort ? { ...e, effort: wanted as typeof e.effort } : e)
     let firstAt: number | null = null
     let stampedAt = 0
     let step = await stream.next()
@@ -5391,7 +5437,7 @@ export const register: Register = (on, options) => {
           : {
               ...a,
               model,
-              effort: typeof e.effort === 'string' ? e.effort : a.effort,
+              effort: typeof wanted === 'string' ? wanted : a.effort,
               status: 'running',
               endedAt: undefined,
               contextTokens:
@@ -5565,6 +5611,8 @@ export const register: Register = (on, options) => {
     const day = todayOn(await read($, today), clockNow)
     const legends = cleanLegends(await $.store.get('legends').catch(() => []))
     const prefs = await read($, settings)
+    const shotMode = cleanOneShot(prefs.oneShot)
+    const shotChip = oneShotChip(shotMode, shotMode === 'on' ? SKIN.colors.done : shotMode === 'off' ? SKIN.colors.accent2 : SKIN.colors.warn, FONT, SKIN.colors.text, textWidth)
     const tkNow = await read($, timekeeper)
     // Only the cyberpunk skins draw these: elsewhere each tool call's replay beat
     // would draw the pane again for nothing.
@@ -5701,6 +5749,10 @@ export const register: Register = (on, options) => {
                 alt={`Workflow: ${steps.map(st => `${st.title} ${st.state}`).join(', ') || 'nothing running'}`}
               />
             </Box>
+            <Box key="oneshot" flexDirection="row" gap={2} marginBottom={1}>
+              <Svg source={shotChip.svg} alt={`Plan mode: ${oneShotWord(prefs.oneShot)}`} width={shotChip.W} height={24} />
+              <Button key="oneshot-cycle" label="Change ▸" plain onPress={async () => setOneShot($, nextOneShot(cleanOneShot((await read($, settings)).oneShot)))} />
+            </Box>
             {bg.length > 0 && (
               <Box key="background" marginBottom={1}>
                 <Svg source={bgSvg(W, bg, ago)} alt={bgAlt(bg, ago)} />
@@ -5792,6 +5844,7 @@ export const register: Register = (on, options) => {
                   />
                   {r.a.status !== 'running' && <Button key={`close-${r.key}`} label="▴ Collapse" plain onPress={() => toggleOpen(r.a.id)} />}
                   {rescueRow($, r.a, ui)}
+                  {r.a.status === 'running' && <Button key={`ultra-${r.key}`} label={r.a.isUltra ? '⚡ Ultra on · tap to turn off' : '⚡ Ultra'} plain onPress={() => toggleUltra($, r.a.id)} />}
                 </Box>
               ),
             )}
@@ -5850,6 +5903,7 @@ export const register: Register = (on, options) => {
               <Button key="set-calm" label={`${prefs.calm ? '☑\uFE0E' : '☐'} Calm mode: one status line instead of the band`} plain onPress={async () => setFlag($, 'calm', !(await read($, settings)).calm)} />
               <Button key="set-voice" label={`${prefs.voice ? '☑\uFE0E' : '☐'} Spoken status: say when a job is done and what it cost`} plain onPress={async () => setFlag($, 'voice', !(await read($, settings)).voice)} />
               <Button key="set-staffing" label={`${prefs.staffing ? '☑\uFE0E' : '☐'} Smart staffing: each agent gets the model and effort its job needs`} plain onPress={async () => setFlag($, 'staffing', !(await read($, settings)).staffing)} />
+              <Button key="set-oneshot" label={`⏩\uFE0E One-shot plans: ${prefs.oneShot === 'on' ? 'on, does the whole plan then reports' : prefs.oneShot === 'off' ? 'off, one part at a time' : 'asks you each time'} ▸`} plain onPress={async () => setOneShot($, nextOneShot(cleanOneShot((await read($, settings)).oneShot)))} />
               <Button
                 key="set-timekeeper"
                 label={`${tkNow.on ? '☑\uFE0E' : '☐'} ${tkStr().setting(tkNow.jobMin, tkNow.agentMin)}`}
@@ -5941,6 +5995,7 @@ export const register: Register = (on, options) => {
               {steps}{s.ctx} {ctx}% · {fmtTokens(a.contextTokens)} ≈{fmtCost(a.costUsd)} {fmtTime(elapsed(a, at))}
             </Text>
           </Text>
+          {a.status === 'running' && <Button key={`ultra-${a.id}`} label={a.isUltra ? '  ⚡ Ultra on · turn off' : '  ⚡ Ultra'} plain onPress={() => toggleUltra($, a.id)} />}
         </Box>
       )
     }
@@ -5990,6 +6045,7 @@ export const register: Register = (on, options) => {
               Today {day.tasks} tasks · {day.agents} agents · {fmtTokens(day.tokens)} tokens · ≈{fmtCost(day.costUsd)}
             </Text>
             <Text bold>Workflow{f && !f.isFinished ? ` ${f.title}` : ''}</Text>
+            <Text dimColor>{'  '}⏩ {oneShotWord(shotMode)}</Text>
             {steps.length === 0 && <Text dimColor>  nothing running</Text>}
             {foldSteps(steps, p.isDoneCollapsed).map(st => (
               <Text key={`wf-${st.key}`} wrap="truncate-end">
@@ -6175,6 +6231,10 @@ export const register: Register = (on, options) => {
       }
       if (reason) sections.push({ id: 'crab-progress:crew', text: crewText(reason), scope: 'session' as const })
     }
+    // One-shot, added last: what to do once a roadmap is approved. Main session only.
+    if (e.tools.includes('Agent') && e.tools.length >= mostTools * 0.9) {
+      sections.push(oneShotSection(cleanOneShot((await read($, settings)).oneShot ?? oneShotMode)))
+    }
     return sections.length === composed.sections.length ? composed : { ...composed, sections }
   })
 
@@ -6328,8 +6388,8 @@ export const register: Register = (on, options) => {
       return { text: `${arg} now prices as ${modelName(to)}.` }
     }
     // Anything but a report, a budget or autopilot on|off gets the usage line.
-    if ((verb && verb !== 'autopilot' && verb !== 'budget' && verb !== 'warm' && verb !== 'staffing' && verb !== 'daily' && verb !== 'receipt' && verb !== 'rescue' && verb !== 'whatif' && verb !== 'pr') || ((verb === 'autopilot' || verb === 'warm') && arg && arg !== 'on' && arg !== 'off')) {
-      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>, /tokens staffing <on|off>, /tokens daily <dollars|off>, /tokens receipt, /tokens pr, /tokens whatif, /tokens rescue, /tokens model <id> <model|off>' }
+    if ((verb && verb !== 'autopilot' && verb !== 'budget' && verb !== 'warm' && verb !== 'staffing' && verb !== 'ultra' && verb !== 'daily' && verb !== 'receipt' && verb !== 'rescue' && verb !== 'whatif' && verb !== 'pr') || ((verb === 'autopilot' || verb === 'warm') && arg && arg !== 'on' && arg !== 'off')) {
+      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>, /tokens staffing <on|off>, /tokens ultra <add|remove|list|off> [role], /tokens daily <dollars|off>, /tokens receipt, /tokens pr, /tokens whatif, /tokens rescue, /tokens model <id> <model|off>' }
     }
     if (verb === 'warm') {
       const isOn = arg !== 'off'
@@ -6380,6 +6440,13 @@ export const register: Register = (on, options) => {
       await $.store.set(DAILY_KEY, dollars)
       return { text: dollars ? `Daily cap set: ${fmtCost(dollars)} a day (≈${fmtCost(todayCostUsd)} so far today). The Token Manager warns at 80% and 100%.` : 'Daily cap off.' }
     }
+    if (verb === 'ultra') {
+      const running = (await read($, agents)).filter(a => a.status === 'running' && a.isUltra).length
+      const done = ultraCommand(ultraRules, (e.args ?? '').trim().slice('ultra'.length), running)
+      ultraRules = done.rules
+      await $.store.set(ULTRA_KEY, ultraRules).catch(() => undefined)
+      return { text: done.text }
+    }
     if (verb === 'staffing') {
       if (arg && arg !== 'on' && arg !== 'off') return { text: 'Usage: /tokens staffing <on|off>' }
       await setFlag($, 'staffing', arg !== 'off')
@@ -6408,6 +6475,7 @@ export const register: Register = (on, options) => {
         `Token Manager: ${MOOD_WORD[r.mood]}`,
         ...unpriced,
         `Smart staffing ${smartStaffing ? 'on' : 'off (/tokens staffing on)'} · autopilot ${watched.autopilot ? 'on' : 'off'}`,
+        ultraLine((await read($, agents)).filter(a => a.status === 'running' && a.isUltra).length, ultraRules.length),
         `Burn ${fmtTokens(r.burnPerMin)}/min · this task ${fmtTokens(r.taskTokens)} (≈${fmtCost(r.taskCost)})${r.cachedPct === null ? '' : ` · ${r.cachedPct}% cached`}`,
         ...(() => {
           const kw = (watched.warm ?? BLANK_WARM)

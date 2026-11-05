@@ -61,6 +61,8 @@ export type AgentRun = {
   isBackground?: boolean
   /** Its tool calls still in flight: a long build or a permission prompt is no silence. */
   toolsInFlight?: number
+  /** Runs at max effort with a deep-check brief: an Ultra rule matched, or the person pressed ⚡. */
+  isUltra?: boolean
 }
 
 export type Panel = {
@@ -243,7 +245,7 @@ declare module 'claude-code' {
       /** The id of the skin Mission Control and the band are drawn in. */
       skin: string
       /** Mission Control's settings, mirrored from `$.store` so the pane redraws. */
-      settings: { openOnStart: boolean; crewMode: boolean; currency: string; sounds: boolean; simple: boolean; calm: boolean; voice: boolean; staffing: boolean }
+      settings: { openOnStart: boolean; crewMode: boolean; currency: string; sounds: boolean; simple: boolean; calm: boolean; voice: boolean; staffing: boolean; oneShot: 'ask' | 'on' | 'off' }
       /** Street Cred: XP, the counts badges are earned on, the badges. Mirrored from `$.store`. */
       cred: { xp: number; jobs: number; longJobs: number; agents: number; crewJobs: number; nightJobs: number; chromed: boolean; samurai: boolean; badges: string[] }
       /** The session's tool calls, for the Braindance replay. */
