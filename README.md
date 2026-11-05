@@ -210,6 +210,8 @@ Skins are small `.json` files; see [`skins/README.md`](skins/README.md) for ever
 
 Copy an example, give it a new `id`, edit it, then run `/skin reload` and `/skin <id>`.
 
+Or skip the editing: `/skin new ocean sunset` drafts one for you, and `/skin check <file>` checks one. See [`docs/SKINS.md`](docs/SKINS.md) for the guide, the schema and how to share a skin (Skin jam).
+
 </details>
 
 ---

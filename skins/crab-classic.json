@@ -1,4 +1,5 @@
 {
+  "$schema": "./skin.schema.json",
   "id": "crab-classic",
   "name": "Crab Classic",
   "description": "The original: soft violet, gold boss, rounded cards.",
