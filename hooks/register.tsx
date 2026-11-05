@@ -5606,15 +5606,13 @@ export const register: Register = (on, options) => {
           key="org"
           source={source}
           alt={`Hierarchy: Manager, then ${org.children.map(r => `${r.label} (${r.children.length})`).join(', ') || 'no roles yet'}`}
-          width={W}
-          height={orgHeight(org)}
         />
       )
       // The short view. Forced when the full one is too big for the app to draw: it
       // keeps the crew's picture and offers the ways back to the full view.
       const compactView = (picture?: string) => (
         <Box flexDirection="column" gap={1} alignItems={align} {...(SKIN.backdrop.fill ? { backgroundColor: SKIN.backdrop.fill } : {})}>
-          <Svg source={compactSvg(W, list, planned, t, clockNow)} alt={`${list.length} ${s.agentsCount}${quietCount ? `, ⚠ ${quietCount} quiet` : ''}, ${summary}`} width={W} height={32} />
+          <Svg source={compactSvg(W, list, planned, t, clockNow)} alt={`${list.length} ${s.agentsCount}${quietCount ? `, ⚠ ${quietCount} quiet` : ''}, ${summary}`} />
           {picture === undefined ? (
             toggleCompact
           ) : (
@@ -5627,7 +5625,7 @@ export const register: Register = (on, options) => {
             </Box>
           )}
           {picture ? orgPicture(picture) : null}
-          <Svg source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} width={W} height={sessionHeight(W, info, rules)} />
+          <Svg source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} />
         </Box>
       )
       if (p.isCompact) return keep(compactView())
@@ -5638,7 +5636,7 @@ export const register: Register = (on, options) => {
       const drawings = new Map<string, string>()
       const drawn = (key: string, draw: () => string): string => drawings.get(key) ?? drawings.set(key, draw()).get(key) ?? ''
       const moreRow = (some: AgentRun[], isLive: boolean) =>
-        some.length > 0 && <Svg key={isLive ? 'more-working' : 'more-done'} source={moreSvg(W, some, isLive)} alt={moreAlt(some, isLive)} width={W} height={FOLD_H} />
+        some.length > 0 && <Svg key={isLive ? 'more-working' : 'more-done'} source={moreSvg(W, some, isLive)} alt={moreAlt(some, isLive)} />
       // The cards stack in plain flow: the desktop pane draws nothing for a tree that
       // lays them over a full-height grid with an absolute Box.
       const full = (picture: string, shown: TreeRow[], done: AgentRun[], lite = false) => (
@@ -5649,8 +5647,6 @@ export const register: Register = (on, options) => {
                 <Svg
                   source={bootStrip(W, SKIN.colors, FONT, 'JACKING IN…', egg === 'corpo' ? 'ARASAKA NETWORK › IDENTITY VERIFIED › ACCESS GRANTED' : egg === 'samurai' ? 'WAKE UP, SAMURAI › AMPS ON › LIVE AT THE ATLANTIS' : egg === 'netrun' ? 'JACKED IN › DIVING THE NET › ICE BYPASSED' : 'LINK ESTABLISHED › NEURAL HANDSHAKE OK › ICE BYPASSED')}
                   alt="Mission Control online"
-                  width={W}
-                  height={BOOT_H}
                 />
               </Box>
             ) : null}
@@ -5658,20 +5654,16 @@ export const register: Register = (on, options) => {
               <Svg
                 source={usageSvg(W, info, clockNow, every)}
                 alt={usageAlt(info)}
-                width={W}
-                height={usageHeight(info, every)}
               />
             </Box>
             <Box key="today" marginBottom={1}>
-              <Svg source={todaySvg(W, day)} alt={`Today: ${day.tasks} tasks, ${day.agents} agents, ${fmtTokens(day.tokens)} tokens, ≈${fmtCost(day.costUsd)}`} width={W} height={TODAY_H} />
+              <Svg source={todaySvg(W, day)} alt={`Today: ${day.tasks} tasks, ${day.agents} agents, ${fmtTokens(day.tokens)} tokens, ≈${fmtCost(day.costUsd)}`} />
             </Box>
             {egg ? (
               <Box key="cred" marginBottom={1}>
                 <Svg
                   source={credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
                   alt={`Level ${levelOf(streetCred.xp)} ${(egg === 'samurai' ? rockerRankOf : rankOf)(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
-                  width={W}
-                  height={credHeight(W)}
                 />
               </Box>
             ) : null}
@@ -5679,13 +5671,11 @@ export const register: Register = (on, options) => {
               <Svg
                 source={workflowSvg(W, f, steps, clockNow, p.isDoneCollapsed)}
                 alt={`Workflow: ${steps.map(st => `${st.title} ${st.state}`).join(', ') || 'nothing running'}`}
-                width={W}
-                height={workflowHeight(steps, p.isDoneCollapsed)}
               />
             </Box>
             {bg.length > 0 && (
               <Box key="background" marginBottom={1}>
-                <Svg source={bgSvg(W, bg, ago)} alt={bgAlt(bg, ago)} width={W} height={bgHeight(bg.length)} />
+                <Svg source={bgSvg(W, bg, ago)} alt={bgAlt(bg, ago)} />
               </Box>
             )}
             {egg ? (
@@ -5693,8 +5683,6 @@ export const register: Register = (on, options) => {
                 <Svg
                   source={breachCard(W, steps.filter(st => st.state === 'done').length, steps.length, boss.isWorking, egg, FONT, cardShape)}
                   alt={`Breach Protocol: ${steps.filter(st => st.state === 'done').length} of ${steps.length} steps`}
-                  width={W}
-                  height={BREACH_H}
                 />
               </Box>
             ) : null}
@@ -5703,8 +5691,6 @@ export const register: Register = (on, options) => {
                 <Svg
                   source={legendsCard(W, legends, egg, FONT, fmtCost, cardShape)}
                   alt={`${egg === 'corpo' ? 'Mikoshi engrams' : 'Afterlife drinks'}: ${legends.map(l => l.task).join(', ') || 'none yet'}`}
-                  width={W}
-                  height={legendsHeight(legends.length)}
                 />
               </Box>
             ) : null}
@@ -5713,8 +5699,6 @@ export const register: Register = (on, options) => {
                 <Svg
                   source={braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
                   alt={braindanceAlt(beats, pick)}
-                  width={W}
-                  height={bdHeight(beats)}
                 />
                 <Box flexDirection="row" gap={2}>
                   <Button key="bd-first" label={'⏮\uFE0E First'} plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, () => (n ? 0 : -1)) }} />
@@ -5728,15 +5712,11 @@ export const register: Register = (on, options) => {
               key="manager"
               source={managerSvg(W, bossCard, info, title, t, list.length, clockNow, managerProgress(f, list, boss, clockNow), waitingOn, managerEstimate(f, list, boss, clockNow))}
               alt={`Manager: ${boss.task || 'idle'}${bossCard.isWorking ? ', working' : waitingOn ? `, ${s.bgWaiting(waitingOn)}` : outcomeWord(boss) ? `, ${outcomeWord(boss).toLowerCase()}` : ''}. ${summary}`}
-              width={W}
-              height={managerHeight(info)}
             />
             <Box key="tokens" marginTop={1} marginBottom={1}>
               <Svg
                 source={tokenSvg(W, report, boss.isWorking)}
                 alt={`Token Manager: ${MOOD_WORD[report.mood]}. ${report.tips.map(tp => tp.text).join('. ')}`}
-                width={W}
-                height={tokenHeight(report)}
               />
             </Box>
             {boss.task ? (
@@ -5759,14 +5739,12 @@ export const register: Register = (on, options) => {
             </Box>
             {shown.map(r =>
               r.kind === 'role' ? (
-                <Svg key={r.key} source={treeRowSvg(W, r, drawn(r.key, () => roleSvg(rowInnerW(W, r), r)))} alt={`${r.role}: ${r.count} agents, ${r.running} working`} width={W} height={ROLE_H} />
+                <Svg key={r.key} source={treeRowSvg(W, r, drawn(r.key, () => roleSvg(rowInnerW(W, r), r)))} alt={`${r.role}: ${r.count} agents, ${r.running} working`} />
               ) : r.slim ? (
                 <Svg
                   key={r.key}
                   source={treeRowSvg(W, r, drawn(`${lite ? 'lite' : 'slim'}:${r.key}`, () => liveRowSvg(rowInnerW(W, r), r.a, at, lite)), lite)}
                   alt={`${r.a.description}: ${modelName(r.a.model)}, ${s.isRunning}${isQuiet(r.a) ? ', quiet' : ''}${isOver(r.a) ? `, ${tkStr().overWord}` : ''}`}
-                  width={W}
-                  height={FOLD_H}
                 />
               ) : r.folded ? (
                 <Box key={r.key} flexDirection="row" alignItems="center">
@@ -5783,8 +5761,6 @@ export const register: Register = (on, options) => {
                   <Svg
                     source={treeRowSvg(W, r, drawn(r.key, () => agentSvg(rowInnerW(W, r), r.a, at, !isBoxed(r))))}
                     alt={`${r.a.description}: ${modelName(r.a.model)}, ${r.a.status === 'running' ? s.isRunning : r.a.status === 'failed' ? s.failed : r.a.status === 'stopped' ? s.stopped : s.isFinished}${isOver(r.a) ? `, ${tkStr().overWord}` : ''}`}
-                    width={W}
-                    height={AGENT_H}
                   />
                   {r.a.status !== 'running' && <Button key={`close-${r.key}`} label="▴ Collapse" plain onPress={() => toggleOpen(r.a.id)} />}
                 </Box>
@@ -5795,7 +5771,7 @@ export const register: Register = (on, options) => {
             {section('h-org', 'Hierarchy')}
             {orgPicture(picture)}
             {section('h-session', 'Memory')}
-            <Svg key="session" source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} width={W} height={sessionHeight(W, info, rules)} />
+            <Svg key="session" source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} />
             {section('h-settings', 'Settings')}
             <Box key="settings" flexDirection="column">
               <Button
@@ -6198,7 +6174,7 @@ export const register: Register = (on, options) => {
           {HAS_CYBER ? null : <Text dimColor>{ADDON_PITCH}</Text>}
           {skins.map(k => (
             <Box key={`skin-${k.id}`} flexDirection="column">
-              <Svg source={previewSvg(W, k, k.id === active.id)} alt={`${k.name}: ${k.description}`} width={W} height={PREVIEW_H} />
+              <Svg source={previewSvg(W, k, k.id === active.id)} alt={`${k.name}: ${k.description}`} />
               {k.id === active.id ? (
                 <Text dimColor>✓ On now</Text>
               ) : (
@@ -6591,8 +6567,8 @@ export const register: Register = (on, options) => {
     // The desktop draws a Button's label, not its children, in a slot about 96px wide
     // beside the band: a long label spilled out of it. Keep both labels short.
     const crewButton = (
-      <Button key="crab-agents" label={`◈ ${crew}`} plain onPress={() => void togglePane($)}>
-        {`◈ ${crew}`}
+      <Button key="crab-agents" label={crew ? `◈ ${crew}` : '◈'} plain onPress={() => void togglePane($)}>
+        {crew ? `◈ ${crew}` : '◈'}
       </Button>
     )
     const percent = idleText ? '' : `${Math.round(ratio(f) * 100)}%`
@@ -6610,7 +6586,10 @@ export const register: Register = (on, options) => {
       const outH = hud.simple ? SIMPLE_OUT_H : HUD_OUT_H
       // About 8 CSS px per reported column; the rest is the count, the dismiss
       // and their gaps. No floor above the slot: a row wider than it would wrap.
-      const width = Math.max(180, Math.min(1600, (e.props.bodyColumns || 100) * 8 - 96))
+      // The desktop reports cells, not pixels, and its cells are not a fixed width: draw a
+      // little wider than the columns suggest and let the image shrink to the slot it gets,
+      // so it neither leaves the row half empty nor runs past the edge.
+      const width = Math.max(180, Math.min(1600, Math.round((e.props.bodyColumns || 100) * 9.5) - 48))
       // Drawn larger to read at a glance, but never taller than the slot the app
       // gives the band (about 18 px a row): past that it would scroll.
       const room = e.props.maxRows > 0 ? e.props.maxRows * 18 - 6 : Infinity
@@ -6622,7 +6601,7 @@ export const register: Register = (on, options) => {
             <Svg source={steady(`band:${e.surface}`, (() => {
               const full = hudBandSvg(Math.round(width / bandScale), hud)
               return full.length < 120_000 ? full : hudBandSvg(Math.round(width / bandScale), { ...hud, lite: true })
-            })().replace(/^<svg([^>]*?) width="[^"]*" height="[^"]*"/, `<svg$1 width="${width}" height="${bandH}"`), bandAt)} alt={`${hud.title}: ${hud.status}${hud.activity ? `, ${hud.activity}` : ''}${hud.progress === null ? '' : `, ${Math.round(hud.progress * 100)}%`}, context ${info.contextPct}%${bgCount ? `, ${bgCount} ${tr().bgBand}` : ''}`} width={width} height={bandH} />
+            })().replace(/^<svg([^>]*?) width="[^"]*" height="[^"]*"/, `<svg$1 width="${width}" height="${bandH}"`), bandAt)} alt={`${hud.title}: ${hud.status}${hud.activity ? `, ${hud.activity}` : ''}${hud.progress === null ? '' : `, ${Math.round(hud.progress * 100)}%`}, context ${info.contextPct}%${bgCount ? `, ${bgCount} ${tr().bgBand}` : ''}`} />
             <Box flexDirection="column" gap={1} alignItems="center">
               {/* The app draws a Button's children as-is: keep them to a glyph and the count. */}
               {crewButton}
