@@ -4,6 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import { CASTS, CAST_CSS, hashOf, spriteMarkup } from './cast'
 import { BREACH_H, BREACH_W, CJK_FONT, EGG_CSS, EGG_TOOLS, EGG_WORDS, GREETING, KATAKANA, breachCard, breachTicker, celebration, heatStars, legendsCard, legendsHeight, psychoChip, radio, relicText, sandevistan, skyline, sysTag } from './eggs'
 import type { Egg, Legend } from './eggs'
+import { canNudge, nudge, pickQuiet, prBadge, quietOf, rememberTask, repoAndBranch, rescueText, retryOnHaiku, whatIf, whatIfText, whatIfTip } from './coach'
 import { BEATS_KEPT, BLANK_CRED, BOOT_H, award, rockerRankOf, bdHeight, bootStrip, braindanceCard, cleanCred, credCard, credHeight, levelOf, rankOf, shiftPick, stepPick } from './extras'
 import type { Beat, Cred } from './extras'
 import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, unifiedDiff } from './richtext'
@@ -3479,6 +3480,27 @@ type TokenReport = { mood: 0 | 1 | 2; tips: Tip[]; burnPerMin: number; taskToken
 const BURN_WINDOW = 600_000
 const sumTokens = (info: Env): number => Object.values(info.modelTokens ?? {}).reduce((a, b) => a + b, 0)
 
+// The coach's what-if over this session's agents (hooks/coach.ts), priced by the table above.
+const coachWhatIf = (info: Env, list: AgentRun[], w: Watch, warm?: { promptTokens: number; model: string }) =>
+  whatIf({
+    agents: list,
+    totalUsd: info.costUsd,
+    todayUsd: todayCostUsd,
+    priceOf: (m, n) => priceOf(m, n),
+    staffFor,
+    flags: { autopilot: w.autopilot, staffing: smartStaffing, warm: (w.warm ?? BLANK_WARM).on },
+    ...(warm ? { warm: { ...warm, contextPct: info.contextPct, call: (price, tokens, pct) => warmCall(price, tokens, false, pct) } } : {}),
+  })
+
+// A quiet agent's rescue buttons: start it again on Haiku, or ask it for a status.
+const rescueRow = ($: EngineInterface, a: AgentRun, { Box, Button }: ReturnType<EngineInterface['ui']['resolve']>) =>
+  isQuiet(a) ? (
+    <Box key={`rescue-${a.id}`} flexDirection="row" gap={2}>
+      <Button key={`retry-${a.id}`} label="↻ Retry on Haiku" plain onPress={async () => $.ui.toast((await retryOnHaiku($, a)).text)} />
+      {canNudge(a) && <Button key={`nudge-${a.id}`} label="✋ Nudge" plain onPress={async () => $.ui.toast(await nudge($, a))} />}
+    </Box>
+  ) : null
+
 const tokenReport = (info: Env, list: AgentRun[], boss: Manager, w: Watch, at: number): TokenReport => {
   const tips: Tip[] = []
   const burnPerMin = w.burn.filter(b => b.at > at - 60_000).reduce((sum, b) => sum + b.n, 0)
@@ -3520,6 +3542,9 @@ const tokenReport = (info: Env, list: AgentRun[], boss: Manager, w: Watch, at: n
   if (w.autopilot) tips.push({ level: 0, text: 'Autopilot on: explorers run on Haiku' })
   const kw = w.warm ?? BLANK_WARM
   if (kw.on) tips.push({ level: 0, text: kw.halted ? `Keep-warm paused: ${kw.halted}` : kw.count ? `Keep-warm: ${kw.count} refresh${kw.count === 1 ? '' : 'es'}, saved ≈${fmtCost(Math.max(0, kw.savedUsd))}` : 'Keep-warm on: the cache is refreshed before it lapses' })
+  // The coach's "what if": a cheaper setup that would save over a fifth of the session.
+  const coachTip = whatIfTip(coachWhatIf(info, list, w), fmtCost)
+  if (coachTip) tips.push(coachTip)
   const mood = tips.reduce<0 | 1 | 2>((m, tp) => (tp.level > m ? tp.level : m), 0)
   if (!tips.some(tp => tp.level > 0)) tips.unshift({ level: 0, text: 'Lean and on budget ✓' })
   return { mood, tips: tips.sort((a, b) => b.level - a.level).slice(0, 3), burnPerMin, taskTokens, taskCost, cachedPct, budget: w.budgetUsd }
@@ -5193,6 +5218,7 @@ export const register: Register = (on, options) => {
     const routed = staff?.model ? { ...piloted, model: staff.model } : piloted
     const started = await next(routed)
     if (started.deny !== undefined) return started
+    rememberTask(started.agentId, { prompt: e.prompt, description: e.description, subagentType: e.subagentType })
     if (staff && started.agentId) {
       staffEffort.set(started.agentId, staff.effort)
       $.ui.toast(`Staffing: "${clip(e.description, 30)}" is ${staff.why}: ${staff.model ? `${staff.model[0]?.toUpperCase()}${staff.model.slice(1)}` : 'session model'} · ${staff.effort} effort`)
@@ -5741,11 +5767,13 @@ export const register: Register = (on, options) => {
               r.kind === 'role' ? (
                 <Svg key={r.key} source={treeRowSvg(W, r, drawn(r.key, () => roleSvg(rowInnerW(W, r), r)))} alt={`${r.role}: ${r.count} agents, ${r.running} working`} />
               ) : r.slim ? (
-                <Svg
-                  key={r.key}
-                  source={treeRowSvg(W, r, drawn(`${lite ? 'lite' : 'slim'}:${r.key}`, () => liveRowSvg(rowInnerW(W, r), r.a, at, lite)), lite)}
-                  alt={`${r.a.description}: ${modelName(r.a.model)}, ${s.isRunning}${isQuiet(r.a) ? ', quiet' : ''}${isOver(r.a) ? `, ${tkStr().overWord}` : ''}`}
-                />
+                <Box key={r.key} flexDirection="column">
+                  <Svg
+                    source={treeRowSvg(W, r, drawn(`${lite ? 'lite' : 'slim'}:${r.key}`, () => liveRowSvg(rowInnerW(W, r), r.a, at, lite)), lite)}
+                    alt={`${r.a.description}: ${modelName(r.a.model)}, ${s.isRunning}${isQuiet(r.a) ? ', quiet' : ''}${isOver(r.a) ? `, ${tkStr().overWord}` : ''}`}
+                  />
+                  {rescueRow($, r.a, ui)}
+                </Box>
               ) : r.folded ? (
                 <Box key={r.key} flexDirection="row" alignItems="center">
                   <Svg
@@ -5763,6 +5791,7 @@ export const register: Register = (on, options) => {
                     alt={`${r.a.description}: ${modelName(r.a.model)}, ${r.a.status === 'running' ? s.isRunning : r.a.status === 'failed' ? s.failed : r.a.status === 'stopped' ? s.stopped : s.isFinished}${isOver(r.a) ? `, ${tkStr().overWord}` : ''}`}
                   />
                   {r.a.status !== 'running' && <Button key={`close-${r.key}`} label="▴ Collapse" plain onPress={() => toggleOpen(r.a.id)} />}
+                  {rescueRow($, r.a, ui)}
                 </Box>
               ),
             )}
@@ -6287,8 +6316,8 @@ export const register: Register = (on, options) => {
       return { text: `${arg} now prices as ${modelName(to)}.` }
     }
     // Anything but a report, a budget or autopilot on|off gets the usage line.
-    if ((verb && verb !== 'autopilot' && verb !== 'budget' && verb !== 'warm' && verb !== 'staffing' && verb !== 'daily' && verb !== 'receipt') || ((verb === 'autopilot' || verb === 'warm') && arg && arg !== 'on' && arg !== 'off')) {
-      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>, /tokens staffing <on|off>, /tokens daily <dollars|off>, /tokens receipt, /tokens model <id> <model|off>' }
+    if ((verb && verb !== 'autopilot' && verb !== 'budget' && verb !== 'warm' && verb !== 'staffing' && verb !== 'daily' && verb !== 'receipt' && verb !== 'rescue' && verb !== 'whatif' && verb !== 'pr') || ((verb === 'autopilot' || verb === 'warm') && arg && arg !== 'on' && arg !== 'off')) {
+      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>, /tokens staffing <on|off>, /tokens daily <dollars|off>, /tokens receipt, /tokens pr, /tokens whatif, /tokens rescue, /tokens model <id> <model|off>' }
     }
     if (verb === 'warm') {
       const isOn = arg !== 'off'
@@ -6304,6 +6333,33 @@ export const register: Register = (on, options) => {
       const text = receiptText(await read($, manager), await read($, agents), await read($, env), await $.clock.now())
       const copied = await $.ui.copy({ text }).catch(() => ({ isCopied: false }))
       return { text: `${text}\n\n${copied.isCopied ? '(Copied: paste it into a PR or a chat.)' : '(Select and copy it from here.)'}` }
+    }
+    if (verb === 'rescue') {
+      const at = await $.clock.now()
+      const quiet = quietOf(await read($, agents))
+      const [act = '', pick = ''] = arg.split(/\s+/)
+      if (act !== 'retry' && act !== 'nudge') return { text: rescueText(quiet, at, fmtTime) }
+      const chosen = pickQuiet(quiet, pick)
+      if (!chosen.length) return { text: quiet.length ? `Which one? /tokens rescue ${act} <1-${quiet.length}|all>` : rescueText(quiet, at, fmtTime) }
+      const lines: string[] = []
+      for (const a of chosen) lines.push(act === 'retry' ? (await retryOnHaiku($, a)).text : await nudge($, a))
+      return { text: lines.join('\n') }
+    }
+    if (verb === 'whatif') {
+      const st = await read($, session)
+      const w = await read($, watch)
+      const info = await read($, env)
+      const out = coachWhatIf(info, await read($, agents), w, st.promptTokens && st.model ? { promptTokens: st.promptTokens, model: st.model } : undefined)
+      return { text: whatIfText(out, fmtCost) }
+    }
+    if (verb === 'pr') {
+      const crew = crewOf(await read($, agents), await read($, manager))
+      const boss = await read($, manager)
+      const info = await read($, env)
+      const where = await repoAndBranch($)
+      const badge = prBadge({ costUsd: Math.max(0, info.costUsd - (boss.costAtStart ?? info.costUsd)), agents: crew.length, tokens: crew.reduce((n, a) => n + a.tokens, 0), ...where }, fmtCost, fmtTokens)
+      const copied = await $.ui.copy({ text: badge.text }).catch(() => ({ isCopied: false }))
+      return { text: `${badge.text}\n\n${copied.isCopied ? '(Copied: paste it into the PR description.)' : '(Select and copy it from here.)'}` }
     }
     if (verb === 'daily') {
       const dollars = arg === 'off' ? 0 : Number(arg.replace(/^\$/, ''))
