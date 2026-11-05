@@ -3436,7 +3436,7 @@ ${slot >= 46 ? `<text${isWorking ? ' class="t"' : ' class="s"'} x="${x}" y="${y 
     // it is done, its task under it.
     const label = fitText(n.label, 11, Math.max(30, slot - 8))
     const tag = n.kind === 'agent' && (n.costUsd ?? 0) >= 0.005 && slot >= 46
-      ? `<text x="${r2(x + w / 2 + 2)}" y="${r2(y + 6)}" font-size="9.5" font-weight="${isPriciest(n) ? 800 : 600}" font-variant-numeric="tabular-nums"${isPriciest(n) ? ` fill="${SKIN.colors.warn}"` : ' class="m"'}>≈${fmtCost(n.costUsd ?? 0)}</text>`
+      ? `<text x="${r2(x + w / 2 + (n.status === 'done' || n.status === 'failed' ? 16 : 2))}" y="${r2(y + 6)}" font-size="9.5" font-weight="${isPriciest(n) ? 800 : 600}" font-variant-numeric="tabular-nums"${isPriciest(n) ? ` fill="${SKIN.colors.warn}"` : ' class="m"'}>≈${fmtCost(n.costUsd ?? 0)}</text>`
       : ''
     const badge = n.status === 'done' || n.status === 'failed' ? `<use href="#${n.status === 'done' ? 'bok' : 'bno'}" x="${r2(left + w - 2)}" y="${y + 4}"/>` : ''
     nodes.push(`<ellipse cx="${x}" cy="${y + h + 1}" rx="${r2(w * 0.45)}" ry="2.5" fill="#000" fill-opacity=".25"/>
@@ -4014,6 +4014,10 @@ type HudData = {
   isParty: boolean
   /** When the job finished: the cheer is pinned to it, so a redraw resumes it instead of replaying it. */
   partyAt?: number
+  /** The plain skins' 3-row band: what is happening, the crew, the cost. */
+  simple?: boolean
+  taskUsd?: number
+  todayUsd?: number
   ctxPct: number
   limitPct: number | null
   burnPerMin: number
@@ -4060,9 +4064,83 @@ const heartbeat = (x: number, y: number, w: number, color: string): string => {
 <path class="ekg" d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="40 ${w * 2}"/>`
 }
 
+// The simple band (default and Crab Classic): three rows a newcomer reads at a glance.
+// 1. What is happening: the boss, the status, the action, the gauge and its percent.
+// 2. Who is on it: the crew's crabs and one plain count.
+// 3. What it costs: this task, today, and how full the context is.
+// The full readouts stay in the pane; Settings brings the full band back.
+const SIMPLE_H = 100
+const SIMPLE_OUT_H = SIMPLE_H + HUD_PAD * 2
+const hudSimpleSvg = (OW: number, d: HudData): string => {
+  const c = SKIN.colors
+  const OH = SIMPLE_OUT_H
+  const W = OW - HUD_PAD * 2
+  const edge = d.isParty ? c.done : d.isWorking ? c.accent : c.line
+  const tone = d.isParty ? c.done : d.isWorking ? c.accent : c.muted
+  const left = 52
+  const titleW = Math.min(180, textWidth(d.title, 13) + 4)
+  const pillW = Math.round(20 + textWidth(d.status, 10.5))
+  const pct = d.progress === null ? null : Math.round(d.progress * 100)
+  const barW = Math.max(40, W - left - 64)
+  const gaugeY = 28
+  const climb = d.progressAt
+  const gauge =
+    pct !== null && climb
+      ? liveSegmentBar(left, gaugeY, barW, d.at, t => Math.round(climb(t) * 100), c.accent)
+      : pct !== null
+      ? segmentBar(left, gaugeY, barW, pct, d.isParty ? c.done : c.accent).replace(/height="8"/g, 'height="7"')
+      : `<rect x="${left}" y="${gaugeY}" width="${barW}" height="7" rx="1" class="k"/>`
+  const pctText =
+    pct !== null && climb
+      ? liveText(left + barW + 10, gaugeY + 7, d.at, 12, `class="t" font-family="${FONT}" font-size="12" font-weight="800" font-variant-numeric="tabular-nums"`, t => `${Math.round(climb(t) * 100)}%`)
+      : `<text class="t" x="${left + barW + 10}" y="${gaugeY + 7}" font-family="${FONT}" font-size="12" font-weight="800" font-variant-numeric="tabular-nums">${pct === null ? (d.isWorking ? '···' : '') : `${pct}%`}</text>`
+  // Row 2: the crew and one count, quiet ones named.
+  const y2 = 46
+  const working = d.crew.filter(m => m.status === 'running' && !m.isQuiet).length
+  const quiet = d.crew.filter(m => m.isQuiet).length
+  const done = d.crew.filter(m => m.status !== 'running').length
+  const count = d.crew.length ? [working ? `${working} working` : '', quiet ? `${quiet} quiet` : '', done ? `${done} done` : ''].filter(Boolean).join(' · ') : 'Just Claude on this one'
+  const countW = textWidth(count, 12) + 8
+  const room = Math.max(0, Math.floor((W - 14 - countW - 16 - left) / 22))
+  const crabs = d.crew.slice(0, room).map((m, i) => {
+    const x = left + i * 22
+    return `${crab(x, y2, m.costume, m.status !== 'running', m.status === 'running' && !m.isQuiet, 0.68)}${m.isQuiet ? `<circle cx="${x + 10}" cy="${y2 + 10}" r="11" fill="none" stroke="${c.alert}" stroke-width="1.5"/>` : ''}`
+  }).join('')
+  const more = d.crew.length > room && room > 0 ? `<text class="m" x="${left + room * 22 + 2}" y="${y2 + 14}" font-family="${FONT}" font-size="11">+${d.crew.length - room}</text>` : ''
+  // Row 3: the money and the context, in words.
+  const y3 = 86
+  const ctxTone = gaugeColor(d.ctxPct)
+  const label = (y: number, text: string) => `<text class="m" x="14" y="${y}" font-family="${FONT}" font-size="10" font-weight="700" letter-spacing=".6">${text}</text>`
+  return svg(
+    OW,
+    OH,
+    `<style>.cur{animation:cur 1.1s steps(1) infinite}@keyframes cur{50%{opacity:0}}@media (prefers-reduced-motion: reduce){.cur{animation:none}}</style>
+${cardShape(0.5, 0.5, OW - 1, OH - 1, `class="tile"`, 10)}
+${cardShape(0.5, 0.5, OW - 1, OH - 1, `fill="none" stroke="${edge}" stroke-opacity=".6" stroke-width="1.2"`, 10)}
+<rect x="0.5" y="12" width="3" height="${OH - 24}" rx="1.5" fill="${edge}"/>
+<g transform="translate(${HUD_PAD} ${HUD_PAD})">
+${dancing(`${crab(10, 6, 'boss', false, d.isWorking, 1.05)}${crown(10, 6, 1.05)}`, d.isParty)}
+<text x="${left}" y="17" font-family="${FONT}" font-size="13" font-weight="800" fill="${c.accent}">${xml(fitText(d.title, 13, titleW))}</text>
+<rect x="${left + titleW + 8}" y="6" width="${pillW}" height="15" rx="7.5" fill="${tone}" fill-opacity="${d.isWorking || d.isParty ? 0.95 : 0.25}"/>
+<text x="${left + titleW + 8 + pillW / 2}" y="17" text-anchor="middle" font-family="${FONT}" font-size="10.5" font-weight="800" fill="${d.isWorking || d.isParty ? inkOn(tone) : c.text}">${xml(d.status)}</text>
+<text class="s" x="${left + titleW + pillW + 18}" y="17" font-family="${FONT}" font-size="11.5">${xml(fitText(d.activity ? `▸ ${d.activity}` : '', 11.5, Math.max(0, W - (left + titleW + pillW + 18) - 14)))}</text>
+${gauge}
+${pctText}
+<line x1="12" y1="${y2 - 6.5}" x2="${W - 12}" y2="${y2 - 6.5}" stroke="${c.line}"/>
+${label(y2 + 14, 'CREW')}
+${crabs}${more}
+<text class="s" x="${W - 14}" y="${y2 + 14}" text-anchor="end" font-family="${FONT}" font-size="12">${xml(count)}</text>
+${label(y3, 'COST')}
+<text class="t" x="${left}" y="${y3}" font-family="${FONT}" font-size="12.5" font-variant-numeric="tabular-nums">This task <tspan font-weight="800">≈${fmtCost(d.taskUsd ?? 0)}</tspan><tspan class="m">   ·   </tspan>Today <tspan font-weight="800">≈${fmtCost(d.todayUsd ?? 0)}</tspan></text>
+<text class="s" x="${W - 14}" y="${y3}" text-anchor="end" font-family="${FONT}" font-size="12">Context <tspan font-weight="800" fill="${ctxTone}">${d.ctxPct}%</tspan></text>
+</g>`,
+  )
+}
+
 const hudBandSvg = (OW: number, d: HudData): string => {
   const c = SKIN.colors
   const egg = eggOf()
+  if (d.simple && !egg) return hudSimpleSvg(OW, d)
   // The frame takes the whole box; the content sits inside it, padded.
   const OH = HUD_OUT_H
   const W = OW - HUD_PAD * 2
@@ -4650,6 +4728,8 @@ const bandView = (i: BandInput, bandAt: number, isWorkingProp: boolean) => {
     isWorking,
     isParty,
     partyAt: isParty ? bandBoss.doneAt : undefined,
+    taskUsd: report.taskCost,
+    todayUsd: todayOn(i.day, bandAt).costUsd,
     ctxPct: info.contextPct,
     limitPct: five ? five.percentUsed : null,
     burnPerMin: report.burnPerMin,
@@ -6526,15 +6606,16 @@ export const register: Register = (on, options) => {
     // The terminal's element table is completed with an `Svg` that draws nothing: test the surface too.
     if (isDesktop && 'Svg' in ui && band.hud) {
       const { Svg } = ui
-      const hud = band.hud
+      const hud = { ...band.hud, simple: !SKIN.cast && (await read($, settings)).simple }
+      const outH = hud.simple ? SIMPLE_OUT_H : HUD_OUT_H
       // About 8 CSS px per reported column; the rest is the count, the dismiss
       // and their gaps. No floor above the slot: a row wider than it would wrap.
       const width = Math.max(180, Math.min(1600, (e.props.bodyColumns || 100) * 8 - 96))
       // Drawn larger to read at a glance, but never taller than the slot the app
       // gives the band (about 18 px a row): past that it would scroll.
       const room = e.props.maxRows > 0 ? e.props.maxRows * 18 - 6 : Infinity
-      const bandScale = Math.max(0.8, Math.min(HUD_SCALE, room / HUD_OUT_H))
-      const bandH = Math.round(HUD_OUT_H * bandScale)
+      const bandScale = Math.max(0.8, Math.min(HUD_SCALE, room / outH))
+      const bandH = Math.round(outH * bandScale)
       return (
         <Box flexDirection="column">
           <Box flexDirection={isRtl() ? 'row-reverse' : 'row'} alignItems="center" gap={1}>
