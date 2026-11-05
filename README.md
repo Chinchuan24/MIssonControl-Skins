@@ -293,6 +293,7 @@ Expand-Archive -Force "$env:USERPROFILE\Downloads\cyberpunk-skins-addon.zip" -De
 | Command | What it does |
 |---|---|
 | `/missioncontrol` | Open Mission Control (Settings at the bottom) |
+| `/missioncontrol billing` | Pay with your own Claude API credits instead of the plan: 4 steps, key kept in the macOS Keychain ([security notes](docs/SECURITY-billing.md)) |
 | `/missioncontrol currency <code> [rate]` | Costs in `USD` (the default), `AUTO` (eddies on the cyberpunk skins), `EDDIES`, `EUR`, `GBP`, `JPY`, `MYR` or `SGD`; optional rate per US dollar |
 | `/skins` | The skin picker, every skin as a live preview |
 | `/skin` | `/skin` to list, `/skin <id>` to switch, `/skin off`, `/skin reload` |
@@ -311,6 +312,7 @@ Expand-Archive -Force "$env:USERPROFILE\Downloads\cyberpunk-skins-addon.zip" -De
 - `hooks/eggs.ts`: the easter eggs
 - `hooks/richtext.ts`: diffs, tables, math and mermaid in replies
 - `hooks/warm.ts`: Smart Keep-Warm's arithmetic (when a refresh pays)
+- `hooks/billing.ts` and `scripts/anthropic-key-helper.sh`: the API key in the macOS Keychain and the `apiKeyHelper` link ([docs/SECURITY-billing.md](docs/SECURITY-billing.md))
 - Tests: `claude plugin test /path/to/MIssonControl-Skins` (and `claude plugin validate …`)
 - `.claude-plugin/types/` is generated on each machine by the CLI and is git-ignored.
 
