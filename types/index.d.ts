@@ -280,7 +280,7 @@ declare module 'claude-code' {
       /** The id of the skin Mission Control and the band are drawn in. */
       skin: string
       /** Mission Control's settings, mirrored from `$.store` so the pane redraws. */
-      settings: { openOnStart: boolean; crewMode: boolean; currency: string; sounds: boolean; simple: boolean; calm: boolean; voice: boolean; staffing: boolean; oneShot: 'ask' | 'on' | 'off'; dailyUsd: number }
+      settings: { openOnStart: boolean; crewMode: boolean; crewAlways?: boolean; currency: string; sounds: boolean; simple: boolean; calm: boolean; voice: boolean; staffing: boolean; oneShot: 'ask' | 'on' | 'off'; dailyUsd: number }
       /** Billing: the Keychain key's status and the apiKeyHelper mode. See hooks/billing.ts. */
       billing: Billing
       /** Street Cred: XP, the counts badges are earned on, the badges. Mirrored from `$.store`. */

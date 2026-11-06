@@ -16,6 +16,8 @@ import { COLOR_RE, FONT_BAD_RE, ID_RE, TOOL_KEY_RE, skinCheck, skinNew } from '.
 import { WARM_PROMPT, WARM_TAG, isWarmDue, isWarmed, warmCall, warmLimitHit } from './warm'
 import { BLANK_SPEND, SPEND_KINDS, TODAY_PERIOD, exportSpend, isRescanDue, loadSpend, logSpendDay, monthLabel, monthOf, monthsWithData, parseSpendArgs, pickSpendKind, pickSpendMonth, readSpend, setSpendPeriod, shiftMonth, spendCard, typeSpendDay } from './spend'
 import type { SpendDirs, SpendIo, SpendKind, SpendRecord } from './spend'
+import { noteSample, planProgress as stepProgress, stopSignal, stopText } from './stopsignal'
+import type { ProgressSample, StopSignal } from './stopsignal'
 import type { AgentRun, AgentStatus, AllTime, Background, Billing, BillingMode, BgCron, BgTask, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Spend, Today, Watch } from '../types'
 import type { On } from 'claude-code'
 import type { Timekeeper } from '../types'
@@ -57,12 +59,28 @@ const saved = atom({ plugin: 'crab-progress', key: 'saved' } as const, { today: 
 // Same plugin and key as spendAtom in hooks/spend.ts, so both name one piece of state.
 const spend = atom({ plugin: 'crab-progress', key: 'spend' } as const, BLANK_SPEND)
 // Crew mode: a big job is split across sub-agents. On by default; `/autocrew` turns
-// it off or moves the context line. Kept in the store, so it holds across sessions.
-type AutoCrew = { on: boolean; ctxPct: number }
-const AUTO_CREW: AutoCrew = { on: true, ctxPct: 60 }
+// it off or moves the context line. `always` sends every job to the crew, small ones
+// too (`/autocrew always`). Kept in the store, so it holds across sessions.
+type AutoCrew = { on: boolean; ctxPct: number; always?: boolean }
+const AUTO_CREW: AutoCrew = { on: true, ctxPct: 60, always: false }
 const readAutoCrew = async ($: EngineInterface): Promise<AutoCrew> => {
   const v = (await $.store.get('autoCrew').catch(() => null)) as Partial<AutoCrew> | null
-  return { on: v?.on !== false, ctxPct: typeof v?.ctxPct === 'number' && v.ctxPct >= 10 && v.ctxPct <= 95 ? v.ctxPct : AUTO_CREW.ctxPct }
+  return { on: v?.on !== false, ctxPct: typeof v?.ctxPct === 'number' && v.ctxPct >= 10 && v.ctxPct <= 95 ? v.ctxPct : AUTO_CREW.ctxPct, always: v?.on !== false && v?.always === true }
+}
+// The reason crew mode gives when it is set for every job, not a big one.
+const EVERY_JOB = 'crew mode is set for every job'
+type CrewChoice = 'off' | 'big' | 'every'
+const crewChoiceOf = (a: AutoCrew): CrewChoice => (!a.on ? 'off' : a.always ? 'every' : 'big')
+const CREW_OPTIONS = [
+  { value: 'big', label: 'Big jobs only' },
+  { value: 'every', label: 'Every job, small ones too' },
+  { value: 'off', label: 'Off' },
+]
+async function setCrewChoice($: EngineInterface, choice: CrewChoice): Promise<void> {
+  const auto = await readAutoCrew($)
+  await $.store.set('autoCrew', { ...auto, on: choice !== 'off', always: choice === 'every' }).catch(() => undefined)
+  if (choice === 'off') await update($, session, prev => ({ ...prev, crewMode: '' }))
+  await update($, settings, prev => ({ ...prev, crewMode: choice !== 'off', crewAlways: choice === 'every' }))
 }
 
 // Why a request is a big job, or '' when it is not: a long brief, a list of asks,
@@ -79,7 +97,16 @@ const bigJobReason = (text: string, ctxPct: number, planSteps: number, ctxLine: 
   return ''
 }
 
-const crewText = (reason: string): string => `# Crew mode (Mission Control)
+const crewText = (reason: string): string =>
+  reason === EVERY_JOB
+    ? `# Crew mode (Mission Control)
+The person set crew mode for every job, small ones included. Hand the work to sub-agents with the Agent tool rather than doing it in this context.
+- One worker is enough for a small job; split a bigger one into independent pieces and start those together, in one message, so they run in parallel.
+- Brief each one fully: the files, the goal, what done looks like. Name it "<Role>: <piece>" (e.g. "Engineer: fix the typo", "Researcher: find the config") so Mission Control files it under its role.
+- Pick the worker by the job: mc-* agents when they are listed, else general-purpose for building and editing; Explore for read-only searching and summing up.
+- A reply with no work in it (an answer you already know, a question back, a plan to approve) stays here.
+- Then review what comes back, and verify it.`
+    : `# Crew mode (Mission Control)
 This task is a big job (${reason}). Split it instead of carrying it all in this context; it is faster, and it keeps this context, and its cost, small.
 - Break the work into independent pieces. Give each to its own sub-agent with the Agent tool, and start the independent ones together, in one message, so they run in parallel.
 - Brief each one fully: the files, the goal, what done looks like. Name it "<Role>: <piece>" (e.g. "Engineer: wire the parser", "Researcher: map the API") so Mission Control files it under its role.
@@ -131,6 +158,40 @@ async function suggestSaving($: EngineInterface, at: number): Promise<void> {
   if (!tip?.cmd || (tip.cmd === lastSuggest.cmd && at - lastSuggest.at < 600_000)) return
   const shown = await $.prompt.suggest({ text: tip.cmd })
   if (shown.isShown) lastSuggest = { cmd: tip.cmd, at }
+}
+
+// Stop Signal (hooks/stopsignal.ts): the session's cost and the plan's progress, sampled
+// by the ticker while work runs. Money going out with the plan stalled asks once, until
+// the plan moves again; the Token Manager shows it as a red tip meanwhile.
+let progressSamples: ProgressSample[] = []
+let stopNow: StopSignal | null = null
+let isStopWarned = false
+async function watchStop($: EngineInterface, at: number, list: AgentRun[], boss: Manager): Promise<void> {
+  const f = await read($, flow)
+  const hasPlan = Boolean((f && !f.isFinished && f.tasks.length) || boss.plan?.length)
+  const progress = hasPlan ? stepProgress(workSteps(f, list, boss, at)) : null
+  if (progress === null) {
+    progressSamples = []
+    stopNow = null
+    isStopWarned = false
+    return
+  }
+  const isWorking = boss.isWorking || list.some(a => a.status === 'running')
+  if (!isWorking) {
+    stopNow = null
+    return
+  }
+  progressSamples = noteSample(progressSamples, { at, costUsd: liveEnv(await read($, env), at).costUsd, progress })
+  stopNow = stopSignal(progressSamples, at)
+  if (!stopNow) {
+    isStopWarned = false
+    return
+  }
+  if (isStopWarned) return
+  isStopWarned = true
+  const text = stopText(stopNow, fmtCost)
+  $.ui.toast(`🛑 ${text}`, { timeoutMs: 60000 })
+  void $.ui.notify(`Mission Control: ${text}`).catch(() => undefined)
 }
 
 // The daily soft cap (/tokens daily 2): the Token Manager warns at 80% and 100% of
@@ -999,7 +1060,7 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
 
 const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.id)
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
-const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, dailyUsd: 0 })
+const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, crewAlways: false, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, dailyUsd: 0 })
 const cred = atom({ plugin: 'crab-progress', key: 'cred' } as const, BLANK_CRED)
 // Billing (hooks/billing.ts): which way Claude Code is paid for, and the Keychain key's
 // status. Never the key: the typed text lives in billing.ts's `draft`, in memory only.
@@ -1016,6 +1077,7 @@ const readSettings = async ($: EngineInterface) => {
   return {
     openOnStart: (await $.store.get('openOnStart').catch(() => undefined)) !== false,
     crewMode: (await readAutoCrew($)).on,
+    crewAlways: (await readAutoCrew($)).always === true,
     currency: CURRENCY.code,
     sounds: (await $.store.get('sounds').catch(() => undefined)) !== false,
     // The plain skins draw a 3-row band unless the person asked for the full one.
@@ -3675,6 +3737,7 @@ const rescueRow = ($: EngineInterface, a: AgentRun, { Box, Button }: ReturnType<
 
 const tokenReport = (info: Env, list: AgentRun[], boss: Manager, w: Watch, at: number): TokenReport => {
   const tips: Tip[] = []
+  if (stopNow) tips.push({ level: 2, text: stopText(stopNow, fmtCost) })
   const burnPerMin = w.burn.filter(b => b.at > at - 60_000).reduce((sum, b) => sum + b.n, 0)
   const taskTokens = Math.max(0, sumTokens(info) - (boss.tokensAtStart ?? 0))
   const taskCost = Math.max(0, info.costUsd - (boss.costAtStart ?? info.costUsd))
@@ -4879,9 +4942,10 @@ async function startJob($: EngineInterface, asked: string): Promise<void> {
   if (!carried && (await read($, flow))) await update($, flow, () => null)
   await bumpToday($, { tasks: 1 })
   const auto = await readAutoCrew($)
-  const reason = auto.on ? bigJobReason(asked, 0, 0, 101) : ''
+  const big = auto.on ? bigJobReason(asked, 0, 0, 101) : ''
+  const reason = big || (auto.always ? EVERY_JOB : '')
   await update($, session, p => ({ ...p, crewMode: reason }))
-  if (reason) $.ui.toast(`🦀 Big job (${reason}): summoning the crew`)
+  if (big) $.ui.toast(`🦀 Big job (${big}): summoning the crew`)
 }
 
 // What the band draws, from the state: one reading for its drawing and for the tick,
@@ -5127,7 +5191,7 @@ async function registerEntryPoints($: EngineInterface): Promise<void> {
   }).catch(() => undefined)
   await $.command.register({
     name: 'autocrew',
-    description: 'Crew mode for big jobs: /autocrew for its state, /autocrew on|off, /autocrew <context %> to call the crew',
+    description: 'Crew mode: /autocrew for its state, /autocrew on|off, /autocrew always (every job, small ones too), /autocrew <context %> to call the crew',
   }).catch(() => undefined)
   await $.command.register({
     name: 'tokens',
@@ -5169,6 +5233,7 @@ export const register: Register = (on, options) => {
         if (isLive || at - last >= 60_000) await update($, now, () => at)
         if (isEnvStale) await refreshEnv($)
         await keepTime($, at)
+        await watchStop($, at, list, boss).catch(() => undefined)
         // At rest only minute labels move: a look every few seconds is soon enough.
         if (isLive || ++restTicks % TICK_READ_EVERY === 0) await retick($, at, isLive, { boss, all: list, bg, sess: st }).catch(() => undefined)
         const due = CACHE_WARN_MIN.filter(m => left !== null && left > 0 && left <= m * 60)
@@ -6172,9 +6237,18 @@ export const register: Register = (on, options) => {
                   await update($, settings, prev => ({ ...prev, openOnStart: isOn }))
                 }}
               />
+              {Pick ? (
+                <Pick
+                  key="set-crew-pick"
+                  label="🦀\uFE0E Crew mode"
+                  value={!prefs.crewMode ? 'off' : prefs.crewAlways ? 'every' : 'big'}
+                  options={CREW_OPTIONS}
+                  onSelect={v => void setCrewChoice($, v === 'off' || v === 'every' ? v : 'big')}
+                />
+              ) : (
               <Button
                 key="set-crew"
-                label={`${prefs.crewMode ? '☑\uFE0E' : '☐'} Crew mode: split big jobs across sub-agents`}
+                label={`${prefs.crewMode ? '☑\uFE0E' : '☐'} Crew mode: split ${prefs.crewAlways ? 'every job' : 'big jobs'} across sub-agents`}
                 plain
                 onPress={async () => {
                   const auto = await readAutoCrew($)
@@ -6184,6 +6258,7 @@ export const register: Register = (on, options) => {
                   await update($, settings, prev => ({ ...prev, crewMode: isOn }))
                 }}
               />
+              )}
               {Pick ? (
                 <Pick
                   key="set-currency-pick"
@@ -6692,20 +6767,23 @@ export const register: Register = (on, options) => {
     // A context line outside 10–95%, or any other word, is answered, not quietly
     // clamped or read as a request for the state.
     const pct = /^\d+%?$/.test(arg) ? parseInt(arg, 10) : NaN
-    if (arg && arg !== 'on' && arg !== 'off' && !(pct >= 10 && pct <= 95)) {
-      return { text: 'Usage: /autocrew for its state, /autocrew on|off, or /autocrew <10–95> to call the crew past that context %' }
+    if (arg && arg !== 'on' && arg !== 'off' && arg !== 'always' && !(pct >= 10 && pct <= 95)) {
+      return { text: 'Usage: /autocrew for its state, /autocrew on|off, /autocrew always (every job, small ones too; on goes back to big jobs only), or /autocrew <10–95> to call the crew past that context %' }
     }
     const auto = await readAutoCrew($)
     const next: AutoCrew =
-      arg === 'on' ? { ...auto, on: true }
-      : arg === 'off' ? { ...auto, on: false }
-      : arg ? { on: true, ctxPct: pct }
+      arg === 'on' ? { ...auto, on: true, always: false }
+      : arg === 'always' ? { ...auto, on: true, always: true }
+      : arg === 'off' ? { ...auto, on: false, always: false }
+      : arg ? { ...auto, on: true, ctxPct: pct }
       : auto
     if (next !== auto) await $.store.set('autoCrew', next).catch(() => undefined)
-    await update($, settings, prev => ({ ...prev, crewMode: next.on }))
+    await update($, settings, prev => ({ ...prev, crewMode: next.on, crewAlways: next.always === true }))
     if (!next.on) await update($, session, prev => ({ ...prev, crewMode: '' }))
     return {
-      text: next.on
+      text: next.always
+        ? 'Crew mode on for every job: small ones go to a sub-agent too. /autocrew on goes back to big jobs only.'
+        : next.on
         ? `Crew mode on: a big job (a long brief, 4+ asks, 6+ files, a codebase sweep, a 6-step plan, or context past ${next.ctxPct}%) is split across sub-agents.`
         : 'Crew mode off: big jobs stay in this session.',
     }
