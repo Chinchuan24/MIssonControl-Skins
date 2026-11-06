@@ -6566,6 +6566,7 @@ export const register: Register = (on, options) => {
   // store, which does not subscribe.) It reads no watch, agents, manager, env, today,
   // allTime, flow, background, paneTick, now or session. Money values come from settings.
   on('ui.render', { component: 'Pane', requestId: SETTINGS_PANE }, async ($, e) => {
+    try {
     await useSkin($)
     const s = tr()
     const ui = $.ui.resolve(e)
@@ -6781,6 +6782,10 @@ export const register: Register = (on, options) => {
         {spendControls}
       </Box>
     )
+    } catch (err) {
+      const { Text } = $.ui.resolve(e)
+      return <Text wrap="wrap">{`Settings could not draw: ${String((err as Error)?.stack ?? err).slice(0, 800)}`}</Text>
+    }
   })
 
   on('command.run', { command: 'skin' }, async ($, e) => {
