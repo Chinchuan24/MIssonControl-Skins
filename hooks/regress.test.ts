@@ -19,7 +19,8 @@ const base = (on: On, opts: { now?: number; env?: Record<string, string>; store?
   for (const k of Object.keys(writes)) delete writes[k]
   on('process.run', async (_$, e) => {
     const argv = ((e as { argv?: string[] }).argv ?? []) as string[]
-    runs.push(argv)
+    // Machine Guard also spawns its probes; these tests count the language lookup only.
+    if (argv[0] === '/usr/bin/defaults') runs.push(argv)
     if (opts.defaults === 'throw') throw new Error('timed out')
     if (opts.defaults === 'fail') return { value: { exitCode: 1, stdout: '', stderr: 'does not exist', isStdoutTruncated: false, isStderrTruncated: false } } as never
     return { value: { exitCode: 0, stdout: '(\n    "he-IL",\n    "en-IL"\n)\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never

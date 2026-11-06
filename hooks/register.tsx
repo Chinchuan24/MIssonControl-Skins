@@ -18,6 +18,10 @@ import { BLANK_PICK, BLANK_SPEND, SPEND_KINDS, TODAY_PERIOD, exportSpend, isResc
 import type { SpendDirs, SpendIo, SpendKind, SpendRecord } from './spend'
 import { minMove, noteSample, planProgress as stepProgress, stopSignal, stopText } from './stopsignal'
 import type { ProgressSample, StopSignal } from './stopsignal'
+import { SAMPLE_EVERY_MS as GUARD_EVERY_MS, UNKNOWN_MACHINE, calibrate, claudeBytes, cleanMaxAgents, cleanRamLimit, effectiveMax, guardVerdict, hudLine, machineLine, machineOf, maxAgentsOptions, noteTrip, ramLimitBytes, ramLimitOptions, ruleText, tightKind, typedRamLimit, usedPct } from './machineguard'
+import type { GuardInput, Machine, Warned } from './machineguard'
+import { machineCmd as unixMachine, parseMachine as parseUnixMachine, parseProcs as parseUnixProcs, procsCmd as unixProcs } from './probeunix'
+import { machineCmd as winMachine, parseMachine as parseWinMachine, parseProcs as parseWinProcs, procsCmd as winProcs } from './probewin'
 import type { AgentRun, AgentStatus, AllTime, Background, Billing, BillingMode, BgCron, BgTask, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Spend, Today, Watch } from '../types'
 import type { On } from 'claude-code'
 import type { Timekeeper } from '../types'
@@ -208,6 +212,149 @@ async function watchStop($: EngineInterface, at: number, list: AgentRun[], boss:
   const text = stopText(stopNow, fmtCost)
   $.ui.toast(`🛑 ${text}`, { timeoutMs: 60000 })
   void $.ui.notify(`Mission Control: ${text}`).catch(() => undefined)
+}
+
+// Machine Guard: sizes the crew to the machine and keeps Claude inside a RAM limit. The OS
+// commands and parsers are probeunix.ts / probewin.ts; the decisions are machineguard.ts.
+// A probe is a short local process (never the network): one for RAM and cores, one for the
+// process table, and only while work runs, one at a time, every GUARD_EVERY_MS.
+type ProbeKind = 'unix' | 'win'
+const PROBES = {
+  unix: { machine: unixMachine, parseMachine: parseUnixMachine, procs: unixProcs, parseProcs: parseUnixProcs, procsEveryMs: 30_000 },
+  win: { machine: winMachine, parseMachine: parseWinMachine, procs: winProcs, parseProcs: parseWinProcs, procsEveryMs: 45_000 },
+}
+const GUARD_KEY = 'machineGuard'
+const MAX_AGENTS_PICK = 8
+let mgMachine: Machine = UNKNOWN_MACHINE
+let mgKind: ProbeKind | null = null
+let mgFreeBytes: number | null = null
+let mgClaude: number | null = null
+let mgSampleAt = 0
+let mgProcsAt = 0
+let mgBusy = false
+let mgWarned: Warned = []
+let mgRam = 'auto'
+let mgMaxSetting = 0
+let mgRunning = 0
+
+// The output of a command, or '' when it cannot start, fails or takes over 10 s (PowerShell's first run can take 3).
+async function probeOut($: EngineInterface, cmd: { cmd: string; args: string[] }): Promise<string> {
+  try {
+    return (await $.process.run([cmd.cmd, ...cmd.args], { timeoutMs: 10_000 })).stdout
+  } catch {
+    return ''
+  }
+}
+const guardInput = (running: number): GuardInput => ({
+  machine: mgMachine,
+  running,
+  maxAgents: effectiveMax(mgMaxSetting, calibrate(mgMachine)),
+  limitBytes: ramLimitBytes(mgRam, mgMachine.totalBytes),
+  claudeBytes: mgClaude,
+  freeBytes: mgFreeBytes,
+})
+// Redraws only when what is drawn changes.
+async function syncGuard($: EngineInterface, running: number): Promise<void> {
+  mgRunning = running
+  const g = guardInput(running)
+  const tight = tightKind(g)
+  for (const kind of ['ram', 'free'] as const) {
+    const r = noteTrip(mgWarned, kind, tight === kind)
+    mgWarned = r.warned
+    if (r.toast) $.ui.toast(guardVerdict({ ...g, running: 0 })?.reason ?? 'Machine Guard: RAM is tight')
+  }
+  if (running < g.maxAgents) mgWarned = noteTrip(mgWarned, 'agents', false).warned
+  const next = { line: machineLine(mgMachine), ramPct: usedPct(g) ?? -1, max: g.maxAgents, calibrated: calibrate(mgMachine), isTight: tight !== null }
+  const was = await read($, guard)
+  if (was.line !== next.line || was.ramPct !== next.ramPct || was.max !== next.max || was.calibrated !== next.calibrated || was.isTight !== next.isTight) await update($, guard, () => next)
+}
+// Session start and every reload: what the person set, what was found last time, then a fresh look.
+async function loadGuard($: EngineInterface): Promise<void> {
+  mgRam = cleanRamLimit(await $.store.get('ramLimit').catch(() => undefined))
+  mgMaxSetting = cleanMaxAgents(await $.store.get('maxAgents').catch(() => undefined))
+  const saved = (await $.store.get(GUARD_KEY).catch(() => undefined)) as { os?: Machine['os']; totalBytes?: number; cores?: number } | undefined
+  // Last time's machine sizes the crew until the new look is in, but guards nothing (no free-RAM number yet).
+  if (saved && typeof saved.totalBytes === 'number') mgMachine = machineOf({ os: saved.os ?? 'unknown', totalBytes: saved.totalBytes, freeBytes: null, cores: typeof saved.cores === 'number' ? saved.cores : null })
+  await syncGuard($, 0)
+  await detectMachine($)
+}
+async function detectMachine($: EngineInterface): Promise<void> {
+  if (mgBusy) return
+  mgBusy = true
+  try {
+    // Unix first (it fails to start on Windows, or reports no RAM), then PowerShell.
+    for (const kind of mgKind ? [mgKind] : (['unix', 'win'] as const)) {
+      const info = PROBES[kind].parseMachine(await probeOut($, PROBES[kind].machine))
+      if (!info.totalBytes) continue
+      mgKind = kind
+      mgMachine = machineOf(info)
+      mgFreeBytes = info.freeBytes
+      mgSampleAt = await $.clock.now()
+      const saved = { os: mgMachine.os, totalBytes: mgMachine.totalBytes, cores: mgMachine.cores, calibrated: calibrate(mgMachine) }
+      if (JSON.stringify(await $.store.get(GUARD_KEY).catch(() => undefined)) !== JSON.stringify(saved)) await $.store.set(GUARD_KEY, saved).catch(() => undefined)
+      break
+    }
+    await syncGuard($, mgRunning)
+  } catch {
+    // Unknown machine: safe defaults, nothing refused for RAM.
+  } finally {
+    mgBusy = false
+  }
+}
+// The ticker calls this while work runs; it does nothing unless 15 s have passed and no probe is still going.
+async function sampleGuard($: EngineInterface, at: number, running: number): Promise<void> {
+  if (mgBusy || !mgKind || at - mgSampleAt < GUARD_EVERY_MS) return
+  mgBusy = true
+  mgSampleAt = at
+  try {
+    const p = PROBES[mgKind]
+    const info = p.parseMachine(await probeOut($, p.machine))
+    if (info.freeBytes !== null) mgFreeBytes = info.freeBytes
+    if (at - mgProcsAt >= p.procsEveryMs) {
+      mgProcsAt = at
+      mgClaude = claudeBytes(p.parseProcs(await probeOut($, p.procs)))
+    }
+    await syncGuard($, running)
+  } catch {
+    // A failed look changes nothing.
+  } finally {
+    mgBusy = false
+  }
+}
+// The agent.spawn guard: a reason to refuse a NEW sub-agent, or null. Fails open.
+async function guardSpawn($: EngineInterface): Promise<string | null> {
+  const running = (await $.agent.list()).filter(a => a.status === 'running').length
+  await sampleGuard($, await $.clock.now(), running)
+  const g = guardInput(running)
+  const v = guardVerdict(g)
+  const r = noteTrip(mgWarned, 'agents', v?.kind === 'agents')
+  mgWarned = r.warned
+  if (r.toast && v) $.ui.toast(v.reason)
+  // A refusal for RAM tells the person once too (the sample may not have).
+  if (v && v.kind !== 'agents') await syncGuard($, running)
+  return v?.reason ?? null
+}
+const guardRule = (): string => ruleText(effectiveMax(mgMaxSetting, calibrate(mgMachine)), tightKind(guardInput(0)) !== null)
+async function setRamLimit($: EngineInterface, v: string): Promise<void> {
+  mgRam = cleanRamLimit(v)
+  await $.store.set('ramLimit', mgRam).catch(() => undefined)
+  await update($, settings, prev => ({ ...prev, ramLimit: mgRam }))
+  await syncGuard($, mgRunning)
+}
+async function setMaxAgents($: EngineInterface, n: number): Promise<void> {
+  mgMaxSetting = cleanMaxAgents(n)
+  await $.store.set('maxAgents', mgMaxSetting).catch(() => undefined)
+  await update($, settings, prev => ({ ...prev, maxAgents: mgMaxSetting }))
+  await syncGuard($, mgRunning)
+}
+async function typeRamLimit($: EngineInterface, typed: string): Promise<void> {
+  const v = typedRamLimit(typed)
+  if (!v) {
+    $.ui.toast('Type an amount in GB, like 12')
+    return
+  }
+  await setRamLimit($, v)
+  $.ui.toast(`RAM Claude may use: ${v.slice(3)} GB`)
 }
 
 // The daily soft cap (/tokens daily 2): the Token Manager warns at 80% and 100% of
@@ -1084,7 +1231,9 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
 
 const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.id)
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
-const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, crewAlways: false, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, dailyUsd: 0, autopilot: false, keepWarm: false, budgetUsd: 0, tkOn: true, tkJobMin: 60, tkAgentMin: 20 })
+const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, crewAlways: false, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, dailyUsd: 0, autopilot: false, keepWarm: false, budgetUsd: 0, tkOn: true, tkJobMin: 60, tkAgentMin: 20, ramLimit: 'auto', maxAgents: 0 })
+// Machine Guard (hooks/machineguard.ts): what the Settings pane and the band draw. Written only when it changes.
+const guard = atom({ plugin: 'crab-progress', key: 'guard' } as const, { line: 'unknown machine', ramPct: -1, max: 4, calibrated: 4, isTight: false })
 const cred = atom({ plugin: 'crab-progress', key: 'cred' } as const, BLANK_CRED)
 // Billing (hooks/billing.ts): which way Claude Code is paid for, and the Keychain key's
 // status. Never the key: the typed text lives in billing.ts's `draft`, in memory only.
@@ -1118,6 +1267,8 @@ const readSettings = async ($: EngineInterface) => {
     budgetUsd: Number(await $.store.get('budgetUsd').catch(() => 0)) || 0,
     // The timekeeper's settings, mirrored for the same reason (its alert marks change mid-turn).
     ...(await readTimekeeper($).then(t => ({ tkOn: t.on, tkJobMin: t.jobMin, tkAgentMin: t.agentMin }))),
+    ramLimit: cleanRamLimit(await $.store.get('ramLimit').catch(() => undefined)),
+    maxAgents: cleanMaxAgents(await $.store.get('maxAgents').catch(() => undefined)),
   }
 }
 
@@ -5278,6 +5429,7 @@ export const register: Register = (on, options) => {
     await loadProvider($).catch(() => undefined)
     await refreshBilling($).catch(() => undefined)
     dailyCapUsd = Number(await $.store.get(DAILY_KEY).catch(() => 0)) || 0
+    void loadGuard($).catch(() => undefined)
     lang = await detectLang($, options.language)
     // One ticker for every drawing. `now` moves each second only while something on
     // screen moves (work, a crew, the party, the cache's last ten minutes), else once a
@@ -5296,6 +5448,8 @@ export const register: Register = (on, options) => {
         if (isEnvStale) await refreshEnv($)
         await keepTime($, at)
         await watchStop($, at, list, boss).catch(() => undefined)
+        // Free RAM is looked at only while work runs.
+        if (boss.isWorking || st.isBusy || isRunning) void sampleGuard($, at, list.filter(a => a.status === 'running').length)
         // At rest only minute labels move: a look every few seconds is soon enough.
         if (isLive || ++restTicks % TICK_READ_EVERY === 0) await retick($, at, isLive, { boss, all: list, bg, sess: st }).catch(() => undefined)
         const due = CACHE_WARN_MIN.filter(m => left !== null && left > 0 && left <= m * 60)
@@ -5554,6 +5708,10 @@ export const register: Register = (on, options) => {
   })
 
   on('agent.spawn', async ($, e, next) => {
+    // Machine Guard: refuse a NEW sub-agent when the crew is full or RAM is short, before anything else
+    // counts it. A guard that throws lets the agent start.
+    const why = await guardSpawn($).catch(() => null)
+    if (why) return { deny: why }
     const isUnbriefed = isWorker(e.subagentType) && !e.prompt.includes(STEP_TOOL)
     const briefed = isUnbriefed ? { ...e, prompt: e.prompt + STEP_BRIEF } : e
     // Autopilot: read-only explorers go to Haiku, unless a model was chosen for them.
@@ -6493,6 +6651,7 @@ export const register: Register = (on, options) => {
     const sections = [...composed.sections]
     if (rules.length) sections.push({ id: 'crab-progress:memory', text: memoryText(rules), scope: 'session' as const })
     sections.push(...(await timekeeperSections($)))
+    sections.push({ id: 'crab-progress:machineguard', text: guardRule(), scope: 'session' as const })
     // Only the session that can spawn agents is told to: a worker never gets it.
     // Only the main loop is told: it can spawn agents and offers the most tools; a
     // worker, even one with the Agent tool, offers fewer.
@@ -6599,6 +6758,7 @@ export const register: Register = (on, options) => {
     const { Box, Text, Button } = ui
     const clockNow = await $.clock.now().catch(() => 0)
     const prefs = await read($, settings)
+    const gd = await read($, guard)
     const tkNow = { on: prefs.tkOn, jobMin: prefs.tkJobMin, agentMin: prefs.tkAgentMin }
     const sp = await read($, spendPick)
     const spendLedger = combineDays(cleanDays(await $.store.get('spendDays').catch(() => undefined)), cleanDays(await $.store.get('spendLog').catch(() => undefined)))
@@ -6811,6 +6971,28 @@ export const register: Register = (on, options) => {
           {Field ? (
             <Field key="set-budget-type" label="   …or type a budget" placeholder={`${CURRENCY.symbol || '$'} amount, 0 = off`} value="" submitLabel="set" onSubmit={(v: string) => void typeMoney($, 'budget', v)} />
           ) : null}
+          <Text key="set-guard-h" bold>
+            {'\n'}Machine Guard
+          </Text>
+          <Text key="set-guard-machine" dimColor>{`🖥\uFE0E ${gd.line}`}</Text>
+          {Pick ? (
+            <Pick key="set-ram-pick" label="🧠\uFE0E RAM Claude may use" value={cleanRamLimit(prefs.ramLimit)} options={ramLimitOptions(prefs.ramLimit)} onSelect={v => void setRamLimit($, v)} />
+          ) : (
+            <Button key="set-ram" label={`🧠\uFE0E RAM Claude may use: ${ramLimitOptions(prefs.ramLimit).find(o => o.value === cleanRamLimit(prefs.ramLimit))?.label ?? 'Auto'} ▸`} plain onPress={async () => {
+              const now = (await read($, settings)).ramLimit
+              const opts = ramLimitOptions(now)
+              const i = opts.findIndex(o => o.value === cleanRamLimit(now))
+              await setRamLimit($, (opts[(i + 1) % opts.length] ?? opts[0])?.value ?? 'auto')
+            }} />
+          )}
+          {Field ? (
+            <Field key="set-ram-type" label="   …or type a limit" placeholder="GB, like 12" value="" submitLabel="set" onSubmit={(v: string) => void typeRamLimit($, v)} />
+          ) : null}
+          {Pick ? (
+            <Pick key="set-agents-pick" label="👥\uFE0E Max agents at once" value={String(cleanMaxAgents(prefs.maxAgents))} options={maxAgentsOptions(gd.calibrated)} onSelect={v => void setMaxAgents($, Number(v) || 0)} />
+          ) : (
+            <Button key="set-agents" label={`👥\uFE0E Max agents at once: ${cleanMaxAgents(prefs.maxAgents) || `Auto (${gd.calibrated})`} ▸`} plain onPress={async () => setMaxAgents($, (cleanMaxAgents((await read($, settings)).maxAgents) + 1) % (MAX_AGENTS_PICK + 1))} />
+          )}
         </Box>
 
         {head('h-spend', 'Spend card period')}
@@ -7236,6 +7418,7 @@ export const register: Register = (on, options) => {
     const isDesktop = e.surface !== 'terminal' && 'Svg' in ui
     const band = bandView(await bandInput($, isDesktop), bandAt, e.props.isWorking)
     const { list, info, crew, isWorking, bgCount, waitingOn, idleText, tkBand } = band
+    const gd = await read($, guard)
     // Calm mode: the band steps aside for one line under the prompt.
     if ((await read($, settings)).calm) {
       const working = list.filter(a => a.status === 'running').length
@@ -7314,6 +7497,7 @@ export const register: Register = (on, options) => {
           <Text color={CLAY}>{isWorking ? '▣' : '□'}</Text>
           <Text color={gaugeColor(info.contextPct)}>◔ {info.contextPct}%</Text>
           {tkBand ? <Text color={budgetTone(tkBand.usedMs, tkBand.min) || undefined}>⏱ {budgetLabel(tkBand.usedMs, tkBand.min)}</Text> : null}
+          {isWorking && gd.ramPct >= 0 ? <Text color={gd.isTight ? SKIN.colors.alert : undefined} dimColor={!gd.isTight}>{hudLine(gd.ramPct, list.filter(a => a.status === 'running').length, gd.max)}</Text> : null}
           {bgLabel ? <Text color={ACCENT}>{bgLabel}</Text> : null}
           {crewButton}
           {dismiss}
