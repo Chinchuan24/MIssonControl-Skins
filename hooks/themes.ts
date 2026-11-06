@@ -15,9 +15,10 @@
 //      sysTag code in eggs.ts, its cast key in cast.ts, and its skin in register.tsx.
 
 import {
-  BATCH_TOAST, BB_CSS, BB_GREETING, BB_BOOT, BB_TITLE_WORDS, BB_TOOLS, EMPIRE_BADGES, EMPIRE_WORDS, HEIS_BOOT, HEIS_GREETING, PURITY_W,
-  BB_WARNING, crystalChip, crystalGlints, desertSkyline, elementTiles, empireCard, empireRankOf, empireToast, hatMark, hiddenHat, labLogCard, labNotesCard, bbEpisodeAt, purityTicker, yeahScience,
+  BATCH_TOAST, BB_CSS, BB_GREETING, BB_BOOT, BB_TITLE_WORDS, BB_TOOLS, EMPIRE_BADGES, EMPIRE_WORDS, HEIS_BOOT, HEIS_GREETING,
+  BB_WARNING, crystalGlints, empireRankOf, bbEpisodeAt, yeahScience,
 } from './breakingbad'
+import { BAND_H, bbChip, bbFoot, bbHead, bbPip, classroomCard, crewPx, empireToast, onAirAlt, onAirCard, periodicCard, purityGauge, sansW, walt } from './breakingbad-cards'
 import {
   CBI_BADGES, CBI_WORDS, CLOSED_FILES_TOAST, COLD_W, MENT_CSS, MENTALIST_BOOT, MENTALIST_GREETING, MENTALIST_TOOLS, MENTALIST_WORDS, REDJOHN_BOOT, REDJOHN_GREETING, TEA_WARNING,
   caseClosed, cbiRankOf, cbiToast, coldReadCard, coldReads, coldTicker, episodeAt, hiddenSmiley, smiley,
@@ -25,6 +26,7 @@ import {
 import { MENT_EXTRA_CSS, cardGlyphs, hypnosis, mentSkyline, redJohnHeat, smileGlitch, teaSteam } from './mentalist-extra'
 import { caseBoard, caseBoardAlt, ctxChip, personnelFile } from './mentalist-cards'
 import type { Badge, Beat, Cred, CredWords, Frame } from './extras'
+import type { Legend } from './eggs'
 
 export type ThemeKey = 'mentalist' | 'redjohn' | 'breakingbad' | 'heisenberg'
 /** The skin colours a theme's drawers read. */
@@ -48,8 +50,9 @@ export type ThemeEggs = {
   /** `card` is the theme's own cred card; without it the shared medal card is drawn with `title`, `ranks` and `words`. */
   cred: { title: string; ranks: (level: number) => string; words: CredWords; badges: Badge[]; toast: (level: number) => string; card?: (W: number, c: Cred, t: ThemeColors, font: string, frame: Frame) => string }
   /** The pane's card about the task (cold read, lab notes). */
-  card: { draw: (W: number, task: string, isWorking: boolean, done: number, total: number, t: ThemeColors, font: string, frame: Frame) => string; alt: (isWorking: boolean, done: number, total: number) => string }
-  legends: { title: string; empty: string; icon: string; alt: string; toast: string }
+  card: { draw: (W: number, task: string, isWorking: boolean, done: number, total: number, t: ThemeColors, font: string, frame: Frame, legends: Legend[]) => string; alt: (isWorking: boolean, done: number, total: number) => string }
+  /** `hidden`: the theme's `card` already draws the closed jobs (the Classroom's honor roll), so the shared legends card is skipped. */
+  legends: { title: string; empty: string; icon: string; alt: string; toast: string | ((task: string) => string); hidden?: boolean }
   /** The pane's log of tool calls. `hasControls`: it has the First/Back/Next/Live buttons (a replay timeline). */
   log: { draw: (W: number, beats: Beat[], pick: number, t: ThemeColors, font: string, frame: Frame) => string; hasControls: boolean; alt?: (beats: Beat[], pick: number) => string }
   boot: [string, string]
@@ -59,6 +62,25 @@ export type ThemeEggs = {
   // --- optional slots: leave out and nothing is drawn ---
   /** The slim band (two info rows, one quiet cold-read line, no skin chip, beam or brackets) in place of the full HUD band. */
   slimBand?: boolean
+  /** What a slim band draws in the theme's own hand (the Breaking Bad band): the name, figure, crew, pips, gauge and foot. A theme without it gets the Mentalist's. */
+  slim?: {
+    /** The band's height. */
+    h: number
+    /** The widths its sans really has (the shared guess is too narrow for it). */
+    sw: (s: string, size: number, ls?: number, bold?: boolean) => number
+    /** The header's start (a logo, then the name's tiles). */
+    head: (x: number, y: number, t: ThemeColors, font: string) => { svg: string; w: number }
+    /** The figure in the task row (a 34 by 40 box at x 20, y 36). */
+    figure: () => string
+    /** One crew member at the top-left, 7 by 10 pixels at 1.4x. */
+    crew: (x: number, y: number, color: string) => string
+    /** A step pip, centred at (cx, cy). */
+    pip: (state: string, cx: number, cy: number, t: ThemeColors) => string
+    /** A right-aligned gauge before the episode; dropped first when there is no room. */
+    gauge: (xr: number, y: number, isWorking: boolean, done: number, total: number, t: ThemeColors, font: string) => { svg: string; w: number }
+    /** The strip along the foot, with the hidden corner egg. */
+    foot: (W: number, H: number, t: ThemeColors, ctx: ThemeCtx) => string
+  }
   /** One line of the cold read for the slim band. */
   coldLine?: (task: string) => string
   /** The slim band's idle drawing (a cup of tea): the top-left of a 12 by 16 box. */
@@ -100,7 +122,7 @@ const caseTheme = (red: boolean): ThemeEggs => ({
   slimBand: true,
   coldLine: task => coldReads(task, 1)[0] ?? '',
   idle: teaSteam,
-  glitch: (x, y, text, attrs) => smileGlitch(x, y, text, attrs, MENT_COLORS),
+  glitch: (x, y, text, attrs, titleW) => smileGlitch(x, y, text, attrs, MENT_COLORS, titleW),
   afterimages: (_figure, box) => ({ defs: '', svg: hypnosis(box.x + box.w / 2, box.y + box.h / 2, MENT_COLORS, 0) }),
   pane: {
     backdrop: (W, H, at, t) => `<g opacity=".55">${cardGlyphs(W, H, at, t)}</g><g transform="translate(0 ${H - 26})" opacity=".7">${mentSkyline(W, 24, t, red)}</g>`,
@@ -127,24 +149,30 @@ const caseTheme = (red: boolean): ThemeEggs => ({
 const bbTheme = (heis: boolean): ThemeEggs => ({
   ticker: bbEpisodeAt,
   css: BB_CSS,
-  readout: { w: PURITY_W, draw: purityTicker },
-  chip: crystalChip,
+  readout: { w: 148, draw: (x, y, isWorking, done, total, t, font) => purityGauge(x + 148, y, isWorking, done, total, t, font).svg },
+  chip: bbChip,
+  slimBand: true,
+  slim: {
+    h: BAND_H,
+    sw: sansW,
+    head: (x, y, t, font) => bbHead(x, y, t, font, heis),
+    figure: () => walt(21, heis ? 37 : 42.6, 2.8, heis),
+    crew: (x, y, color) => crewPx(x, y, 1.4, color),
+    pip: bbPip,
+    gauge: purityGauge,
+    foot: (W, H, t, ctx) => bbFoot(W, H, t, heis, ctx),
+  },
   warning: BB_WARNING,
   cheer: yeahScience,
-  corner: heis ? undefined : (W, H, x) => (x.ctxPct >= 95 || x.overBudget ? hiddenHat(W, H) : ''),
-  mark: heis ? hatMark : undefined,
-  // The band keeps to its strongest eggs: the episode, Br and Ba, purity, the chip, the skyline, the hat.
-  // (heat, glyphs and glitch are free slots; crystalGlints trails the figure in the pane only.)
-  tiles: elementTiles,
-  skyline: desertSkyline,
+  // The band keeps to its strongest eggs: the episode, Br and Ba, purity, the chip, the desert, the hat.
   afterimages: crystalGlints,
-  cred: { title: 'EMPIRE CRED', ranks: empireRankOf, words: EMPIRE_WORDS, badges: EMPIRE_BADGES, toast: empireToast, card: empireCard },
+  cred: { title: 'PERIODIC TABLE', ranks: empireRankOf, words: EMPIRE_WORDS, badges: EMPIRE_BADGES, toast: empireToast, card: (W, c, t, font, frame) => periodicCard(W, c, t, font, frame, heis) },
   card: {
-    draw: (W, task, isWorking, done, total, t, font, frame) => labNotesCard(W, task, isWorking, done, total, t, font, frame, heis),
-    alt: (isWorking, done, total) => `Lab notes: ${isWorking ? 'in the lab' : 'waiting'}, ${done} of ${total} steps`,
+    draw: (W, task, isWorking, done, total, t, font, frame, legends) => classroomCard(W, task, isWorking, done, total, legends, t, font, frame, heis),
+    alt: (isWorking, done, total) => `Classroom: ${isWorking ? 'in the lab' : 'waiting'}, ${done} of ${total} steps`,
   },
-  legends: { title: 'THE EMPIRE', empty: 'No empire yet. Finish a batch.', icon: '⚗︎', alt: 'The Empire', toast: BATCH_TOAST },
-  log: { draw: (W, beats, _pick, t, font, frame) => labLogCard(W, beats, t, font, frame), hasControls: false },
+  legends: { title: 'HONOR ROLL', empty: 'Nobody yet. A batch that runs 3+ minutes goes up here.', icon: '', alt: 'Honor roll', toast: BATCH_TOAST, hidden: true },
+  log: { draw: (W, beats, pick, t, font, frame) => onAirCard(W, beats, pick, t, font, frame, heis), hasControls: true, alt: onAirAlt },
   boot: (heis ? HEIS_BOOT : BB_BOOT) as [string, string],
   greeting: heis ? HEIS_GREETING : BB_GREETING,
   words: BB_TITLE_WORDS,

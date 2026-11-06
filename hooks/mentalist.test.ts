@@ -199,13 +199,13 @@ test('mentalist tables: 39 verified titles, the smiley, the cold reads and the l
 })
 
 
-test('the other skins keep the full band: crab-classic, cyberpunk-2077 and breaking-bad still have their old rows', async ($, on) => {
+test('the other skins keep the full band: crab-classic and cyberpunk-2077 still have their old rows (breaking-bad has its own slim band)', async ($, on) => {
   base(on, 100_000, true)
-  for (const skin of ['crab-classic', 'cyberpunk-2077', 'breaking-bad']) {
+  for (const skin of ['crab-classic', 'cyberpunk-2077']) {
     await start($, skin)
     await $.prompt.submit({ text: 'Fix it', cursor: 0 } as never)
     const bandSvg = (await svgs($, 'AbovePrompt')).join('')
-    expect(bandSvg).not.toMatch(/viewBox="0 0 \d+ 132"/)
+    expect(bandSvg).not.toMatch(/viewBox="0 0 \d+ 13[24]"/)
     for (const label of skin === 'crab-classic' ? ['CREW', 'COST'] : ['CREW', 'STEPS', 'TOKENS', 'SESSION']) expect(bandSvg).toContain(`>${label}<`)
     if (skin !== 'crab-classic') expect(bandSvg).toContain('class="cur"')
   }

@@ -17,7 +17,7 @@ import { ONESHOT_KEY, ULTRA_KEY, pillChip, oneShotChipWord, cleanOneShot, cleanU
 import type { OneShot } from './crewcontrol'
 import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, unifiedDiff } from './richtext'
 import { LIVE_N, glide, isNewReading, isSame, liveText, liveWidth, pin, steady, steadyTree, wallMinute } from './smooth'
-import { COLOR_RE, FONT_BAD_RE, ID_RE, TOOL_KEY_RE, skinCheck, skinNew } from './skinkit'
+import { COLOR_RE, FONT_BAD_RE, ID_RE, TOOL_KEY_RE, contrast, skinCheck, skinNew } from './skinkit'
 import { WARM_PROMPT, WARM_TAG, isWarmDue, isWarmed, warmCall, warmLimitHit } from './warm'
 import { BLANK_PICK, BLANK_SPEND, SPEND_KINDS, TODAY_PERIOD, exportSpend, isRescanDue, loadSpend, logSpendDay, monthLabel, monthOf, cleanDays, combineDays, monthsWithData, parseSpendArgs, pickSpendKind, pickSpendMonth, readSpend, setSpendPeriod, shiftMonth, spendCard, typeSpendDay } from './spend'
 import type { SpendDirs, SpendIo, SpendKind, SpendRecord } from './spend'
@@ -2411,6 +2411,13 @@ const charEm = (ch: string): number =>
 const textWidth = (s: string, size: number): number => [...s].reduce((w, ch) => (ch === '\uFE0E' ? w : w + charEm(ch) * size), 0)
 
 // Cuts `s` to fit `maxW` pixels, with an ellipsis when it had to cut.
+/** `fitText` with a theme's own widths (its sans is wider than the shared guess). */
+const sansClipTo = (w: (s: string, size: number, ls?: number, bold?: boolean) => number, s: string, size: number, max: number): string => {
+  if (w(s, size) <= max) return s
+  const a = [...s]
+  while (a.length && w(`${a.join('')}…`, size) > max) a.pop()
+  return a.length ? `${a.join('').trimEnd()}…` : ''
+}
 const fitText = (s: string, size: number, maxW: number): string => {
   if (textWidth(s, size) <= maxW) return s
   let out = ''
@@ -5172,14 +5179,30 @@ ${label(y3, 'COST')}
 // (9.5 caps labels, 11.5 body, 13 values, 15 title) in two weights. Header, task row, then two
 // info rows; nothing decorative (no skin chip, beam or brackets), the hidden smiley in a corner of its own.
 const SLIM_H = 132
+const slimHeight = (): number => themeOf()?.slim?.h ?? SLIM_H
+/** `fg` lightened toward white until it has `min`:1 contrast on `bg` (unchanged when it already has). */
+const liftContrast = (fg: string, bg: string, min = 4.5): string => {
+  const m = /^#([0-9a-f]{6})$/i.exec(fg)
+  if (!m) return fg
+  const ch = (i: number) => parseInt((m[1] as string).slice(i, i + 2), 16)
+  let [r, g, b] = [ch(0), ch(2), ch(4)]
+  for (let i = 0; i < 12 && (contrast(`#${[r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('')}`, bg) ?? 21) < min; i++) [r, g, b] = [r + (255 - r) * 0.12, g + (255 - g) * 0.12, b + (255 - b) * 0.12]
+  return `#${[r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('')}`
+}
 const slimBandSvg = (OW: number, d: HudData): string => {
   const c = SKIN.colors
   const th = themeOf() as ThemeEggs
   const W = OW
-  const H = SLIM_H
-  const sw = serifW
+  const sl = th.slim
+  const H = slimHeight()
+  const sw = sl?.sw ?? serifW
+  // A theme with its own sans measures it itself, in bold where the design says so; the Mentalist's call is unchanged.
+  const bold = Boolean(sl)
+  const fitW = (text: string, size: number, max: number): string => (sl ? sansClipTo(sw, text, size, max) : fitText(text, size, max))
   const RJ = '#E0261F'
   const edge = d.isParty ? c.done : d.isWorking ? c.accent : c.line
+  // Text in a skin colour (the title, the role pills) is lifted toward white until it reads at 4.5:1 on the tile.
+  const lift = (fg: string): string => liftContrast(fg, c.tile)
   const x0 = 20
   const xr = W - 20
   const Lb = (x: number, y: number, text: string, anchor = 'start', fill = c.muted) =>
@@ -5190,18 +5213,23 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   const s: string[] = []
   s.push(`<style>.tea{animation:tea 1.6s ease-in-out infinite}@keyframes tea{50%{opacity:.6}}.rjs{animation:rjs2 3.6s ease-in-out infinite}@keyframes rjs2{50%{opacity:.12}}@media (prefers-reduced-motion: reduce){.tea,.rjs{animation:none}}${th.css}</style>`)
   s.push(`<rect x=".5" y=".5" width="${W - 1}" height="${H - 1}" rx="10" class="tile"/><rect x=".5" y=".5" width="${W - 1}" height="${H - 1}" rx="10" fill="none" stroke="${edge}" stroke-opacity=".5"${d.isWorking ? ' class="hedge"' : ''}/>`)
+  const overBudget = Boolean(d.budget && d.budget.usedMs > d.budget.min * 60_000)
+  if (sl) s.push(sl.foot(W, H, c, { ctxPct: d.ctxPct, overBudget }))
   s.push(`<rect x=".5" y="14" width="3" height="${H - 28}" rx="1.5" fill="${edge}"/>`)
   // ---- header (baseline 22)
   const y = 22
-  s.push(Lb(x0, y, 'MISSION CONTROL', 'start', c.accent2).replace('letter-spacing=".8"', 'letter-spacing="1.6"'))
-  let hx = x0 + sw('MISSION CONTROL', 9.5, 1.6, true) + 16
+  const lead = sl ? sl.head(x0, y, c, FONT) : { svg: '', w: 0 }
+  if (lead.svg) s.push(lead.svg)
+  const nx = lead.w ? x0 + lead.w + 10 : x0
+  s.push(Lb(nx, y, 'MISSION CONTROL', 'start', c.accent2).replace('letter-spacing=".8"', 'letter-spacing="1.6"'))
+  let hx = nx + sw('MISSION CONTROL', 9.5, 1.6, true) + 16
   const chip = th.chip(hx, y, d.ctxPct, c, FONT)
   s.push(chip.svg)
   if (chip.w) hx += chip.w + 16
   const smallChip = (x: number, label: string, tip: string, live: boolean) => {
-    const w = Math.round(sw(label, 9.5, 0.8, true) + 16)
-    s.push(`<rect${live ? ' class="live"' : ''} x="${x}" y="${y - 12}" width="${w}" height="16" rx="3" fill="none" stroke="${c.accent}" stroke-opacity=".8"/><text x="${x + w / 2}" y="${y}" text-anchor="middle" font-family="${FONT}" font-size="9.5" font-weight="700" letter-spacing=".8" fill="${c.accent}"><title>${xml(tip)}</title>${xml(label)}</text>`)
-    return w + 12
+    const w = Math.round(sw(label, 9.5, 0.8, true) + 14)
+    s.push(`<rect${live ? ' class="live"' : ''} x="${x}" y="${y - 10.5}" width="${w}" height="14" rx="3" fill="none" stroke="${c.subtext}" stroke-opacity=".4"/><text x="${x + w / 2}" y="${y}" text-anchor="middle" font-family="${FONT}" font-size="9.5" font-weight="700" letter-spacing=".8" fill="${c.subtext}"><title>${xml(tip)}</title>${xml(label)}</text>`)
+    return w + 10
   }
   if (d.crewMode) hx += smallChip(hx, 'CREW MODE', d.crewMode, true)
   if (d.bg) hx += smallChip(hx, `${d.bg} BACKGROUND`, `${d.bg} ${tr().bgBand}`, false)
@@ -5209,14 +5237,24 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   const modelW = sw(model, 11.5)
   const clockTxt = d.budget ? `${fmtTime(d.budget.usedMs)} / ${d.budget.min}m` : d.taskMs > 0 ? fmtTime(d.taskMs) : ''
   const clockW = clockTxt ? sw(clockTxt, 11.5) + 4 : 0
-  const epm = /^\S+\s+(S\d+E\d+)\s+(.*)$/.exec(th.ticker(d.at))
+  const epm = /^(?:\S+\s+)?(S\d+E\d+)\s+(.*)$/.exec(th.ticker(d.at))
   const ep: [string, string] = epm ? [epm[1] as string, epm[2] as string] : ['', '']
-  const epW = ep[0] ? sw(ep[0], 9.5, 0.8, true) + sw(ep[1], 11.5) + 12 : 0
-  const rightEdge = (withEp: boolean) => xr - clockW - (withEp && epW ? epW + (clockW ? 28 : 0) : 0)
+  // The episode shrinks to its code (S1E4) before it goes, and goes last of the header's extras.
+  const epWFull = ep[0] ? sw(ep[0], 9.5, 0.8, true) + sw(ep[1], 11.5) + 12 : 0
+  const epWCode = ep[0] ? sw(ep[0], 9.5, 0.8, true) + 2 : 0
+  let epMode: 0 | 1 | 2 = epWFull > 0 ? 0 : 2
+  const epWof = (): number => (epMode === 0 ? epWFull : epMode === 1 ? epWCode : 0)
+  const rightEdge = (withEp: boolean) => xr - clockW - (withEp && epWof() ? epWof() + (clockW ? 28 : 0) : 0)
   let showModel = Boolean(model)
-  let showEp = epW > 0
-  if (showModel && rightEdge(showEp) - (hx + modelW + 24) < 24) showModel = false
-  if (!showModel && showEp && rightEdge(true) - hx < 24) showEp = false
+  // A theme's own gauge goes first when the room runs out, then the model, then the episode.
+  const pg0 = sl?.gauge(0, y, d.isWorking, d.steps.filter(st => st === 'done').length, d.steps.length, c, FONT)
+  const gW = pg0 ? pg0.w + 26 : 0
+  let showGauge = Boolean(pg0)
+  if (showGauge && rightEdge(true) - gW - (hx + (showModel ? modelW + 24 : 0)) < 24) showGauge = false
+  if (showModel && rightEdge(true) - (showGauge ? gW : 0) - (hx + modelW + 24) < 24) showModel = false
+  if (epMode === 0 && rightEdge(true) - (showGauge ? gW : 0) - hx < 24) epMode = 1
+  if (epMode === 1 && rightEdge(true) - (showGauge ? gW : 0) - hx < 24) epMode = 2
+  const showEp = epMode < 2
   const baseEnd = showModel ? hx + modelW + 24 : hx
   if (showModel) s.push(Bd(hx, y, model, c.muted))
   const tone = d.budget ? budgetTone(d.budget.usedMs, d.budget.min, c.subtext) : c.subtext
@@ -5229,43 +5267,49 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   if (showEp) {
     const ex = xr - clockW - 14
     if (clockW) s.push(`<line x1="${r2(ex + 7)}" y1="${y - 10}" x2="${r2(ex + 7)}" y2="${y + 2}" stroke="${c.line}"/>`)
-    s.push(`<text x="${r2(clockW ? ex - 4 : xr)}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11.5" fill="${c.muted}"><tspan font-size="9.5" font-weight="700" letter-spacing=".8">${xml(ep[0])}</tspan>  <tspan font-style="italic" fill="${c.subtext}">${xml(ep[1])}</tspan></text>`)
-    epLeft = (clockW ? ex - 4 : xr) - epW
+    s.push(`<text x="${r2(clockW ? ex - 4 : xr)}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11.5" fill="${c.muted}"><tspan font-size="9.5" font-weight="700" letter-spacing=".8">${xml(ep[0])}</tspan>${epMode === 0 ? `  <tspan font-style="italic" fill="${c.subtext}">${xml(ep[1])}</tspan>` : ''}</text>`)
+    epLeft = (clockW ? ex - 4 : xr) - epWof()
   }
+  if (showGauge && sl) s.push(sl.gauge(epLeft - 26, y, d.isWorking, d.steps.filter(st => st === 'done').length, d.steps.length, c, FONT).svg)
   const cold = th.coldLine?.(d.title) ?? ''
   const crRight = epLeft - 28
   if (cold && crRight - baseEnd > 220) s.push(`<text x="${r2(crRight)}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11.5" font-style="italic" fill="${c.muted}">${xml(serifClip(`“${cold}”`, 11.5, crRight - baseEnd))}</text>`)
   s.push(`<line x1="14" y1="32.5" x2="${W - 14}" y2="32.5" stroke="${c.line}"/>`)
   // ---- task row
-  const fig = `${crab(14, 38, 'boss', false, d.isWorking, 1.05)}${crown(14, 38, 1.05)}`
+  const fig = sl ? sl.figure() : `${crab(14, 38, 'boss', false, d.isWorking, 1.05)}${crown(14, 38, 1.05)}`
   s.push(dancing(fig, d.isParty))
   const tx = 64
-  const rw = 92
-  const pillW = Math.round(sw(d.status, 11.5) + 18)
-  const titleW = Math.min(300, Math.ceil(sw(d.title, 15) * 1.04) + 4)
-  const hasReadouts = W >= tx + titleW + pillW + 80 + rw * 3 + 40
+  // Below 1100 px the three readouts shrink to short labels and values (no bars), so they stay on screen.
+  const compact = W < 1100
+  const rw = compact ? 62 : sl ? 100 : 92
+  const pillW = Math.round(sw(d.status, 11.5, 0, bold) + 18)
+  const natTitle = Math.ceil(sw(d.title, 15, 0, bold) * 1.04) + 4
+  const hasReadouts = compact ? W >= 520 : W >= tx + Math.min(300, natTitle) + pillW + 80 + rw * 3 + 40
   const r0 = hasReadouts ? W - 20 - rw * 3 : W - 14
-  s.push(th.glitch ? th.glitch(tx, 54, fitText(d.title, 15, titleW), `font-family="${FONT}" font-size="15" font-weight="700" fill="${c.accent}"`, titleW) : `<text x="${tx}" y="54" font-family="${FONT}" font-size="15" font-weight="700" fill="${c.accent}">${xml(fitText(d.title, 15, titleW))}</text>`)
+  // The title, the Tasks pill and the action sit together on the left; a narrow band lets the title have 55% of the room.
+  const leftRoom = (hasReadouts ? r0 - 18 : W - 14) - 20 - tx
+  const titleW = Math.min(300, natTitle, Math.max(90, Math.floor((leftRoom - pillW - 24) * (compact ? 0.55 : 1))))
+  s.push(th.glitch ? th.glitch(tx, 54, fitW(d.title, 15, titleW), `font-family="${FONT}" font-size="15" font-weight="700" fill="${lift(c.accent)}"`, titleW) : `<text x="${tx}" y="54" font-family="${FONT}" font-size="15" font-weight="700" fill="${lift(c.accent)}">${xml(fitW(d.title, 15, titleW))}</text>`)
   const px = tx + titleW + 12
   const statusOn = d.isWorking || d.isParty
   const pillFill = d.isParty ? c.done : d.isWorking ? c.accent : c.muted
   s.push(`<rect x="${px}" y="41" width="${pillW}" height="18" rx="9" fill="${pillFill}" fill-opacity="${statusOn ? 1 : 0.25}"/><text x="${px + pillW / 2}" y="54" text-anchor="middle" font-family="${FONT}" font-size="11.5" font-weight="700" fill="${statusOn ? inkOn(pillFill) : c.text}">${xml(d.status)}</text>`)
   const ax = px + pillW + 12
   const actRoom = Math.max(0, (hasReadouts ? r0 - 18 : W - 14) - ax - 12)
-  if (d.activity) s.push(Bd(ax, 54, `› ${fitText(d.activity, 11.5, Math.max(0, actRoom - 14))}`))
+  if (d.activity && actRoom >= 60) s.push(Bd(ax, 54, `› ${fitW(d.activity, 11.5, Math.max(0, actRoom - 14))}`))
   if (hasReadouts) {
     s.push(`<line x1="${r0 - 18}" y1="40" x2="${r0 - 18}" y2="76" stroke="${c.line}"/>`)
     const ctxTone = d.ctxPct >= 95 ? c.alert : d.ctxPct >= 85 ? c.warn : c.text
     const lim = d.limitPct === null ? null : Math.round(d.limitPct)
     const limTone = (lim ?? 0) >= 90 ? c.alert : (lim ?? 0) >= 70 ? c.warn : c.text
-    const cols: [string, string, string, number | null][] = [['CONTEXT', `${d.ctxPct}%`, ctxTone, d.ctxPct], ['5-HOUR LIMIT', lim === null ? '—' : `${lim}%`, limTone, lim], ['BURN / MIN', fmtTokens(d.burnPerMin), c.text, null]]
+    const cols: [string, string, string, number | null][] = [[compact ? 'CTX' : 'CONTEXT', `${d.ctxPct}%`, ctxTone, d.ctxPct], [compact ? '5H' : '5-HOUR LIMIT', lim === null ? '—' : `${lim}%`, limTone, lim], [compact ? 'BURN' : 'BURN / MIN', fmtTokens(d.burnPerMin), c.text, null]]
     cols.forEach(([k, v, tn, pct], i) => {
       const rx = r0 + i * rw
       s.push(Lb(rx, 50, k))
       s.push(Vl(rx, 70, v, tn))
-      if (pct !== null) {
-        const bx = rx + sw(v, 13) + 8
-        const fill = tn === c.text ? c.accent : tn === c.alert ? RJ : tn
+      if (pct !== null && !compact) {
+        const bx = rx + sw(v, 13, 0, bold) + 8
+        const fill = tn === c.text ? c.accent : tn === c.alert ? (sl ? c.alert : RJ) : tn
         s.push(`<rect x="${r2(bx)}" y="63" width="34" height="4" fill="${c.track}"/><rect x="${r2(bx)}" y="63" width="${r2((34 * Math.min(100, pct)) / 100)}" height="4" fill="${fill}"/>`)
       }
     })
@@ -5286,51 +5330,61 @@ const slimBandSvg = (OW: number, d: HudData): string => {
     if (idle) s.push(th.idle?.(tx + segs * 6 + 8 + 44, 56, c) ?? '')
   }
   s.push(`<line x1="14" y1="84.5" x2="${W - 14}" y2="84.5" stroke="${c.line}"/>`)
-  // ---- row A: steps left, crew right
+  // ---- row A: steps left, crew right. The step dots always stay; role pills give way first, and the "+N" shows only after four figures.
   const ya = 103
   const stepDone = d.steps.filter(st => st === 'done').length
-  // The crew first (right-aligned): role pills, then figures.
+  const nSteps = d.steps.length
+  const pipsN = Math.min(16, nSteps)
+  const cnt = `${stepDone}/${nSteps}`
+  const cntW = sw(cnt, 13, 0, bold)
+  const pitch = d.lite ? 20 : sl ? 13 : 24
+  const leftEnd = x0 + (nSteps ? pipsN * 13 + 10 + cntW + 10 : sw('No steps yet', 11.5)) + 90
+  const figMin = Math.min(d.crew.length, 4) * pitch + 8
   let cx = xr
   const pills: string[] = []
-  const leftMin = x0 + 150
-  const roleList = [...d.roles].reverse().slice(0, 4)
-  for (const r of roleList) {
+  for (const r of [...d.roles].reverse().slice(0, 4)) {
     const txt = `${r.role} ${r.count}`
     const w = Math.round(sw(txt, 11.5) + 18)
-    if (cx - w < leftMin + 150) break
+    if (cx - w < leftEnd + figMin + 8) break
     cx -= w
-    pills.push(`<rect x="${cx}" y="${ya - 12}" width="${w}" height="16" rx="8" fill="${r.color}" fill-opacity=".14" stroke="${r.color}" stroke-opacity=".55"/><text x="${cx + w / 2}" y="${ya}" text-anchor="middle" font-family="${FONT}" font-size="11.5" fill="${r.color}">${xml(txt)}</text>`)
+    pills.push(`<rect x="${cx}" y="${ya - 12}" width="${w}" height="16" rx="8" fill="${r.color}" fill-opacity=".14" stroke="${r.color}" stroke-opacity=".55"/><text x="${cx + w / 2}" y="${ya}" text-anchor="middle" font-family="${FONT}" font-size="11.5" fill="${lift(r.color)}">${xml(txt)}</text>`)
     cx -= 6
   }
   s.push(...pills.reverse())
-  const room = Math.max(0, Math.floor((cx - 8 - (leftMin + 150)) / 20))
-  if (d.crew.length && pills.length) {
+  let crewLeft = cx
+  if (d.crew.length) {
     cx -= 8
+    const avail = cx - leftEnd
+    let room = Math.max(0, Math.floor(avail / pitch))
+    if (room < d.crew.length && room >= 4) room = Math.max(4, Math.floor((avail - 26) / pitch))
     const shown = d.crew.slice(0, room)
     shown.forEach((m, i) => {
-      const fx = cx - (shown.length - i) * 20
-      if (d.lite) s.push(`<circle cx="${fx + 9}" cy="${ya - 4}" r="4.5" fill="${m.color}" fill-opacity="${m.status === 'running' ? 1 : 0.4}"/>`)
-      else s.push(crab(fx, ya - 17, m.costume, m.status !== 'running', m.status === 'running' && !m.isQuiet, 0.62) + (m.isQuiet ? `<circle cx="${fx + 9}" cy="${ya - 5}" r="9" fill="none" stroke="${c.alert}" stroke-width="1.3"/>` : ''))
+      const fx = cx - (shown.length - i) * pitch
+      if (sl && !d.lite) s.push(sl.crew(fx, ya - 14, m.color))
+      else if (d.lite) s.push(`<circle cx="${fx + 9}" cy="${ya - 4}" r="4.5" fill="${m.color}" fill-opacity="${m.status === 'running' ? 1 : 0.4}"/>`)
+      else s.push(crab(fx, ya - 23, m.costume, m.status !== 'running', m.status === 'running' && !m.isQuiet, 0.75) + (m.isQuiet ? `<circle cx="${fx + 11}" cy="${ya - 9.5}" r="10.5" fill="none" stroke="${c.alert}" stroke-width="1.3"/>` : ''))
     })
-    if (d.crew.length > room && room > 0) s.push(Bd(cx - shown.length * 20 - 24, ya, `+${d.crew.length - room}`, c.muted))
-  } else if (!d.crew.length) s.push(Bd(xr, ya, 'No crew on this job yet', c.muted, 'text-anchor="end"'))
+    crewLeft = cx - shown.length * pitch
+    if (d.crew.length > shown.length && shown.length >= 4) {
+      s.push(Bd(crewLeft - 26, ya, `+${d.crew.length - shown.length}`, c.muted))
+      crewLeft -= 26
+    }
+  } else s.push(Bd(xr, ya, 'No crew on this job yet', c.muted, 'text-anchor="end"'))
   // steps
-  if (!d.steps.length) s.push(Bd(x0, ya, 'No steps yet', c.muted))
+  if (!nSteps) s.push(Bd(x0, ya, 'No steps yet', c.muted))
   else {
-    const pips = Math.max(0, Math.min(16, d.steps.length, Math.floor((cx - leftMin - 150 - 60) / 13)))
-    d.steps.slice(0, pips).forEach((st, i) => {
+    d.steps.slice(0, pipsN).forEach((st, i) => {
       const px2 = x0 + 5 + i * 13
       const py = ya - 4
-      s.push(st === 'done' ? `<circle cx="${px2}" cy="${py}" r="4.2" fill="${c.done}"/>`
+      s.push(sl ? sl.pip(st, px2, py, c) : st === 'done' ? `<circle cx="${px2}" cy="${py}" r="4.2" fill="${c.done}"/>`
         : st === 'running' ? `<circle cx="${px2}" cy="${py}" r="3.9" fill="none" stroke="${c.accent}" stroke-width="1.3"/><circle class="live" cx="${px2}" cy="${py}" r="1.9" fill="${c.accent}"/>`
         : st === 'failed' ? `<path d="M${px2 - 3.2} ${py - 3.2}l6.4 6.4M${px2 + 3.2} ${py - 3.2}l-6.4 6.4" stroke="${c.alert}" stroke-width="1.8" stroke-linecap="round"/>`
         : st === 'stopped' ? `<rect x="${px2 - 3.2}" y="${py - 3.2}" width="6.4" height="6.4" rx="1.2" fill="${c.muted}"/>`
         : `<circle cx="${px2}" cy="${py}" r="4" fill="none" stroke="${c.muted}" stroke-width="1.3"/>`)
     })
-    const sx = x0 + pips * 13 + 10
-    const cnt = `${stepDone}/${d.steps.length}`
+    const sx = x0 + pipsN * 13 + 10
     s.push(Vl(sx, ya, cnt))
-    s.push(Bd(sx + sw(cnt, 13) + 10, ya, fitText(d.stepText, 11.5, Math.max(0, cx - 8 - (sx + sw(cnt, 13) + 10) - 150))))
+    s.push(Bd(sx + cntW + 10, ya, fitW(d.stepText, 11.5, Math.max(0, crewLeft - 12 - (sx + cntW + 10)))))
   }
   // ---- row B: tip left, totals right; the corner is the smiley's
   const yb = 123
@@ -5372,8 +5426,8 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   s.push(...rights)
   const tipLive = d.tip.level === 2
   s.push(`<circle${tipLive ? ' class="live"' : ''} cx="${x0 + 4}" cy="${yb - 4}" r="3.5" fill="${MOOD_COLOR[d.tip.level]}"/>`)
-  s.push(Bd(tipX, yb, fitText(d.tip.text, 11.5, Math.max(0, rx - tipX - 12)), tipLive ? c.text : c.subtext))
-  if (d.ctxPct >= 95 || (d.budget && d.budget.usedMs > d.budget.min * 60_000)) s.push(flatSmiley(W - 21, H - 19, 9, RJ, 0.3, 'rjs'))
+  s.push(Bd(tipX, yb, fitW(d.tip.text, 11.5, Math.max(0, rx - tipX - 12)), tipLive ? c.text : c.subtext))
+  if (!sl && (d.ctxPct >= 95 || overBudget)) s.push(flatSmiley(W - 21, H - 19, 9, RJ, 0.3, 'rjs'))
   const body = `${s.join('\n')}${d.isParty ? th.cheer(W, H, FONT, c, d.partyAt) : ''}`
   return svg(W, H, body)
 }
@@ -5821,7 +5875,7 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
   const egg = eggOf()
   const th = themeOf()
   // A long job makes a legend: the Afterlife names a drink after it.
-  if (th && legend.ms >= 180_000) $.ui.toast(th.legends.toast)
+  if (th && legend.ms >= 180_000) $.ui.toast(typeof th.legends.toast === 'function' ? th.legends.toast(legend.task) : th.legends.toast)
   else if (egg && legend.ms >= 180_000) $.ui.toast(egg === 'corpo' ? `▣ Engram filed in Mikoshi: ${clip(legend.task, 40)}` : `🍸 The Afterlife named a drink after you: The ${clip(legend.task, 40)}`)
   $.ui.toast(`🎉 Done: ${clip(job.task, 60)}`)
   void $.ui.notify(`Claude finished: ${clip(job.task, 80)}`).catch(() => undefined)
@@ -7072,12 +7126,12 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="breach" marginBottom={1}>
                 <Svg
-                  source={th ? th.card.draw(W, boss.task, boss.isWorking, steps.filter(st => st.state === 'done').length, steps.length, SKIN.colors, FONT, cardShape) : breachCard(W, steps.filter(st => st.state === 'done').length, steps.length, boss.isWorking, egg, FONT, cardShape)}
+                  source={th ? th.card.draw(W, boss.task, boss.isWorking, steps.filter(st => st.state === 'done').length, steps.length, SKIN.colors, FONT, cardShape, legends) : breachCard(W, steps.filter(st => st.state === 'done').length, steps.length, boss.isWorking, egg, FONT, cardShape)}
                   alt={th ? th.card.alt(boss.isWorking, steps.filter(st => st.state === 'done').length, steps.length) : `Breach Protocol: ${steps.filter(st => st.state === 'done').length} of ${steps.length} steps`}
                 />
               </Box>
             ) : null}
-            {egg ? (
+            {egg && !th?.legends.hidden ? (
               <Box key="legends" marginBottom={1}>
                 <Svg
                   source={legendsCard(W, legends, egg, FONT, fmtCost, cardShape)}
@@ -8387,7 +8441,7 @@ export const register: Register = (on, options) => {
     if (isDesktop && 'Svg' in ui && band.hud) {
       const { Svg } = ui
       const hud = { ...band.hud, simple: !SKIN.cast && (await read($, settings)).simple }
-      const outH = themeOf()?.slimBand ? SLIM_H : hud.simple ? SIMPLE_OUT_H : HUD_OUT_H
+      const outH = themeOf()?.slimBand ? slimHeight() : hud.simple ? SIMPLE_OUT_H : HUD_OUT_H
       // About 8 CSS px per reported column; the rest is the count, the dismiss
       // and their gaps. No floor above the slot: a row wider than it would wrap.
       // The desktop reports cells, not pixels, and its cells are not a fixed width: draw a
