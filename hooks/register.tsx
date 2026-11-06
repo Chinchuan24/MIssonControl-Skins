@@ -5429,7 +5429,8 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   // The title, the Tasks pill and the action sit together on the left; a narrow band lets the title have 55% of the room.
   const leftRoom = (hasReadouts ? r0 - 18 : W - 14) - 20 - tx
   const titleW = Math.min(300, natTitle, Math.max(90, Math.floor((leftRoom - pillW - 24) * (compact ? 0.55 : 1))))
-  s.push(th.glitch ? th.glitch(tx, 54, fitW(d.title, 15, titleW), `font-family="${FONT}" font-size="15" font-weight="700" fill="${lift(c.accent)}"`, titleW) : `<text x="${tx}" y="54" font-family="${FONT}" font-size="15" font-weight="700" fill="${lift(c.accent)}">${xml(fitW(d.title, 15, titleW))}</text>`)
+  // The plain title, always: a glitch on the band once hid it (a ☺ stayed, the title never came back).
+  s.push(`<text x="${tx}" y="54" font-family="${FONT}" font-size="15" font-weight="700" fill="${lift(c.accent)}">${xml(fitW(d.title, 15, titleW))}</text>`)
   const px = tx + titleW + 12
   const statusOn = d.isWorking || d.isParty
   const pillFill = d.isParty ? c.done : d.isWorking ? c.accent : c.muted
