@@ -1159,7 +1159,7 @@ const CRAB_SKIN: Skin = {
 const CYBER_SKIN: Skin = {
   id: 'cyberpunk-2077',
   cast: 'runners',
-  name: 'Cyberpunk 2077',
+  name: 'Cyberpunk Edgerunner',
   description: 'Night City HUD: neon yellow, hot red, electric cyan, cut corners, scanlines.',
   font: "Rajdhani,Orbitron,-apple-system,BlinkMacSystemFont,'SF Pro Display','Helvetica Neue',Bahnschrift,'Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
   corners: 'chamfer',
@@ -1587,6 +1587,13 @@ const setCurrency = async ($: EngineInterface, c: Currency) => {
   await update($, settings, prev => ({ ...prev, currency: c.code }))
 }
 const SKINS = new Map<string, Skin>(BUILT_IN_SKINS.map(k => [k.id, k]))
+// /skin takes an id or a name, any case, spaces or dashes; a skin's old name still finds it.
+const OLD_SKIN_NAMES: Record<string, string> = { 'cyberpunk 2077': 'cyberpunk-2077' }
+const plainWord = (t: string): string => t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+const skinByWord = (arg: string): Skin | undefined => {
+  const want = plainWord(arg)
+  return SKINS.get(arg) ?? SKINS.get(OLD_SKIN_NAMES[want] ?? '') ?? (want ? [...SKINS.values()].find(k => plainWord(k.id) === want || plainWord(k.name) === want) : undefined)
+}
 // The Cyberpunk Skins add-on: its skins (and their sounds) ship in addons/cyberpunk/.
 // Without that folder Mission Control is the core edition: default and Crab Classic.
 const ADDON = 'addons/cyberpunk'
@@ -1599,7 +1606,7 @@ const checkAddon = async ($: EngineInterface): Promise<boolean> => {
 }
 const isAddonSkin = (k: Skin): boolean => ADDON_CASTS.has(String(k.cast ?? ''))
 const canWear = (k: Skin): boolean => HAS_CYBER || !isAddonSkin(k)
-const ADDON_PITCH = `Cyberpunk Skins add-on: Cyberpunk 2077, Lucy · Edgerunners and Arasaka. Get it: ${ADDON_URL}`
+const ADDON_PITCH = `Cyberpunk Skins add-on: Cyberpunk Edgerunner, Lucy · Edgerunners and Arasaka. Get it: ${ADDON_URL}`
 let SKIN: Skin = CRAB_SKIN
 const SKINS_FOLDER = 'Custom Claude Skins'
 
@@ -7241,8 +7248,8 @@ export const register: Register = (on, options) => {
       const folder = await $.store.get('skinsFolder').catch(() => undefined)
       return { text: typeof folder === 'string' ? `Skins folder: ${folder}` : `No "${SKINS_FOLDER}" folder found yet.` }
     }
-    if (!arg || arg === 'list') return { text: `Skins (▸ is on):\n${listing()}\nSwitch with /skin <id>.${HAS_CYBER ? '' : `\n\n${ADDON_PITCH}`}` }
-    const k = SKINS.get(arg === 'off' || arg === 'none' ? DEFAULT_SKIN.id : arg)
+    if (!arg || arg === 'list') return { text: `Skins (▸ is on):\n${listing()}\nSwitch with /skin <id or name>.${HAS_CYBER ? '' : `\n\n${ADDON_PITCH}`}` }
+    const k = arg === 'off' || arg === 'none' ? SKINS.get(DEFAULT_SKIN.id) : skinByWord(arg)
     if (!k) return { text: `No skin "${arg}".\n${listing()}` }
     if (!canWear(k)) return { text: `${k.hidden ? `No skin "${arg}".` : `${k.name} comes with the Cyberpunk Skins add-on.`}\n${ADDON_PITCH}` }
     applySkin(k)

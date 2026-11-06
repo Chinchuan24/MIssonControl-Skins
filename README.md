@@ -37,7 +37,7 @@
     </td>
     <td align="center" width="50%" valign="top">
       <a href="https://github.com/Chinchuan24/MissionControl/releases/latest/download/mission-control-cyberpunk.zip">
-        <img src="docs/edition-cyberpunk.png" alt="Cyberpunk Skins: Cyberpunk 2077, Lucy Edgerunners, Arasaka and a hidden skin" width="100%">
+        <img src="docs/edition-cyberpunk.png" alt="Cyberpunk Skins: Cyberpunk Edgerunner, Lucy Edgerunners, Arasaka and a hidden skin" width="100%">
       </a>
     </td>
   </tr>
@@ -134,7 +134,7 @@ The add-on swaps the crabs for a pixel-art cast, moves the HUD to Night City and
 |---|:---:|:---:|
 | HUD band, pane, crew, Token Manager, crew mode, done chime, rich replies | ✓ | ✓ |
 | `default` and Crab Classic skins, custom JSON skins | ✓ | ✓ |
-| **Cyberpunk 2077**, **Lucy · Edgerunners**, **Arasaka** skins + a hidden one 🎸 | — | ✓ |
+| **Cyberpunk Edgerunner**, **Lucy · Edgerunners**, **Arasaka** skins + a hidden one 🎸 | — | ✓ |
 | Pixel-art cast: David, Lucy, Rebecca, Maine, Kiwi, Johnny… Saburo and Adam Smasher on Arasaka | — | ✓ |
 | **Street Cred**: XP per job, ranks NOBODY → LEGEND OF THE AFTERLIFE, 9 badges | — | ✓ |
 | **Braindance**: replay the session, every tool call a mark | — | ✓ |
@@ -152,7 +152,7 @@ Pick one with `/skins` (a live picker) or `/skin <id>`. Each skin restyles the b
 |---|---|---|
 | default | `default` | Keeps the app's own look. Just the data. |
 | 🦀 Crab Classic | `crab-classic` | The original. A working crab in costume for every role. |
-| 🟡 Cyberpunk 2077 | `cyberpunk-2077` | Neon yellow, cyan and hot red. David leads the crew. |
+| 🟡 Cyberpunk Edgerunner | `cyberpunk-2077` | Neon yellow, cyan and hot red. David leads the crew. |
 | 🌙 Lucy · Edgerunners | `lucy-edgerunners` | Rose-pink and cyan under the moon. Lucy runs the net. |
 | 🔴 Arasaka | `arasaka` | Corporate red and black. Saburo at the top, Smasher on call. |
 | 🎸 ??? | — | Not in the picker. Wake up… |
@@ -178,13 +178,13 @@ The app's own colours and fonts, with no costumes or effects. Just the data.
 </details>
 
 <details>
-<summary><b>🟡 Cyberpunk 2077</b> · add-on</summary>
+<summary><b>🟡 Cyberpunk Edgerunner</b> · add-on</summary>
 <br>
 
 Night City HUD: neon yellow, cyan and hot red, cut corners and scanlines. **David** leads. **Lucy, Rebecca, Maine, Dorio, Kiwi, Pilar, Falco and Johnny** take the roles; chooms and NPCs do the work.
 
-![Cyberpunk 2077 band](docs/band-cyberpunk-2077.png)
-![Cyberpunk 2077 crew](docs/crew-cyberpunk-2077.png)
+![Cyberpunk Edgerunner band](docs/band-cyberpunk-2077.png)
+![Cyberpunk Edgerunner crew](docs/crew-cyberpunk-2077.png)
 
 </details>
 
