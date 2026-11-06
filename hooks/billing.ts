@@ -97,13 +97,13 @@ export const draft = {
 // --- the Keychain, through `security` ----------------------------------------------
 
 /** The name the Keychain item is filed under: this Mac user, from `id -un`, not from the environment. */
-export const accountOf = async ($: Engine): Promise<string> => {
+export async function accountOf($: Engine): Promise<string> {
   const out = await $.process.run(['/usr/bin/id', '-un'], { timeoutMs: 5000 }).catch(() => null)
   const name = out && out.exitCode === 0 ? out.stdout.trim() : ''
   return /^[A-Za-z0-9._-]{1,64}$/.test(name) ? name : 'mission-control'
 }
 
-export const isMacOS = async ($: Engine): Promise<boolean> => {
+export async function isMacOS($: Engine): Promise<boolean> {
   const out = await $.process.run(['/usr/bin/uname', '-s'], { timeoutMs: 5000 }).catch(() => null)
   return Boolean(out && out.exitCode === 0 && out.stdout.trim() === 'Darwin')
 }
@@ -119,7 +119,7 @@ export const addCommand = (account: string, key: string): string => {
 }
 
 /** Whether the Keychain item exists. Attributes only: the secret is neither asked for nor returned. */
-export const keychainHas = async ($: Engine): Promise<boolean> => {
+export async function keychainHas($: Engine): Promise<boolean> {
   const out = await $.process
     .run([SECURITY_BIN, 'find-generic-password', '-a', await accountOf($), '-s', KEYCHAIN_SERVICE], { timeoutMs: 10_000 })
     .catch(() => null)
@@ -164,7 +164,9 @@ export async function removeKey($: Engine): Promise<SaveResult> {
   return { ok: true, message: out.exitCode === 44 ? 'There was no key to remove.' : 'Key removed from the Keychain.' }
 }
 
-export const readSaved = async ($: Engine): Promise<SavedKey | null> => cleanSaved(await $.store.get(STORE_KEY).catch(() => undefined))
+export async function readSaved($: Engine): Promise<SavedKey | null> {
+  return cleanSaved(await $.store.get(STORE_KEY).catch(() => undefined))
+}
 
 export const MAC_ONLY = 'Saving a key here is macOS-only for now: it uses the macOS Keychain. Nothing was saved.'
 
@@ -198,7 +200,7 @@ export const classifyHelper = (value: unknown, expected: string): BillingMode =>
 }
 
 /** Reads `apiKeyHelper` (read only) and says which mode it means. A failed read is the plan. */
-export const readMode = async ($: Engine): Promise<BillingMode> => {
+export async function readMode($: Engine): Promise<BillingMode> {
   const value = await $.settings.read({ key: 'apiKeyHelper' }).catch(() => undefined)
   return classifyHelper(value, helperPath($.plugin.root))
 }
