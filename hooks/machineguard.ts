@@ -15,7 +15,15 @@ export type Proc = { pid: number; ppid: number; rssBytes: number; name: string }
 
 /** Agents the crew may run at once when the machine is unknown: modest, never a trap. */
 export const UNKNOWN_MAX_AGENTS = 4
-export const MAX_AGENTS_CAP = 8
+/** A sanity ceiling on the crew: the only upper bound, far above any real machine. */
+export const MAX_AGENTS_SANITY = 200
+/** What one agent is assumed to cost until this machine has taught us otherwise. */
+export const DEFAULT_AGENT_GB = 0.5
+export const MIN_AGENT_GB = 0.2
+export const MAX_AGENT_GB = 4
+/** The weight of a new per-agent sample in the learned figure. */
+export const AGENT_EMA = 0.2
+const DEFAULT_AGENT_BYTES = DEFAULT_AGENT_GB * GIB
 /** A new agent is refused when less than this share of RAM is free. */
 export const MIN_FREE_PCT = 10
 /** Windows' "free physical" leaves out the standby cache, so it reads low: a lower bar there. */
@@ -51,15 +59,50 @@ export function machineLine(m: Machine): string {
   return parts.join(' · ')
 }
 
+/** GB as people say it: 15, 0.5, 7.5 (one decimal at most). */
+export const fmtGb = (gb: number): string => {
+  const r = Math.round(gb * 10) / 10
+  return Number.isInteger(r) ? String(r) : r.toFixed(1)
+}
+export const fmtGbBytes = (bytes: number): string => fmtGb(gbOf(bytes))
+
+// ---- RAM per agent: a default, then learned from this machine ---------------------
+
+const clampAgentBytes = (b: number): number => Math.min(MAX_AGENT_GB * GIB, Math.max(MIN_AGENT_GB * GIB, b))
+
+/** What one agent costs, in bytes: the learned figure if there is one, else the default. */
+export const perAgentBytes = (learned: number | null | undefined): number => (typeof learned === 'number' && Number.isFinite(learned) && learned > 0 ? clampAgentBytes(learned) : DEFAULT_AGENT_BYTES)
+
 /**
- * The default crew size: one agent per 8 GB of RAM, 1 to 8, and no more than half the
- * cores. 8 GB gives 1, 16 GB 2, 48 GB 6. An unknown machine gets UNKNOWN_MAX_AGENTS.
+ * One sample of the cost of an agent: what Claude's process tree holds beyond its
+ * baseline (measured with 0 agents), shared by the N agents running. Null when the
+ * process read failed, there is no baseline, no agent runs, or the tree is no bigger
+ * than the baseline.
  */
-export function calibrate(m: Machine): number {
-  if (!m.totalBytes) return UNKNOWN_MAX_AGENTS
-  const byRam = Math.floor(gbOf(m.totalBytes) / 8 + 1e-9)
-  const byCpu = m.cores ? Math.floor(m.cores / 2) : MAX_AGENTS_CAP
-  return Math.max(1, Math.min(MAX_AGENTS_CAP, byRam, byCpu))
+export function agentSample(claude: number | null, baseline: number | null, agents: number): number | null {
+  if (claude === null || baseline === null || !(agents >= 1)) return null
+  const extra = claude - baseline
+  return extra > 0 ? extra / agents : null
+}
+
+/** The learned figure after one more sample: an EMA seeded from the default, clamped to 0.2-4 GB. A null sample changes nothing. */
+export function learnAgentBytes(learned: number | null, sample: number | null): number | null {
+  if (sample === null || !Number.isFinite(sample)) return learned
+  const prev = perAgentBytes(learned)
+  return clampAgentBytes(prev * (1 - AGENT_EMA) + clampAgentBytes(sample) * AGENT_EMA)
+}
+
+/** The Settings line: "≈0.5 GB per agent (learned)" or "(default)". */
+export const perAgentLine = (bytes: number, isLearned: boolean): string => `≈${fmtGbBytes(bytes)} GB per agent (${isLearned ? 'learned' : 'default'})`
+
+/**
+ * Max agents at once from the RAM limit alone: floor(limit / RAM per agent), 1 to 200.
+ * Nothing else counts: not what is in use now, not the cores. No limit (an unknown
+ * machine under a % limit) gives UNKNOWN_MAX_AGENTS.
+ */
+export function calibrate(limitBytes: number | null, perAgent: number = DEFAULT_AGENT_BYTES): number {
+  if (limitBytes === null || !(limitBytes > 0) || !(perAgent > 0)) return UNKNOWN_MAX_AGENTS
+  return Math.max(1, Math.min(MAX_AGENTS_SANITY, Math.floor(limitBytes / perAgent + 1e-9)))
 }
 
 // ---- the settings: "RAM Claude may use" and "Max agents at once" -----------------
@@ -88,14 +131,19 @@ export function typedRamLimit(typed: string): RamLimit | null {
   return v === 'auto' ? null : v
 }
 
-/** What the limit comes to in bytes on this machine; null when the machine is unknown. */
+/**
+ * What the limit comes to in bytes. A percentage (and Auto) needs the machine's size, so
+ * it is null when the machine is unknown; a typed GB amount stands on its own.
+ */
 export function ramLimitBytes(limit: unknown, totalBytes: number): number | null {
-  if (!totalBytes) return null
   const v = cleanRamLimit(limit)
-  if (v === 'auto') return totalBytes * (AUTO_RAM_PCT / 100)
-  const [kind, n] = v.split(':') as [string, string]
-  const bytes = kind === 'pct' ? totalBytes * (Number(n) / 100) : Number(n) * GIB
-  return Math.min(bytes, totalBytes)
+  const [kind, n] = v.split(':') as [string, string | undefined]
+  if (kind === 'gb') {
+    const bytes = Number(n) * GIB
+    return totalBytes ? Math.min(bytes, totalBytes) : bytes
+  }
+  if (!totalBytes) return null
+  return totalBytes * ((kind === 'pct' ? Number(n) : AUTO_RAM_PCT) / 100)
 }
 
 /** The Pick's options; a typed GB value joins them so the Pick's value is always one of its options. */
@@ -109,17 +157,32 @@ export function ramLimitOptions(current: unknown): { value: string; label: strin
   return base
 }
 
-/** The max-agents setting: 0 is Auto, otherwise 1 to 8. */
+/** The max-agents setting: 0 is Auto, otherwise a whole number up to the sanity ceiling. */
 export function cleanMaxAgents(v: unknown): number {
   const n = Math.round(Number(v))
-  return Number.isFinite(n) && n >= 1 ? Math.min(MAX_AGENTS_CAP, n) : 0
+  return Number.isFinite(n) && n >= 1 ? Math.min(MAX_AGENTS_SANITY, n) : 0
 }
-export const maxAgentsOptions = (calibrated: number): { value: string; label: string }[] => [
-  { value: '0', label: `Auto (${calibrated})` },
-  ...Array.from({ length: MAX_AGENTS_CAP }, (_, i) => ({ value: String(i + 1), label: String(i + 1) })),
-]
+/** A typed crew size ("12"), or null when it is not a positive whole number. */
+export function typedMaxAgents(typed: string): number | null {
+  const m = /^\s*(\d+)\s*$/.exec(typed)
+  const n = m ? cleanMaxAgents(Number(m[1])) : 0
+  return n || null
+}
+export const MAX_AGENTS_STEPS = [1, 2, 4, 8, 12, 16, 24, 32, 48, 64] as const
+/** Auto's label: "Auto · 30 (15 GB ÷ 0.5 GB)", or why there is no sum. */
+export const autoMaxLabel = (calibrated: number, limitBytes: number | null, perAgent: number): string =>
+  limitBytes === null ? `Auto · ${calibrated} (machine unknown)` : `Auto · ${calibrated} (${fmtGbBytes(limitBytes)} GB ÷ ${fmtGbBytes(perAgent)} GB)`
+/** The Pick's options; a typed number joins them so the Pick's value is always one of its options. */
+export function maxAgentsOptions(autoLabel: string, current: unknown): { value: string; label: string }[] {
+  const now = cleanMaxAgents(current)
+  const steps: number[] = [...new Set<number>([...MAX_AGENTS_STEPS, ...(now ? [now] : [])])].sort((a, b) => a - b)
+  return [{ value: '0', label: autoLabel }, ...steps.map(n => ({ value: String(n), label: String(n) }))]
+}
 /** The crew size in force: the person's number, else the calibrated one. */
 export const effectiveMax = (setting: unknown, calibrated: number): number => cleanMaxAgents(setting) || calibrated
+/** The toast after a change: "RAM limit 15 GB → up to 30 agents at once". */
+export const limitToast = (limitBytes: number | null, max: number): string =>
+  `${limitBytes === null ? 'RAM limit unknown' : `RAM limit ${fmtGbBytes(limitBytes)} GB`} → up to ${max} agent${max === 1 ? '' : 's'} at once`
 
 // ---- Claude's own use of RAM -----------------------------------------------------
 
@@ -129,8 +192,9 @@ const baseName = (name: string): string => (name.split(/[\\/]/).pop() ?? '').rep
  * Bytes held by Claude's process trees: every process called `claude` whose parent is
  * not one, and all of its descendants (tsc, test runners, shells). Null when no Claude
  * process is in the list, so the caller falls back to the system-wide used RAM.
+ * `skipHeavy` leaves out the subtrees of heavy tools (tsc, jest, make...), by process name.
  */
-export function claudeBytes(procs: readonly Proc[]): number | null {
+export function claudeBytes(procs: readonly Proc[], skipHeavy = false): number | null {
   if (!procs.length) return null
   const isClaude = (p: Proc) => baseName(p.name) === 'claude'
   const byPid = new Map(procs.map(p => [p.pid, p]))
@@ -143,6 +207,8 @@ export function claudeBytes(procs: readonly Proc[]): number | null {
   const walk = (p: Proc) => {
     if (seen.has(p.pid)) return
     seen.add(p.pid)
+    // For learning what an agent costs: a type check or test run (and what it spawned) is not the agent's.
+    if (skipHeavy && HEAVY_TOOLS.has(baseName(p.name))) return
     sum += Math.max(0, p.rssBytes)
     for (const c of kids.get(p.pid) ?? []) walk(c)
   }
@@ -157,6 +223,8 @@ export type GuardInput = {
   machine: Machine
   running: number
   maxAgents: number
+  /** What one agent costs (learned or the default), for the reasons Claude reads. */
+  perAgentBytes?: number
   /** The RAM limit in bytes; null when unknown. */
   limitBytes: number | null
   /** Claude's own use, or null when it could not be measured. */
@@ -180,11 +248,15 @@ export function tightKind(g: GuardInput): 'ram' | 'free' | null {
   return null
 }
 
+/** "RAM limit 15 GB at ≈0.5 GB each" or "this machine", for the reasons. */
+const basisOf = (g: GuardInput): string =>
+  g.limitBytes === null ? 'on this machine' : `(RAM limit ${fmtGbBytes(g.limitBytes)} GB, ≈${fmtGbBytes(g.perAgentBytes ?? DEFAULT_AGENT_BYTES)} GB per agent)`
+
 /** Why a new agent is refused, or null to let it start. The reason is short; Claude reads it. */
 export function guardVerdict(g: GuardInput): { kind: Kind; reason: string } | null {
   const here = g.machine.totalBytes ? `on this ${Math.round(gbOf(g.machine.totalBytes))} GB ${osName(g.machine.os)}` : 'on this machine'
   if (g.running >= g.maxAgents) {
-    return { kind: 'agents', reason: `Machine Guard: ${g.running} of ${g.maxAgents} agents running ${here}. Wait for one to finish, or raise the limit in Settings.` }
+    return { kind: 'agents', reason: `Machine Guard: ${g.running} of ${g.maxAgents} agents running ${basisOf(g)}. Wait for one to finish, or raise the limit in Settings.` }
   }
   const tight = tightKind(g)
   if (tight === 'free') {
@@ -196,12 +268,19 @@ export function guardVerdict(g: GuardInput): { kind: Kind; reason: string } | nu
   return null
 }
 
-/** The Machine Guard rule in the system prompt: always the first two lines, a stronger one when RAM is tight. */
-export function ruleText(maxAgents: number, isTight: boolean): string {
-  const lines = [
-    'Machine Guard: run heavy commands (test suites, type checks, builds) one at a time, never in parallel across agents.',
-    `Run at most ${maxAgents} sub-agent${maxAgents === 1 ? '' : 's'} at once on this machine.`,
-  ]
+/**
+ * The Machine Guard rule in the system prompt: the limit and what it allows, in one line
+ * Claude cannot misread; a stronger line when RAM is tight.
+ */
+export function ruleText(limitBytes: number | null, perAgent: number, max: number, calibrated: number, isTight: boolean): string {
+  const crew = `${max} agent${max === 1 ? '' : 's'}`
+  const head =
+    limitBytes === null
+      ? `Machine Guard: this machine could not be measured, so run at most ${crew} at once.`
+      : max === calibrated
+        ? `Machine Guard: Claude may use ${fmtGbBytes(limitBytes)} GB of RAM \u2192 at most ${crew} at once (\u2248${fmtGbBytes(perAgent)} GB each).`
+        : `Machine Guard: Claude may use ${fmtGbBytes(limitBytes)} GB of RAM, and the person set the crew to at most ${crew} at once.`
+  const lines = [head, 'Run heavy commands (test suites, type checks, builds) one at a time; the guard makes a second one wait.']
   if (isTight) lines.push('RAM is tight: run no new agents and no heavy commands until it frees up.')
   return lines.join(' ')
 }
@@ -225,18 +304,128 @@ export function usedPct(g: GuardInput): number | null {
   const used = usedBytes(g)
   return used === null || !g.machine.totalBytes ? null : Math.round((used / g.machine.totalBytes) * 100)
 }
-/** The small line for the band: "RAM 62% · 3/6 agents". `pct` null (no sample yet) shows a "?". */
-export const hudLine = (pct: number | null, running: number, max: number): string => `${pct === null ? 'RAM ?' : `RAM ${pct}%`} · ${running}/${max} agents`
-export const hudText = (g: GuardInput): string => hudLine(usedPct(g), g.running, g.maxAgents)
-/** The machine in two words for the desktop pane: "48 GB Mac"; '' when unknown. */
+/** What Claude uses, in GB, or null when nothing has been measured. */
+export const useGb = (g: GuardInput): number | null => {
+  const m = measured(g)
+  return m === null ? null : gbOf(m)
+}
+/** The band's line: "RAM 9.1/15 GB · 3/30 agents". A null `usedGb` (no sample yet) shows "?"; a null limit is left out. */
+export const hudLine = (usedGb: number | null, limitGb: number | null, running: number, max: number): string =>
+  `RAM ${usedGb === null ? '?' : fmtGb(usedGb)}${limitGb === null ? ' GB' : `/${fmtGb(limitGb)} GB`} \u00b7 ${running}/${max} agents`
+export const hudText = (g: GuardInput): string => hudLine(useGb(g), g.limitBytes === null ? null : gbOf(g.limitBytes), g.running, g.maxAgents)
+/** The machine in two words: "48 GB Mac"; '' when unknown. */
 export const shortMachine = (m: Machine): string => (m.totalBytes ? `${Math.round(gbOf(m.totalBytes))} GB ${osName(m.os)}` : '')
 /**
- * The one Machine Guard line of the desktop pane: the band's "RAM 62% · 3/6 agents" while
- * work runs, else what the machine allows: "48 GB Mac · up to 6 agents".
+ * The one Machine Guard line of the desktop pane and the band: "RAM 9.1/15 GB · 3/30 agents"
+ * while work runs, else "15 GB limit · up to 30 agents". Negative numbers mean unknown.
  */
-export function paneLine(short: string, ramPct: number, running: number, max: number, isWorking: boolean): string {
-  if (isWorking) return `🛡\uFE0E ${hudLine(ramPct >= 0 ? ramPct : null, running, max)}`
-  return `🛡\uFE0E ${short ? `${short} · ` : ''}up to ${max} agent${max === 1 ? '' : 's'}`
+export function paneLine(limitGb: number, usedGb: number, running: number, max: number, isWorking: boolean): string {
+  if (isWorking) return `\u{1F6E1}\uFE0E ${hudLine(usedGb >= 0 ? usedGb : null, limitGb > 0 ? limitGb : null, running, max)}`
+  return `\u{1F6E1}\uFE0E ${limitGb > 0 ? `${fmtGb(limitGb)} GB limit \u00b7 ` : ''}up to ${max} agent${max === 1 ? '' : 's'}`
 }
 /** An agent the crew counts: started or about to, and not ended or idle between turns. */
 export const isLiveAgent = (status: string): boolean => status === 'running' || status === 'pending' || status === 'waiting'
+
+// ---- the heavy-command lock ------------------------------------------------------
+// Only one heavy command (a type check, a test run, a build) runs at a time across the main
+// loop and every sub-agent: 39 of them at once is what brought a machine down.
+
+/** How long a second heavy command waits for the first before it is refused. */
+export const LOCK_WAIT_MS = 5 * 60_000
+/** A lock whose release was lost frees itself after this long. */
+export const LOCK_STALE_MS = 15 * 60_000
+
+const HEAVY_TOOLS = new Set(['tsc', 'jest', 'vitest', 'mocha', 'pytest', 'py.test', 'make', 'gmake', 'gradle', 'gradlew', 'xcodebuild'])
+const LAUNCHERS = new Set(['npx', 'bunx', 'pnpx'])
+const WRAPPERS = new Set(['time', 'nice', 'sudo', 'env', 'command', 'exec', 'nohup', 'caffeinate', 'builtin'])
+const PKG_MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun'])
+const SCRIPT = /^(test|build)(:\S*)?$/
+
+const tail = (tok: string): string => (tok.split('/').pop() ?? '').toLowerCase()
+
+/** The name of the heavy command a segment starts, or null. Tokens are already split and unquoted. */
+function heavyTokens(toks: string[]): string | null {
+  let t = toks
+  while (t.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0] as string) || WRAPPERS.has(tail(t[0] as string)) || /^-/.test(t[0] as string))) t = t.slice(1)
+  const first = tail(t[0] ?? '')
+  if (!first) return null
+  if (HEAVY_TOOLS.has(first)) return first === 'gradlew' ? 'gradle' : first
+  if (LAUNCHERS.has(first) || (['pnpm', 'yarn'].includes(first) && ['dlx', 'exec'].includes(t[1] ?? '')) || (first === 'npm' && t[1] === 'exec') || (first === 'bun' && t[1] === 'x')) {
+    const hit = t.slice(1).map(tail).find(x => HEAVY_TOOLS.has(x))
+    if (hit) return hit
+  }
+  if (PKG_MANAGERS.has(first)) {
+    const rest = t.slice(1).filter(x => !x.startsWith('-'))
+    const script = rest[0] === 'run' ? rest[1] : rest[0]
+    if (script && SCRIPT.test(script)) return `${first} ${rest[0] === 'run' ? 'run ' : ''}${script}`
+  }
+  if (first === 'claude' && t[1] === 'plugin' && t[2] === 'test') return 'plugin test'
+  if (first === 'cargo' && (t[1] === 'build' || t[1] === 'test')) return `cargo ${t[1]}`
+  if (first === 'go' && (t[1] === 'build' || t[1] === 'test')) return `go ${t[1]}`
+  if (first === 'docker' && t[1] === 'build') return 'docker build'
+  if (/^python[0-9.]*$/.test(first) && t[1] === '-m' && (t[2] === 'pytest' || t[2] === 'unittest')) return `python -m ${t[2]}`
+  return null
+}
+
+/**
+ * Which heavy command a Bash command line runs, or null for anything else: type checks
+ * (tsc), test runners (jest, vitest, mocha, pytest, `plugin test`, `npm test`) and builds
+ * (`npm run build`, cargo, go, make, gradle, xcodebuild, docker build). Each part of a
+ * pipeline or `&&` chain counts; text inside quotes does not, except in `sh -c "..."`.
+ */
+export function heavyCommand(command: unknown, depth = 0): string | null {
+  if (typeof command !== 'string' || !command.trim() || depth > 2) return null
+  const inner: string[] = []
+  // Quoted text is set aside: `git commit -m "fix tsc"` runs no tsc.
+  const bare = command.replace(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g, (_m, d: string | undefined, sq: string | undefined, at: number) => {
+    const text = d ?? sq ?? ''
+    inner.push(text)
+    // A quoted program path ("/Applications/Claude.app/.../claude" plugin test) is the command itself.
+    return /(^|[;&|(\n])\s*$/.test(command.slice(0, at)) ? text.replace(/\s+/g, '_') : '""'
+  })
+  const segments = bare.split(/&&|\|\||[;|&\n()]/)
+  for (const seg of segments) {
+    const toks = seg.trim().split(/\s+/).filter(Boolean)
+    const hit = heavyTokens(toks)
+    if (hit) return hit
+    const sh = toks.findIndex(x => ['sh', 'bash', 'zsh'].includes(tail(x)))
+    if (sh >= 0 && toks.some(x => /^-[a-z]*c$/.test(x))) for (const q of inner) {
+      const nested = heavyCommand(q, depth + 1)
+      if (nested) return nested
+    }
+  }
+  return null
+}
+
+/** Who holds the one heavy-command lock, and since when (the clock's ms). */
+export type HeavyLock = { owner: string; label: string; since: number }
+
+/** The holder, or null when nobody holds it or the hold is older than LOCK_STALE_MS (a lost release). */
+export const lockHolder = (lock: HeavyLock | null, now: number): HeavyLock | null => (lock && now - lock.since < LOCK_STALE_MS ? lock : null)
+
+/** One try at the lock: the new state, and whether `owner` now holds it. */
+export function lockTry(lock: HeavyLock | null, owner: string, label: string, now: number): { lock: HeavyLock | null; got: boolean } {
+  const holder = lockHolder(lock, now)
+  if (holder && holder.owner !== owner) return { lock, got: false }
+  return { lock: { owner, label, since: holder ? holder.since : now }, got: true }
+}
+
+/** The lock after `owner` lets go: untouched when someone else holds it now. */
+export const lockRelease = (lock: HeavyLock | null, owner: string): HeavyLock | null => (lock && lock.owner === owner ? null : lock)
+
+/** Why a heavy command waits no longer. */
+export const lockDenyReason = (label: string): string => `Machine Guard: another heavy command (${label}) is running; retry when it finishes.`
+
+/** Why a NEW heavy command is refused while Claude is over its RAM limit, or null. */
+export function heavyRamVerdict(g: GuardInput, label: string): string | null {
+  if (tightKind(g) !== 'ram') return null
+  return `Machine Guard: Claude is using ${roundGb(measured(g) ?? 0)} GB, over its ${roundGb(g.limitBytes ?? 0)} GB RAM limit; not starting a heavy command (${label}). Wait for running work to finish, or raise the limit in Settings.`
+}
+
+/**
+ * Whether a process read may teach the cost of an agent: no heavy command holds the lock now,
+ * and none started or ended since the read began (`seqBefore` / `seqNow` count lock changes).
+ */
+export const canLearn = (isLockHeld: boolean, seqBefore: number, seqNow: number): boolean => !isLockHeld && seqBefore === seqNow
+/** A process read older than this is not trusted to refuse anything. */
+export const FRESH_MS = 5_000

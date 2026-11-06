@@ -1,6 +1,6 @@
 # 🛡️ Machine Guard
 
-**Short version:** Mission Control checks your computer, picks a safe number of agents, and refuses to start new ones when RAM gets tight. It never kills a running agent.
+**Short version:** you say how much RAM Claude may use. Max agents = that RAM ÷ the RAM one agent costs. Claude is told both numbers, new agents and new heavy commands are refused over the limit, and only one heavy command runs at a time. A running agent is never killed.
 
 ## Why it exists
 
@@ -28,27 +28,39 @@ Runs once at each session start, then only while work runs.
 If detection fails:
 
 - It shows **"unknown machine"**.
-- Max agents = **4**.
+- Under a % limit (or Auto), max agents = **4**.
+- A typed GB limit still works, so max agents follows it.
 - Nothing is ever refused for RAM.
 
 RAM refusals need total RAM, free RAM and cores all read. If any is missing, only the agent cap applies.
 
 Until this session's check is in, last session's machine sets the agent cap (no RAM refusals yet).
 
-## Calibrated crew size
+## Max agents: from the RAM limit alone
 
-Default max agents at once = about **1 per 8 GB RAM**, clamped to **1 to 8**, and also capped at **cores ÷ 2**.
+**Max agents = floor(RAM limit ÷ RAM per agent)**, at least 1, at most 200 (a sanity ceiling). Nothing else counts: not what is in use right now, not the CPU cores.
 
-| RAM | Default max agents |
+The RAM limit is what Settings says: Auto (50% of total), 25%, 50%, 75%, or a typed amount in GB.
+
+RAM per agent starts at **0.5 GB** and is learned on your machine:
+
+- With 0 agents running, the guard keeps Claude's process-tree size as a baseline.
+- With N agents running, one sample = (Claude's tree - baseline) ÷ N.
+- Samples are smoothed (EMA, weight 0.2), kept between 0.2 and 4 GB, and saved, so the figure carries across sessions.
+- Ignored: failed process reads, reads while a heavy command ran, and the subtrees of `tsc` / test runners themselves.
+
+At 0.5 GB per agent:
+
+| RAM limit | Max agents |
 |---|---|
-| 8 GB | 1 |
-| 16 GB | 2 |
-| 32 GB | 4 |
-| 48 GB | 6 |
-| 64 GB+ | 8 |
-| Unknown | 4 |
+| 4 GB | 8 |
+| 8 GB | 16 |
+| 15 GB | 30 |
+| 24 GB (48 GB Mac, Auto) | 48 |
+| 32 GB | 64 |
+| 100 GB+ | 200 |
 
-Few cores? The cores ÷ 2 cap can lower the number further (64 GB needs 16+ cores for 8).
+Unknown machine with a % limit: **4**. A typed GB limit works anywhere.
 
 ## Settings
 
@@ -57,20 +69,23 @@ In the ⚙ Settings tab:
 | Setting | Options |
 |---|---|
 | RAM Claude may use | Auto (50%), 25%, 50%, 75%, or a typed amount in GB |
-| Max agents at once | Auto (the calibrated number), or 1 to 8 |
+| Max agents at once | Auto (label shows the sum, e.g. "Auto · 30 (15 GB ÷ 0.5 GB)"), 1, 2, 4, 8, 12, 16, 24, 32, 48, 64, or a typed number |
+| Per-agent cost (read-only) | "≈0.5 GB per agent (learned)" or "(default)" |
 | Machine line (read-only) | e.g. "48 GB RAM · 12 cores · Mac" |
 
 Typed GB:
 
 - Rounded to 0.1 GB. More than the machine has = the whole machine.
 - `0`, blank or not a number: refused with a toast. The setting stays as it was.
+- A typed max-agents number joins the list, so the Pick always shows it.
+- Changing either setting shows a toast like "RAM limit 15 GB → up to 30 agents at once".
 
 Where you see it:
 
 | Place | While working | Idle |
 |---|---|---|
-| Desktop pane | 🛡 RAM 62% · 3/6 agents | 🛡 48 GB Mac · up to 6 agents |
-| Terminal band | RAM 62% · 3/6 agents | (hidden) |
+| Desktop pane | 🛡 RAM 9.1/15 GB · 3/30 agents | 🛡 15 GB limit · up to 30 agents |
+| Terminal band | RAM 9.1/15 GB · 3/30 agents | (hidden) |
 
 The line turns red when RAM is tight.
 
@@ -114,20 +129,33 @@ What counts as running:
 
 | Who | What they see |
 |---|---|
-| Claude | The refusal reason, e.g. "Machine Guard: 6 of 6 agents running on this 48 GB Mac. Wait for one to finish, or raise the limit in Settings." |
+| Claude | The refusal reason, e.g. "Machine Guard: 30 of 30 agents running (RAM limit 15 GB, ≈0.5 GB per agent). Wait for one to finish, or raise the limit in Settings." |
 | You | One toast per kind (agents, RAM limit, free RAM) when it first trips. It warns again only after that kind recovers and then trips again |
 | Running agents | Untouched. Never killed |
 
 ### The rule Claude gets
 
-Every prompt carries a short rule:
+Every prompt carries a short rule that states the numbers, e.g. "Machine Guard: Claude may use 15 GB of RAM → at most 30 agents at once (≈0.5 GB each). Run heavy commands (test suites, type checks, builds) one at a time; the guard makes a second one wait." When RAM is tight, a stronger line is added: start no new agents and no heavy commands.
 
-- Run heavy commands (test suites, type checks, builds) **one at a time**, never in parallel across agents.
-- Run at most **N** sub-agents at once (N = the max agents in force).
+Before it refuses anything for RAM, the guard takes a fresh process read if the last one is older than 5 s, so a process that already ended cannot keep blocking.
 
-When RAM is tight, a stronger rule is added:
+## The heavy-command lock
 
-- Start **no new agents** and **no heavy commands** until RAM frees up.
+Only **one** heavy Bash command runs at a time, across the main loop and every sub-agent. This is what stops 39 parallel `tsc` and test runs.
+
+Heavy means: `tsc` (also via `npx` / `bunx`), `plugin test`, jest, vitest, mocha, pytest, `npm|pnpm|yarn|bun (run) test|build`, `cargo build|test`, `go build|test`, make, gradle, xcodebuild, `docker build`. Anything else is never blocked.
+
+| Situation | What happens |
+|---|---|
+| Nobody holds the lock | The command runs and holds it until it ends (also on error or deny) |
+| Another heavy command runs | The second one **waits** (up to 5 minutes), then runs |
+| Still held after 5 minutes | Refused: "Machine Guard: another heavy command (tsc) is running; retry when it finishes." |
+| Claude is over its RAM limit | A new heavy command is refused with the numbers |
+| A release was lost | The lock frees itself after 15 minutes |
+
+How the wait works: a short `sleep` process (PowerShell `Start-Sleep` on Windows) is polled every 3 s. If it cannot run, the second command is refused at once.
+
+Limit: a command run in the background returns at once, so its lock is released at once. Only its start is serialised, not its whole run.
 
 ## Privacy
 
