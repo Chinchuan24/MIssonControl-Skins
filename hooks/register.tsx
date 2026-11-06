@@ -14,8 +14,10 @@ import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, uni
 import { LIVE_N, glide, isNewReading, isSame, liveText, liveWidth, pin, steady, steadyTree, wallMinute } from './smooth'
 import { COLOR_RE, FONT_BAD_RE, ID_RE, TOOL_KEY_RE, skinCheck, skinNew } from './skinkit'
 import { WARM_PROMPT, WARM_TAG, isWarmDue, isWarmed, warmCall, warmLimitHit } from './warm'
-import { BLANK_SPEND, SPEND_KINDS, TODAY_PERIOD, exportSpend, isRescanDue, loadSpend, logSpendDay, monthLabel, monthOf, monthsWithData, parseSpendArgs, pickSpendKind, pickSpendMonth, readSpend, setSpendPeriod, shiftMonth, spendCard, typeSpendDay } from './spend'
+import { BLANK_PICK, BLANK_SPEND, SPEND_KINDS, TODAY_PERIOD, exportSpend, isRescanDue, loadSpend, logSpendDay, monthLabel, monthOf, cleanDays, combineDays, monthsWithData, parseSpendArgs, pickSpendKind, pickSpendMonth, readSpend, setSpendPeriod, shiftMonth, spendCard, typeSpendDay } from './spend'
 import type { SpendDirs, SpendIo, SpendKind, SpendRecord } from './spend'
+import { minMove, noteSample, planProgress as stepProgress, stopSignal, stopText } from './stopsignal'
+import type { ProgressSample, StopSignal } from './stopsignal'
 import type { AgentRun, AgentStatus, AllTime, Background, Billing, BillingMode, BgCron, BgTask, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Spend, Today, Watch } from '../types'
 import type { On } from 'claude-code'
 import type { Timekeeper } from '../types'
@@ -56,13 +58,39 @@ const saved = atom({ plugin: 'crab-progress', key: 'saved' } as const, { today: 
 // The spend card: today, this week, one month, or a custom range (hooks/spend.ts).
 // Same plugin and key as spendAtom in hooks/spend.ts, so both name one piece of state.
 const spend = atom({ plugin: 'crab-progress', key: 'spend' } as const, BLANK_SPEND)
+// The pick alone, mirrored by hooks/spend.ts: what the settings pane reads, so a day's cost landing mid-turn does not redraw it.
+const spendPick = atom({ plugin: 'crab-progress', key: 'spendPick' } as const, BLANK_PICK)
 // Crew mode: a big job is split across sub-agents. On by default; `/autocrew` turns
-// it off or moves the context line. Kept in the store, so it holds across sessions.
-type AutoCrew = { on: boolean; ctxPct: number }
-const AUTO_CREW: AutoCrew = { on: true, ctxPct: 60 }
+// it off or moves the context line. `always` sends every job to the crew, small ones
+// too (`/autocrew always`). Kept in the store, so it holds across sessions.
+type AutoCrew = { on: boolean; ctxPct: number; always?: boolean }
+const AUTO_CREW: AutoCrew = { on: true, ctxPct: 60, always: false }
 const readAutoCrew = async ($: EngineInterface): Promise<AutoCrew> => {
   const v = (await $.store.get('autoCrew').catch(() => null)) as Partial<AutoCrew> | null
-  return { on: v?.on !== false, ctxPct: typeof v?.ctxPct === 'number' && v.ctxPct >= 10 && v.ctxPct <= 95 ? v.ctxPct : AUTO_CREW.ctxPct }
+  return { on: v?.on !== false, ctxPct: typeof v?.ctxPct === 'number' && v.ctxPct >= 10 && v.ctxPct <= 95 ? v.ctxPct : AUTO_CREW.ctxPct, always: v?.on !== false && v?.always === true }
+}
+// The reason crew mode gives when it is set for every job, not a big one.
+const EVERY_JOB = 'crew mode is set for every job'
+type CrewChoice = 'off' | 'big' | 'every'
+const crewChoiceOf = (a: AutoCrew): CrewChoice => (!a.on ? 'off' : a.always ? 'every' : 'big')
+const CREW_OPTIONS = [
+  { value: 'big', label: 'Big jobs only' },
+  { value: 'every', label: 'Every job, small ones too' },
+  { value: 'off', label: 'Off' },
+]
+const SHOT_OPTIONS = [
+  { value: 'ask', label: 'Ask me each time' },
+  { value: 'on', label: 'On: does the whole plan, then reports' },
+  { value: 'off', label: 'Off: one part at a time' },
+]
+// A cap's dropdown: the usual steps, plus the value in force if it is not one of them.
+const stepOptions = (steps: readonly number[], now: number, word: (v: number) => string) =>
+  [...new Set([...steps, now])].sort((a, b) => a - b).map(v => ({ value: String(v), label: v ? word(v) : 'Off' }))
+async function setCrewChoice($: EngineInterface, choice: CrewChoice): Promise<void> {
+  const auto = await readAutoCrew($)
+  await $.store.set('autoCrew', { ...auto, on: choice !== 'off', always: choice === 'every' }).catch(() => undefined)
+  if (choice === 'off') await update($, session, prev => ({ ...prev, crewMode: '' }))
+  await update($, settings, prev => ({ ...prev, crewMode: choice !== 'off', crewAlways: choice === 'every' }))
 }
 
 // Why a request is a big job, or '' when it is not: a long brief, a list of asks,
@@ -79,7 +107,16 @@ const bigJobReason = (text: string, ctxPct: number, planSteps: number, ctxLine: 
   return ''
 }
 
-const crewText = (reason: string): string => `# Crew mode (Mission Control)
+const crewText = (reason: string): string =>
+  reason === EVERY_JOB
+    ? `# Crew mode (Mission Control)
+The person set crew mode for every job, small ones included. Hand the work to sub-agents with the Agent tool rather than doing it in this context.
+- One worker is enough for a small job; split a bigger one into independent pieces and start those together, in one message, so they run in parallel.
+- Brief each one fully: the files, the goal, what done looks like. Name it "<Role>: <piece>" (e.g. "Engineer: fix the typo", "Researcher: find the config") so Mission Control files it under its role.
+- Pick the worker by the job: mc-* agents when they are listed, else general-purpose for building and editing; Explore for read-only searching and summing up.
+- A reply with no work in it (an answer you already know, a question back, a plan to approve) stays here.
+- Then review what comes back, and verify it.`
+    : `# Crew mode (Mission Control)
 This task is a big job (${reason}). Split it instead of carrying it all in this context; it is faster, and it keeps this context, and its cost, small.
 - Break the work into independent pieces. Give each to its own sub-agent with the Agent tool, and start the independent ones together, in one message, so they run in parallel.
 - Brief each one fully: the files, the goal, what done looks like. Name it "<Role>: <piece>" (e.g. "Engineer: wire the parser", "Researcher: map the API") so Mission Control files it under its role.
@@ -131,6 +168,46 @@ async function suggestSaving($: EngineInterface, at: number): Promise<void> {
   if (!tip?.cmd || (tip.cmd === lastSuggest.cmd && at - lastSuggest.at < 600_000)) return
   const shown = await $.prompt.suggest({ text: tip.cmd })
   if (shown.isShown) lastSuggest = { cmd: tip.cmd, at }
+}
+
+// Stop Signal (hooks/stopsignal.ts): the session's cost and the plan's progress, sampled
+// by the ticker while work runs. Money going out with the plan stalled asks once, and
+// again only after the plan has moved since; the Token Manager shows it as a red tip.
+let progressSamples: ProgressSample[] = []
+let stopNow: StopSignal | null = null
+// The plan's progress when the person was last warned, or null when not warned.
+let stopWarnedAt: number | null = null
+async function watchStop($: EngineInterface, at: number, list: AgentRun[], boss: Manager): Promise<void> {
+  const f = await read($, flow)
+  const isFlow = Boolean(f && !f.isFinished && f.tasks.length)
+  const hasPlan = isFlow || Boolean(boss.plan?.length)
+  // No `at`: an agent that reports no steps counts nothing until it is done, rather than a
+  // time-based estimate that climbs whether or not it gets anywhere.
+  const steps = hasPlan ? workSteps(f, list, boss) : []
+  const progress = hasPlan ? stepProgress(steps) : null
+  if (progress === null) {
+    progressSamples = []
+    stopNow = null
+    stopWarnedAt = null
+    return
+  }
+  const isWorking = boss.isWorking || list.some(a => a.status === 'running')
+  if (!isWorking) {
+    stopNow = null
+    return
+  }
+  const plan = isFlow && f ? `flow:${f.title}:${f.tasks.map(t => t.title).join('|')}` : `plan:${(boss.plan ?? []).map(st => st.content).join('|')}`
+  const before = progressSamples[0]?.plan
+  progressSamples = noteSample(progressSamples, { at, costUsd: liveEnv(await read($, env), at).costUsd, progress, plan, steps: steps.length })
+  if (progressSamples[0]?.plan !== before) stopWarnedAt = null
+  // Warned already: wait for the plan to move before warning again.
+  if (stopWarnedAt !== null && progress >= stopWarnedAt + minMove(steps.length)) stopWarnedAt = null
+  stopNow = stopSignal(progressSamples, at)
+  if (!stopNow || stopWarnedAt !== null) return
+  stopWarnedAt = progress
+  const text = stopText(stopNow, fmtCost)
+  $.ui.toast(`🛑 ${text}`, { timeoutMs: 60000 })
+  void $.ui.notify(`Mission Control: ${text}`).catch(() => undefined)
 }
 
 // The daily soft cap (/tokens daily 2): the Token Manager warns at 80% and 100% of
@@ -316,6 +393,7 @@ async function setTimekeeper($: EngineInterface, change: Partial<Pick<Timekeeper
   const saved = { ...(await readTimekeeper($)), ...change }
   await $.store.set(TK_KEY, saved).catch(() => undefined)
   const tk = await update($, timekeeper, prev => ({ ...prev, ...saved }))
+  await mirrorTimekeeper($, saved)
   if (saved.on) await keepTime($, await $.clock.now().catch(() => 0))
   else await clearBudgets($)
   return tk
@@ -467,7 +545,14 @@ async function startTimekeeper($: EngineInterface): Promise<void> {
   await $.command.register(TIMEKEEPER_COMMAND).catch(() => undefined)
   const saved = await readTimekeeper($)
   await update($, timekeeper, prev => ({ ...prev, ...saved }))
+  await mirrorTimekeeper($, saved)
   if (!saved.on) await clearBudgets($)
+}
+
+// The settings pane reads these from `settings`, not `timekeeper`: the alert marks in
+// `timekeeper` are written mid-turn (claimAlert) and would redraw the pane under an open dropdown.
+async function mirrorTimekeeper($: EngineInterface, saved: Pick<Timekeeper, 'on' | 'jobMin' | 'agentMin'>): Promise<void> {
+  await update($, settings, prev => (prev.tkOn === saved.on && prev.tkJobMin === saved.jobMin && prev.tkAgentMin === saved.agentMin ? prev : { ...prev, tkOn: saved.on, tkJobMin: saved.jobMin, tkAgentMin: saved.agentMin }))
 }
 
 // The standing rule rides at the end of the system prompt, as the memory rules do, while it is on.
@@ -999,7 +1084,7 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
 
 const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.id)
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
-const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, dailyUsd: 0 })
+const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, crewAlways: false, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, dailyUsd: 0, autopilot: false, keepWarm: false, budgetUsd: 0, tkOn: true, tkJobMin: 60, tkAgentMin: 20 })
 const cred = atom({ plugin: 'crab-progress', key: 'cred' } as const, BLANK_CRED)
 // Billing (hooks/billing.ts): which way Claude Code is paid for, and the Keychain key's
 // status. Never the key: the typed text lives in billing.ts's `draft`, in memory only.
@@ -1016,6 +1101,7 @@ const readSettings = async ($: EngineInterface) => {
   return {
     openOnStart: (await $.store.get('openOnStart').catch(() => undefined)) !== false,
     crewMode: (await readAutoCrew($)).on,
+    crewAlways: (await readAutoCrew($)).always === true,
     currency: CURRENCY.code,
     sounds: (await $.store.get('sounds').catch(() => undefined)) !== false,
     // The plain skins draw a 3-row band unless the person asked for the full one.
@@ -1025,6 +1111,13 @@ const readSettings = async ($: EngineInterface) => {
     staffing: (await $.store.get(STAFF_KEY).catch(() => undefined)) === true,
     oneShot: cleanOneShot(await $.store.get(ONESHOT_KEY).catch(() => undefined)),
     dailyUsd: Number(await $.store.get(DAILY_KEY).catch(() => 0)) || 0,
+    // The Money switches, mirrored here too (watch keeps its own copy for the Token Manager):
+    // the settings pane reads only this atom, so a turn's busy watch never redraws it.
+    autopilot: (await $.store.get('autopilot').catch(() => false)) === true,
+    keepWarm: (await $.store.get('keepWarm').catch(() => false)) === true,
+    budgetUsd: Number(await $.store.get('budgetUsd').catch(() => 0)) || 0,
+    // The timekeeper's settings, mirrored for the same reason (its alert marks change mid-turn).
+    ...(await readTimekeeper($).then(t => ({ tkOn: t.on, tkJobMin: t.jobMin, tkAgentMin: t.agentMin }))),
   }
 }
 
@@ -1035,19 +1128,35 @@ const nextStep = (steps: readonly number[], now: number): number => steps.find(v
 async function setAutopilot($: EngineInterface, isOn: boolean): Promise<void> {
   await $.store.set('autopilot', isOn).catch(() => undefined)
   await update($, watch, prev => ({ ...prev, autopilot: isOn }))
+  await update($, settings, prev => ({ ...prev, autopilot: isOn }))
 }
 async function setKeepWarm($: EngineInterface, isOn: boolean): Promise<void> {
   await $.store.set('keepWarm', isOn).catch(() => undefined)
   await update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), on: isOn, halted: '' } }))
+  await update($, settings, prev => ({ ...prev, keepWarm: isOn }))
 }
 async function setDailyCap($: EngineInterface, dollars: number): Promise<void> {
   dailyCapUsd = dollars
   await $.store.set(DAILY_KEY, dollars).catch(() => undefined)
   await update($, settings, prev => ({ ...prev, dailyUsd: dollars }))
 }
+// A typed amount for the daily cap or the budget per task: in the currency the pane shows,
+// turned back into dollars. 0 turns it off; anything else that is not a number is refused.
+async function typeMoney($: EngineInterface, what: 'daily' | 'budget', typed: string): Promise<void> {
+  const n = Number(typed.trim().replace(/[^0-9.]/g, ''))
+  if (!typed.trim() || !Number.isFinite(n) || n < 0) {
+    $.ui.toast('Type an amount like 3 or 2.50, or 0 to turn it off')
+    return
+  }
+  const dollars = Math.round((n / (CURRENCY.rate || 1)) * 100) / 100
+  if (what === 'daily') await setDailyCap($, dollars)
+  else await setBudget($, dollars)
+  $.ui.toast(`${what === 'daily' ? 'Daily cap' : 'Budget per task'}: ${dollars ? fmtCost(dollars) : 'off'}`)
+}
 async function setBudget($: EngineInterface, dollars: number): Promise<void> {
   await $.store.set('budgetUsd', dollars).catch(() => undefined)
   await update($, watch, prev => ({ ...prev, budgetUsd: dollars }))
+  await update($, settings, prev => ({ ...prev, budgetUsd: dollars }))
 }
 
 // One switch of the Settings section: the store keeps it, the atom redraws the pane.
@@ -1097,7 +1206,15 @@ async function billingType($: EngineInterface, shown: string): Promise<void> {
   await update($, billing, prev => ({ ...prev, typedLen: real.length }))
 }
 async function billingSave($: EngineInterface, shown: string): Promise<void> {
-  const done = await saveKey($, unmaskKey(shown, draft.get(await $.clock.now())))
+  const real = unmaskKey(shown, draft.get(await $.clock.now()))
+  // The box still shows dots but the draft has expired (10 min): empty the box, ask for the key again.
+  if (!real && ((await read($, billing)).typedLen ?? 0) > 0) {
+    draft.clear()
+    await update($, billing, prev => ({ ...prev, nonce: prev.nonce + 1, typedLen: 0 }))
+    $.ui.toast('🔑 The box timed out and was cleared: paste the key again', { timeoutMs: 8000 })
+    return
+  }
+  const done = await saveKey($, real)
   draft.clear()
   await refreshBilling($, done.message)
   await update($, billing, prev => ({ ...prev, nonce: prev.nonce + 1, typedLen: 0 }))
@@ -1264,6 +1381,7 @@ async function retitle($: EngineInterface): Promise<void> {
   for (const p of open) {
     if (p.id === PANE) await $.ui.open({ id: PANE, title: SKIN.tabs.mission }).catch(() => undefined)
     if (p.id === SKINS_PANE) await $.ui.open({ id: SKINS_PANE, title: SKIN.tabs.skins }).catch(() => undefined)
+    if (p.id === SETTINGS_PANE) await $.ui.open({ id: SETTINGS_PANE, title: SETTINGS_TITLE }).catch(() => undefined)
   }
 }
 
@@ -1927,6 +2045,8 @@ const currencyOf = (code: string, rate?: number): Currency => {
   return rate && rate > 0 && base.code !== 'AUTO' ? { ...base, rate } : base
 }
 const currencyLabel = (c: Currency): string => (c.code === 'AUTO' ? 'Auto ($, or €$ on cyberpunk skins)' : `${c.code} ${c.symbol}${c.rate !== 1 ? ` (≈${c.rate} per $)` : ''}`)
+// The currency list, built the same on every draw so an open dropdown keeps its options.
+const currencyOptions = () => CURRENCIES.map(c => ({ value: c.code, label: currencyLabel(c.code === CURRENCY.code ? CURRENCY : c) }))
 
 const fmtCost = (usd: number): string => {
   const c = CURRENCY.code === 'AUTO' ? (eggOf() ? (CURRENCIES[2] as Currency) : (CURRENCIES[1] as Currency)) : CURRENCY
@@ -3675,6 +3795,7 @@ const rescueRow = ($: EngineInterface, a: AgentRun, { Box, Button }: ReturnType<
 
 const tokenReport = (info: Env, list: AgentRun[], boss: Manager, w: Watch, at: number): TokenReport => {
   const tips: Tip[] = []
+  if (stopNow) tips.push({ level: 2, text: stopText(stopNow, fmtCost) })
   const burnPerMin = w.burn.filter(b => b.at > at - 60_000).reduce((sum, b) => sum + b.n, 0)
   const taskTokens = Math.max(0, sumTokens(info) - (boss.tokensAtStart ?? 0))
   const taskCost = Math.max(0, info.costUsd - (boss.costAtStart ?? info.costUsd))
@@ -4079,6 +4200,10 @@ const dancing = (drawn: string, isOn: boolean): string => (isOn ? `<g class="dan
 // with a button to put it on.
 
 const SKINS_PANE = 'crab-skins'
+// Settings and billing live in a pane of their own: the main pane redraws many times a
+// turn, and an open dropdown cannot survive that. This one reads only the quiet atoms.
+const SETTINGS_PANE = 'crab-settings'
+const SETTINGS_TITLE = 'Settings'
 const PREVIEW_H = 84
 
 const previewSvg = (W: number, k: Skin, isOn: boolean): string => {
@@ -4879,9 +5004,10 @@ async function startJob($: EngineInterface, asked: string): Promise<void> {
   if (!carried && (await read($, flow))) await update($, flow, () => null)
   await bumpToday($, { tasks: 1 })
   const auto = await readAutoCrew($)
-  const reason = auto.on ? bigJobReason(asked, 0, 0, 101) : ''
+  const big = auto.on ? bigJobReason(asked, 0, 0, 101) : ''
+  const reason = big || (auto.always ? EVERY_JOB : '')
   await update($, session, p => ({ ...p, crewMode: reason }))
-  if (reason) $.ui.toast(`🦀 Big job (${reason}): summoning the crew`)
+  if (big) $.ui.toast(`🦀 Big job (${big}): summoning the crew`)
 }
 
 // What the band draws, from the state: one reading for its drawing and for the tick,
@@ -5127,7 +5253,7 @@ async function registerEntryPoints($: EngineInterface): Promise<void> {
   }).catch(() => undefined)
   await $.command.register({
     name: 'autocrew',
-    description: 'Crew mode for big jobs: /autocrew for its state, /autocrew on|off, /autocrew <context %> to call the crew',
+    description: 'Crew mode: /autocrew for its state, /autocrew on|off, /autocrew always (every job, small ones too), /autocrew <context %> to call the crew',
   }).catch(() => undefined)
   await $.command.register({
     name: 'tokens',
@@ -5169,6 +5295,7 @@ export const register: Register = (on, options) => {
         if (isLive || at - last >= 60_000) await update($, now, () => at)
         if (isEnvStale) await refreshEnv($)
         await keepTime($, at)
+        await watchStop($, at, list, boss).catch(() => undefined)
         // At rest only minute labels move: a look every few seconds is soon enough.
         if (isLive || ++restTicks % TICK_READ_EVERY === 0) await retick($, at, isLive, { boss, all: list, bg, sess: st }).catch(() => undefined)
         const due = CACHE_WARN_MIN.filter(m => left !== null && left > 0 && left <= m * 60)
@@ -5247,6 +5374,7 @@ export const register: Register = (on, options) => {
     const budget = Number(await $.store.get('budgetUsd').catch(() => 0)) || 0
     const keepWarmOn = (await $.store.get('keepWarm').catch(() => false)) === true
     await update($, watch, prev => ({ ...prev, autopilot, budgetUsd: budget, warm: { ...(prev.warm ?? BLANK_WARM), on: keepWarmOn } }))
+    await update($, settings, prev => ({ ...prev, autopilot, budgetUsd: budget, keepWarm: keepWarmOn }))
     if (!isReload) await loadAllTime($)
     const savedDay = (await $.store.get('today').catch(() => undefined)) as Today | undefined
     const startedAt = await $.clock.now()
@@ -5807,10 +5935,10 @@ export const register: Register = (on, options) => {
     const spent: SpendView = { ...spendCard(sp, { date: day.date, cost: day.costUsd, tokens: day.tokens }, clockNow, s.spend), isReading: sp.status === 'reading' }
     const legends = cleanLegends(await $.store.get('legends').catch(() => []))
     const prefs = await read($, settings)
-    const money = await read($, watch)
+    // Subscribed for the Token Manager's Plan / API credits wording (BILLING): a key saved or removed, or the guide opened, redraws this pane.
+    void (await read($, billing))
     const shotMode = cleanOneShot(prefs.oneShot)
     const shotChip = oneShotChip(shotMode, shotMode === 'on' ? SKIN.colors.done : shotMode === 'off' ? SKIN.colors.accent2 : SKIN.colors.warn, FONT, SKIN.colors.text, textWidth)
-    const tkNow = await read($, timekeeper)
     // Only the cyberpunk skins draw these: elsewhere each tool call's replay beat
     // would draw the pane again for nothing.
     const hasEggs = Boolean(eggOf())
@@ -5840,55 +5968,9 @@ export const register: Register = (on, options) => {
         onPress={() => setPaneView($, prev => ({ isCompact: !prev.isCompact }))}
       />
     )
-    // The spend card's period: a list (and, for a custom range, two date fields) where the
-    // surface draws them, else buttons. Without the fields a custom range is `/tokens spend <from> <to>`.
-    const spendControls = (() => {
-      const sw = s.spend
-      const row = isRtl() ? 'row-reverse' : 'row'
-      const thisMonth = monthOf(clockNow)
-      const month = sp.period.kind === 'month' ? sp.period.month || thisMonth : ''
-      if ('Select' in ui && 'Input' in ui) {
-        const { Select, Input } = ui
-        return (
-          <Box key="spend-controls" flexDirection="column">
-            <Box flexDirection={row} gap={2}>
-              <Select
-                key="spend-period"
-                label={sw.period}
-                value={sp.period.kind}
-                options={SPEND_KINDS.map(k => ({ value: k, label: sw[k] }))}
-                onSelect={v => void pickSpendKind($, spendIo, (SPEND_KINDS as readonly string[]).includes(v) ? (v as SpendKind) : 'today')}
-              />
-              {month ? (
-                <Select
-                  key="spend-month"
-                  label={sw.month}
-                  value={month}
-                  options={[...new Set([month, ...monthsWithData(sp.days, clockNow).slice(0, 14)])].sort().reverse().map(m => ({ value: m, label: monthLabel(m, sw) }))}
-                  onSelect={v => void pickSpendMonth($, spendIo, v)}
-                />
-              ) : null}
-            </Box>
-            {sp.period.kind === 'custom' ? (
-              <Box flexDirection={row} gap={2}>
-                <Input key="spend-from" label={sw.from} placeholder="YYYY-MM-DD" value={sp.draft.from || sp.period.from} onSubmit={v => void typeSpendDay($, spendIo, 'from', v)} />
-                <Input key="spend-to" label={sw.to} placeholder="YYYY-MM-DD" value={sp.draft.to || sp.period.to} onSubmit={v => void typeSpendDay($, spendIo, 'to', v)} />
-              </Box>
-            ) : null}
-            {sp.error ? <Text color="#E5675E">{sp.error}</Text> : null}
-          </Box>
-        )
-      }
-      return (
-        <Box key="spend-controls" flexDirection={row} gap={2}>
-          {SPEND_KINDS.filter(k => k !== 'custom').map(k => (
-            <Button key={`spend-${k}`} label={`${k === sp.period.kind ? '● ' : ''}${sw[k]}`} plain onPress={() => pickSpendKind($, spendIo, k)} />
-          ))}
-          {month ? <Button key="spend-prev" label={'◀︎'} plain onPress={() => pickSpendMonth($, spendIo, shiftMonth(month, -1))} /> : null}
-          {month && month < thisMonth ? <Button key="spend-next" label={'▶︎'} plain onPress={() => pickSpendMonth($, spendIo, shiftMonth(month, 1))} /> : null}
-        </Box>
-      )
-    })()
+    // Settings and billing have a pane of their own (SETTINGS_PANE), so a dropdown there is
+    // not redrawn away while this pane updates. One stable button leads to it, in every view.
+    const openSettings = <Button key="open-settings" label="⚙ Settings and billing ▸" plain onPress={() => void showPane($, SETTINGS_PANE, SETTINGS_TITLE)} />
     const toggleDone = (
       <Button
         key="done"
@@ -5896,56 +5978,6 @@ export const register: Register = (on, options) => {
         plain
         onPress={() => setPaneView($, prev => ({ isDoneCollapsed: !prev.isDoneCollapsed }))}
       />
-    )
-    // Billing: a status chip, the key box, Save / Clear / Remove, the four steps. Never the key:
-    // the box's text lives in billing.ts's `draft` (memory only) until a Save sends it to the Keychain.
-    const bill = await read($, billing)
-    const Field = 'Input' in ui ? ui.Input : null
-    // Settings with a few fixed choices are dropdowns where the surface draws a Select, else ▸ buttons that cycle.
-    const Pick = 'Select' in ui ? ui.Select : null
-    const stepOptions = (steps: readonly number[], now: number, word: (v: number) => string) =>
-      [...new Set([...steps, now])].sort((a, b) => a - b).map(v => ({ value: String(v), label: v ? word(v) : 'Off' }))
-    const SHOT_OPTIONS = [
-      { value: 'ask', label: 'Ask me each time' },
-      { value: 'on', label: 'On: does the whole plan, then reports' },
-      { value: 'off', label: 'Off: one part at a time' },
-    ]
-    const typed = draft.get(clockNow)
-    const billingBlock = (
-      <Box key="billing" flexDirection="column">
-        <Text bold color={isApiCredits(bill.mode) ? ACCENT : undefined}>{modeChip(bill.mode)}</Text>
-        <Text>{bill.isMac ? keyStatus(bill) : MAC_ONLY}</Text>
-        {bill.note ? <Text dimColor wrap="wrap">{bill.note}</Text> : null}
-        {bill.isMac && Field ? (
-          <Box key="bill-form" flexDirection="column">
-            <Text dimColor wrap="wrap">The box shows your key while you type: it cannot hide it. Paste, press Enter, and the box clears. To type it hidden, run this in your own terminal: {terminalAlternative()}</Text>
-            <Field
-              key={`bill-key-${bill.nonce}`}
-              label="Claude API key"
-              placeholder="sk-ant-…"
-              value={maskKey(typed)}
-              submitLabel="save"
-              onInput={(v: string) => void billingType($, v)}
-              onSubmit={(v: string) => billingSave($, v)}
-            />
-            <Box flexDirection="row" gap={2}>
-              <Button key="bill-save" label="🔑 Save to Keychain" plain onPress={async () => billingSave($, draft.get(await $.clock.now()))} />
-              <Button key="bill-clear" label="✕ Clear box" plain onPress={async () => { draft.clear(); await update($, billing, prev => ({ ...prev, nonce: prev.nonce + 1, typedLen: 0 })) }} />
-              {bill.saved || bill.inKeychain ? <Button key="bill-remove" label="🗑 Remove key" plain onPress={() => billingRemove($)} /> : null}
-            </Box>
-          </Box>
-        ) : null}
-        <Button
-          key="bill-guide"
-          label={`${bill.isGuideOpen ? '▾' : '▸'} Use it for Claude Code: 4 steps`}
-          plain
-          onPress={async () => {
-            await refreshBilling($).catch(() => undefined)
-            await update($, billing, prev => ({ ...prev, isGuideOpen: !prev.isGuideOpen }))
-          }}
-        />
-        {bill.isGuideOpen ? <Text wrap="wrap">{guideText($.plugin.root, bill.mode)}</Text> : null}
-      </Box>
     )
     const isEmpty = list.length === 0 && planned.length === 0
     const summary = `≈${fmtCost(t.cost)}, ${fmtTokens(t.tokens)} ${s.tokensWord}, ${fmtTime(t.time)}`
@@ -5998,6 +6030,7 @@ export const register: Register = (on, options) => {
           )}
           {picture ? orgPicture(picture) : null}
           <Svg source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} />
+          {openSettings}
         </Box>
       )
       if (p.isCompact) return keep(compactView())
@@ -6033,7 +6066,6 @@ export const register: Register = (on, options) => {
                 source={todaySvg(W, day, spent)}
                 alt={`${spent.isToday ? `Today: ${day.tasks} tasks, ${day.agents} agents, ${fmtTokens(day.tokens)} tokens, ≈${fmtCost(day.costUsd)}` : `${spent.label}: ≈${fmtCost(spent.cost)}, ${fmtTokens(spent.tokens)} ${s.tokensWord}, ${spent.days} ${s.spend.days.toLowerCase()}`}${spent.isReading ? `. ${s.spend.reading}` : ''}`}
               />
-              {spendControls}
             </Box>
             {egg ? (
               <Box key="cred" marginBottom={1}>
@@ -6051,11 +6083,7 @@ export const register: Register = (on, options) => {
             </Box>
             <Box key="oneshot" flexDirection="row" gap={2} marginBottom={1}>
               <Svg source={shotChip.svg} alt={`Plan mode: ${oneShotWord(prefs.oneShot)}`} width={shotChip.W} height={24} />
-              {Pick ? (
-                <Pick key="oneshot-pick" value={shotMode} options={SHOT_OPTIONS} onSelect={v => void setOneShot($, cleanOneShot(v))} />
-              ) : (
-                <Button key="oneshot-cycle" label="Change ▸" plain onPress={async () => setOneShot($, nextOneShot(cleanOneShot((await read($, settings)).oneShot)))} />
-              )}
+              <Button key="oneshot-open" label="Change ▸" plain onPress={() => void showPane($, SETTINGS_PANE, SETTINGS_TITLE)} />
             </Box>
             {bg.length > 0 && (
               <Box key="background" marginBottom={1}>
@@ -6158,97 +6186,7 @@ export const register: Register = (on, options) => {
             {orgPicture(picture)}
             {section('h-session', 'Memory')}
             <Svg key="session" source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} />
-            {section('h-billing', 'Billing')}
-            {billingBlock}
-            {section('h-settings', 'Settings')}
-            <Box key="settings" flexDirection="column">
-              <Button
-                key="set-open"
-                label={`${prefs.openOnStart ? '☑\uFE0E' : '☐'} Open Mission Control when Claude starts`}
-                plain
-                onPress={async () => {
-                  const isOn = !(await read($, settings)).openOnStart
-                  await $.store.set('openOnStart', isOn).catch(() => undefined)
-                  await update($, settings, prev => ({ ...prev, openOnStart: isOn }))
-                }}
-              />
-              <Button
-                key="set-crew"
-                label={`${prefs.crewMode ? '☑\uFE0E' : '☐'} Crew mode: split big jobs across sub-agents`}
-                plain
-                onPress={async () => {
-                  const auto = await readAutoCrew($)
-                  const isOn = !auto.on
-                  await $.store.set('autoCrew', { ...auto, on: isOn }).catch(() => undefined)
-                  if (!isOn) await update($, session, prev => ({ ...prev, crewMode: '' }))
-                  await update($, settings, prev => ({ ...prev, crewMode: isOn }))
-                }}
-              />
-              {Pick ? (
-                <Pick
-                  key="set-currency-pick"
-                  label="¤ Currency"
-                  value={CURRENCY.code}
-                  options={CURRENCIES.map(c => ({ value: c.code, label: currencyLabel(c.code === CURRENCY.code ? CURRENCY : c) }))}
-                  onSelect={v => void setCurrency($, CURRENCIES.find(c => c.code === v) ?? CURRENCY)}
-                />
-              ) : (
-              <Button
-                key="set-currency"
-                label={`¤ Currency: ${currencyLabel(currencyOf(prefs.currency, CURRENCY.code === prefs.currency ? CURRENCY.rate : undefined))} ▸`}
-                plain
-                onPress={async () => {
-                  const i = CURRENCIES.findIndex(c => c.code === CURRENCY.code)
-                  await setCurrency($, CURRENCIES[(i + 1) % CURRENCIES.length] as Currency)
-                }}
-              />
-              )}
-              <Button
-                key="set-sounds"
-                label={`${prefs.sounds ? '☑\uFE0E' : '☐'} ${eggOf() ? 'Sounds: chimes, blips and the MaxTac siren' : 'Sounds: job-done chime'}`}
-                plain
-                onPress={async () => {
-                  const isOn = !(await read($, settings)).sounds
-                  await $.store.set('sounds', isOn).catch(() => undefined)
-                  await update($, settings, prev => ({ ...prev, sounds: isOn }))
-                }}
-              />
-              {SKIN.cast ? null : (
-                <Button key="set-simple" label={`${prefs.simple ? '☑\uFE0E' : '☐'} Simple band: 3 rows (what's happening, the crew, the cost)`} plain onPress={async () => setFlag($, 'simple', !(await read($, settings)).simple)} />
-              )}
-              <Button key="set-calm" label={`${prefs.calm ? '☑\uFE0E' : '☐'} Calm mode: one status line instead of the band`} plain onPress={async () => setFlag($, 'calm', !(await read($, settings)).calm)} />
-              <Button key="set-voice" label={`${prefs.voice ? '☑\uFE0E' : '☐'} Spoken status: say when a job is done and what it cost`} plain onPress={async () => setFlag($, 'voice', !(await read($, settings)).voice)} />
-              <Button key="set-staffing" label={`${prefs.staffing ? '☑\uFE0E' : '☐'} Smart staffing: each agent gets the model and effort its job needs`} plain onPress={async () => setFlag($, 'staffing', !(await read($, settings)).staffing)} />
-              {Pick ? (
-                <Pick key="set-oneshot-pick" label="⏩\uFE0E One-shot plans" value={cleanOneShot(prefs.oneShot)} options={SHOT_OPTIONS} onSelect={v => void setOneShot($, cleanOneShot(v))} />
-              ) : (
-                <Button key="set-oneshot" label={`⏩\uFE0E One-shot plans: ${prefs.oneShot === 'on' ? 'on, does the whole plan then reports' : prefs.oneShot === 'off' ? 'off, one part at a time' : 'asks you each time'} ▸`} plain onPress={async () => setOneShot($, nextOneShot(cleanOneShot((await read($, settings)).oneShot)))} />
-              )}
-              <Button
-                key="set-timekeeper"
-                label={`${tkNow.on ? '☑\uFE0E' : '☐'} ${tkStr().setting(tkNow.jobMin, tkNow.agentMin)}`}
-                plain
-                onPress={async () => {
-                  await setTimekeeper($, { on: !(await read($, timekeeper)).on })
-                }}
-              />
-              <Button key="set-skin" label="Change skin ▸" plain onPress={() => void showPane($, SKINS_PANE, SKIN.tabs.skins)} />
-              <Text key="set-money-h" bold>
-                {'\n'}Money
-              </Text>
-              <Button key="set-autopilot" label={`${money.autopilot ? '☑\uFE0E' : '☐'} Autopilot: read-only explorers run on Haiku`} plain onPress={async () => setAutopilot($, !(await read($, watch)).autopilot)} />
-              <Button key="set-warm" label={`${(money.warm ?? BLANK_WARM).on ? '☑\uFE0E' : '☐'} Keep-Warm: refresh the prompt cache when that saves more than it costs`} plain onPress={async () => setKeepWarm($, !((await read($, watch)).warm ?? BLANK_WARM).on)} />
-              {Pick ? (
-                <Pick key="set-daily-pick" label="💵\uFE0E Daily cap" value={String(prefs.dailyUsd)} options={stepOptions(DAILY_STEPS, prefs.dailyUsd, v => `${fmtCost(v)} a day`)} onSelect={v => void setDailyCap($, Number(v) || 0)} />
-              ) : (
-                <Button key="set-daily" label={`💵\uFE0E Daily cap: ${prefs.dailyUsd ? `${fmtCost(prefs.dailyUsd)} a day` : 'off'} ▸`} plain onPress={async () => setDailyCap($, nextStep(DAILY_STEPS, (await read($, settings)).dailyUsd))} />
-              )}
-              {Pick ? (
-                <Pick key="set-budget-pick" label="🎯\uFE0E Budget per task" value={String(money.budgetUsd)} options={stepOptions(BUDGET_STEPS, money.budgetUsd, v => fmtCost(v))} onSelect={v => void setBudget($, Number(v) || 0)} />
-              ) : (
-                <Button key="set-budget" label={`🎯\uFE0E Budget per task: ${money.budgetUsd ? fmtCost(money.budgetUsd) : 'off'} ▸`} plain onPress={async () => setBudget($, nextStep(BUDGET_STEPS, (await read($, watch)).budgetUsd))} />
-              )}
-            </Box>
+            {openSettings}
           </Box>
         </Box>
       )
@@ -6386,7 +6324,6 @@ export const register: Register = (on, options) => {
               </Text>
             )}
             {spent.isReading ? <Text dimColor>{s.spend.reading}</Text> : null}
-            {spendControls}
             <Text bold>Workflow{f && !f.isFinished ? ` ${f.title}` : ''}</Text>
             <Text dimColor>{'  '}⏩ {oneShotWord(shotMode)}</Text>
             {steps.length === 0 && <Text dimColor>  nothing running</Text>}
@@ -6493,8 +6430,7 @@ export const register: Register = (on, options) => {
           </Box>
         )}
         <Box flexDirection="column" marginTop={1}>
-          <Text dimColor>Billing</Text>
-          {billingBlock}
+          {openSettings}
         </Box>
         <Box flexDirection="column" marginTop={1}>
           <Text dimColor>Memory</Text>
@@ -6564,13 +6500,20 @@ export const register: Register = (on, options) => {
     if (e.tools.includes('Agent') && e.tools.length >= mostTools * 0.9) {
       const auto = await readAutoCrew($)
       let reason = auto.on ? (await read($, session)).crewMode ?? '' : ''
+      // Every-job mode turned off mid-job: its reason no longer holds.
+      if (reason === EVERY_JOB && !auto.always) reason = ''
       if (auto.on && !reason) {
         // A plan that grew long, or a context that filled, calls the crew mid-task.
         const boss = await read($, manager)
         const info = await read($, env)
         if (info.contextPct < auto.ctxPct - 10) crewCalled = false
         if (boss.isWorking && !crewCalled) reason = bigJobReason('', info.contextPct, (boss.plan ?? []).length, auto.ctxPct)
-        if (reason) {
+        // Every-job mode turned on mid-job applies from the next request, not the next prompt.
+        if (!reason && auto.always && boss.isWorking) {
+          await update($, session, prev => ({ ...prev, crewMode: EVERY_JOB }))
+          reason = EVERY_JOB
+        }
+        if (reason && reason !== EVERY_JOB) {
           crewCalled = true
           await update($, session, prev => ({ ...prev, crewMode: reason }))
           $.ui.toast(`🦀 Big job (${reason}): summoning the crew`)
@@ -6641,6 +6584,245 @@ export const register: Register = (on, options) => {
     )
   })
 
+  // Settings and billing, in a pane of their own. The main pane redraws in bursts while a
+  // turn runs, which would close an open dropdown; this one reads only atoms that change
+  // when the person acts: skin, settings, timekeeper, billing and spendPick. (The spend
+  // atom itself is also written at each sub-agent's end, when the day's cost grew, so this
+  // pane reads spendPick, the period and typed days only, and takes the month list from the
+  // store, which does not subscribe.) It reads no watch, agents, manager, env, today,
+  // allTime, flow, background, paneTick, now or session. Money values come from settings.
+  on('ui.render', { component: 'Pane', requestId: SETTINGS_PANE }, async ($, e) => {
+    try {
+    await useSkin($)
+    const s = tr()
+    const ui = $.ui.resolve(e)
+    const { Box, Text, Button } = ui
+    const clockNow = await $.clock.now().catch(() => 0)
+    const prefs = await read($, settings)
+    const tkNow = { on: prefs.tkOn, jobMin: prefs.tkJobMin, agentMin: prefs.tkAgentMin }
+    const sp = await read($, spendPick)
+    const spendLedger = combineDays(cleanDays(await $.store.get('spendDays').catch(() => undefined)), cleanDays(await $.store.get('spendLog').catch(() => undefined)))
+    // Billing: a status chip, the key box, Save / Clear / Remove, the four steps. Never the key:
+    // the box's text lives in billing.ts's `draft` (memory only) until a Save sends it to the Keychain.
+    const bill = await read($, billing)
+    const Field = 'Input' in ui ? ui.Input : null
+    // Settings with a few fixed choices are dropdowns where the surface draws a Select, else ▸ buttons that cycle.
+    const Pick = 'Select' in ui ? ui.Select : null
+    const typed = draft.get(clockNow)
+    const billingBlock = (
+      <Box key="billing" flexDirection="column">
+        <Text bold color={isApiCredits(bill.mode) ? ACCENT : undefined}>{modeChip(bill.mode)}</Text>
+        <Text>{bill.isMac ? keyStatus(bill) : MAC_ONLY}</Text>
+        {bill.note ? <Text dimColor wrap="wrap">{bill.note}</Text> : null}
+        {bill.isMac && Field ? (
+          <Box key="bill-form" flexDirection="column">
+            <Text dimColor wrap="wrap">The box shows your key while you type: it cannot hide it. Paste, press Enter, and the box clears. To type it hidden, run this in your own terminal: {terminalAlternative()}</Text>
+            <Field
+              key={`bill-key-${bill.nonce}`}
+              label="Claude API key"
+              placeholder="sk-ant-…"
+              value={maskKey(typed)}
+              submitLabel="save"
+              onInput={(v: string) => void billingType($, v)}
+              onSubmit={(v: string) => billingSave($, v)}
+            />
+            <Box flexDirection="row" gap={2}>
+              <Button key="bill-save" label="🔑 Save to Keychain" plain onPress={async () => billingSave($, draft.get(await $.clock.now()))} />
+              <Button key="bill-clear" label="✕ Clear box" plain onPress={async () => { draft.clear(); await update($, billing, prev => ({ ...prev, nonce: prev.nonce + 1, typedLen: 0 })) }} />
+              {bill.saved || bill.inKeychain ? <Button key="bill-remove" label="🗑 Remove key" plain onPress={() => billingRemove($)} /> : null}
+            </Box>
+          </Box>
+        ) : null}
+        <Button
+          key="bill-guide"
+          label={`${bill.isGuideOpen ? '▾' : '▸'} Use it for Claude Code: 4 steps`}
+          plain
+          onPress={async () => {
+            await refreshBilling($).catch(() => undefined)
+            await update($, billing, prev => ({ ...prev, isGuideOpen: !prev.isGuideOpen }))
+          }}
+        />
+        {bill.isGuideOpen ? <Text wrap="wrap">{guideText($.plugin.root, bill.mode)}</Text> : null}
+      </Box>
+    )
+
+    // The spend card's period: a list (and, for a custom range, two date fields) where the
+    // surface draws them, else buttons. Without the fields a custom range is `/tokens spend <from> <to>`.
+    const spendControls = (() => {
+      const sw = s.spend
+      const row = isRtl() ? 'row-reverse' : 'row'
+      const thisMonth = monthOf(clockNow)
+      const month = sp.period.kind === 'month' ? sp.period.month || thisMonth : ''
+      if ('Select' in ui && 'Input' in ui) {
+        const { Select, Input } = ui
+        return (
+          <Box key="spend-controls" flexDirection="column">
+            <Box flexDirection={row} gap={2}>
+              <Select
+                key="spend-period"
+                label={sw.period}
+                value={sp.period.kind}
+                options={SPEND_KINDS.map(k => ({ value: k, label: sw[k] }))}
+                onSelect={v => void pickSpendKind($, spendIo, (SPEND_KINDS as readonly string[]).includes(v) ? (v as SpendKind) : 'today')}
+              />
+              {month ? (
+                <Select
+                  key="spend-month"
+                  label={sw.month}
+                  value={month}
+                  options={[...new Set([month, ...monthsWithData(spendLedger, clockNow).slice(0, 14)])].sort().reverse().map(m => ({ value: m, label: monthLabel(m, sw) }))}
+                  onSelect={v => void pickSpendMonth($, spendIo, v)}
+                />
+              ) : null}
+            </Box>
+            {sp.period.kind === 'custom' ? (
+              <Box flexDirection={row} gap={2}>
+                <Input key="spend-from" label={sw.from} placeholder="YYYY-MM-DD" value={sp.draft.from || sp.period.from} onSubmit={v => void typeSpendDay($, spendIo, 'from', v)} />
+                <Input key="spend-to" label={sw.to} placeholder="YYYY-MM-DD" value={sp.draft.to || sp.period.to} onSubmit={v => void typeSpendDay($, spendIo, 'to', v)} />
+              </Box>
+            ) : null}
+            {sp.error ? <Text color="#E5675E">{sp.error}</Text> : null}
+          </Box>
+        )
+      }
+      return (
+        <Box key="spend-controls" flexDirection={row} gap={2}>
+          {SPEND_KINDS.filter(k => k !== 'custom').map(k => (
+            <Button key={`spend-${k}`} label={`${k === sp.period.kind ? '● ' : ''}${sw[k]}`} plain onPress={() => pickSpendKind($, spendIo, k)} />
+          ))}
+          {month ? <Button key="spend-prev" label={'◀︎'} plain onPress={() => pickSpendMonth($, spendIo, shiftMonth(month, -1))} /> : null}
+          {month && month < thisMonth ? <Button key="spend-next" label={'▶︎'} plain onPress={() => pickSpendMonth($, spendIo, shiftMonth(month, 1))} /> : null}
+        </Box>
+      )
+    })()
+    const head = (key: string, text: string) => (
+      <Box key={key} marginTop={1} marginBottom={1}>
+        {SKIN.dark ? <Text color={SKIN.colors.accent} bold>{`▍${text}`}</Text> : <Text dimColor>{text}</Text>}
+      </Box>
+    )
+    return (
+      <Box flexDirection="column">
+        {head('h-billing', 'Billing')}
+        {billingBlock}
+        {head('h-settings', 'Settings')}
+        <Box key="settings" flexDirection="column">
+          <Button
+            key="set-open"
+            label={`${prefs.openOnStart ? '☑\uFE0E' : '☐'} Open Mission Control when Claude starts`}
+            plain
+            onPress={async () => {
+              const isOn = !(await read($, settings)).openOnStart
+              await $.store.set('openOnStart', isOn).catch(() => undefined)
+              await update($, settings, prev => ({ ...prev, openOnStart: isOn }))
+            }}
+          />
+          {Pick ? (
+            <Pick
+              key="set-crew-pick"
+              label="🦀\uFE0E Crew mode"
+              value={!prefs.crewMode ? 'off' : prefs.crewAlways ? 'every' : 'big'}
+              options={CREW_OPTIONS}
+              onSelect={v => void setCrewChoice($, v === 'off' || v === 'every' ? v : 'big')}
+            />
+          ) : (
+          <Button
+            key="set-crew"
+            label={`${prefs.crewMode ? '☑\uFE0E' : '☐'} Crew mode: split ${prefs.crewAlways ? 'every job' : 'big jobs'} across sub-agents`}
+            plain
+            onPress={async () => {
+              const auto = await readAutoCrew($)
+              const isOn = !auto.on
+              // The stored choice of every job survives off and on again.
+              const raw = (await $.store.get('autoCrew').catch(() => null)) as Partial<AutoCrew> | null
+              const always = raw?.always === true
+              await $.store.set('autoCrew', { ...auto, on: isOn, always }).catch(() => undefined)
+              if (!isOn) await update($, session, prev => ({ ...prev, crewMode: '' }))
+              await update($, settings, prev => ({ ...prev, crewMode: isOn, crewAlways: isOn && always }))
+            }}
+          />
+          )}
+          {Pick ? (
+            <Pick
+              key="set-currency-pick"
+              label="¤ Currency"
+              value={CURRENCY.code}
+              options={currencyOptions()}
+              onSelect={v => void setCurrency($, CURRENCIES.find(c => c.code === v) ?? CURRENCY)}
+            />
+          ) : (
+          <Button
+            key="set-currency"
+            label={`¤ Currency: ${currencyLabel(currencyOf(prefs.currency, CURRENCY.code === prefs.currency ? CURRENCY.rate : undefined))} ▸`}
+            plain
+            onPress={async () => {
+              const i = CURRENCIES.findIndex(c => c.code === CURRENCY.code)
+              await setCurrency($, CURRENCIES[(i + 1) % CURRENCIES.length] as Currency)
+            }}
+          />
+          )}
+          <Button
+            key="set-sounds"
+            label={`${prefs.sounds ? '☑\uFE0E' : '☐'} ${eggOf() ? 'Sounds: chimes, blips and the MaxTac siren' : 'Sounds: job-done chime'}`}
+            plain
+            onPress={async () => {
+              const isOn = !(await read($, settings)).sounds
+              await $.store.set('sounds', isOn).catch(() => undefined)
+              await update($, settings, prev => ({ ...prev, sounds: isOn }))
+            }}
+          />
+          {SKIN.cast ? null : (
+            <Button key="set-simple" label={`${prefs.simple ? '☑\uFE0E' : '☐'} Simple band: 3 rows (what's happening, the crew, the cost)`} plain onPress={async () => setFlag($, 'simple', !(await read($, settings)).simple)} />
+          )}
+          <Button key="set-calm" label={`${prefs.calm ? '☑\uFE0E' : '☐'} Calm mode: one status line instead of the band`} plain onPress={async () => setFlag($, 'calm', !(await read($, settings)).calm)} />
+          <Button key="set-voice" label={`${prefs.voice ? '☑\uFE0E' : '☐'} Spoken status: say when a job is done and what it cost`} plain onPress={async () => setFlag($, 'voice', !(await read($, settings)).voice)} />
+          <Button key="set-staffing" label={`${prefs.staffing ? '☑\uFE0E' : '☐'} Smart staffing: each agent gets the model and effort its job needs`} plain onPress={async () => setFlag($, 'staffing', !(await read($, settings)).staffing)} />
+          {Pick ? (
+            <Pick key="set-oneshot-pick" label="⏩\uFE0E One-shot plans" value={cleanOneShot(prefs.oneShot)} options={SHOT_OPTIONS} onSelect={v => void setOneShot($, cleanOneShot(v))} />
+          ) : (
+            <Button key="set-oneshot" label={`⏩\uFE0E One-shot plans: ${prefs.oneShot === 'on' ? 'on, does the whole plan then reports' : prefs.oneShot === 'off' ? 'off, one part at a time' : 'asks you each time'} ▸`} plain onPress={async () => setOneShot($, nextOneShot(cleanOneShot((await read($, settings)).oneShot)))} />
+          )}
+          <Button
+            key="set-timekeeper"
+            label={`${tkNow.on ? '☑\uFE0E' : '☐'} ${tkStr().setting(tkNow.jobMin, tkNow.agentMin)}`}
+            plain
+            onPress={async () => {
+              await setTimekeeper($, { on: !(await read($, timekeeper)).on })
+            }}
+          />
+          <Button key="set-skin" label="Change skin ▸" plain onPress={() => void showPane($, SKINS_PANE, SKIN.tabs.skins)} />
+          <Text key="set-money-h" bold>
+            {'\n'}Money
+          </Text>
+          <Button key="set-autopilot" label={`${prefs.autopilot ? '☑\uFE0E' : '☐'} Autopilot: read-only explorers run on Haiku`} plain onPress={async () => setAutopilot($, !(await read($, settings)).autopilot)} />
+          <Button key="set-warm" label={`${prefs.keepWarm ? '☑\uFE0E' : '☐'} Keep-Warm: refresh the prompt cache when that saves more than it costs`} plain onPress={async () => setKeepWarm($, !(await read($, settings)).keepWarm)} />
+          {Pick ? (
+            <Pick key="set-daily-pick" label="💵\uFE0E Daily cap" value={String(prefs.dailyUsd)} options={stepOptions(DAILY_STEPS, prefs.dailyUsd, v => `${fmtCost(v)} a day`)} onSelect={v => void setDailyCap($, Number(v) || 0)} />
+          ) : (
+            <Button key="set-daily" label={`💵\uFE0E Daily cap: ${prefs.dailyUsd ? `${fmtCost(prefs.dailyUsd)} a day` : 'off'} ▸`} plain onPress={async () => setDailyCap($, nextStep(DAILY_STEPS, (await read($, settings)).dailyUsd))} />
+          )}
+          {Field ? (
+            <Field key="set-daily-type" label="   …or type a daily cap" placeholder={`${CURRENCY.symbol || '$'} amount, 0 = off`} value="" submitLabel="set" onSubmit={(v: string) => void typeMoney($, 'daily', v)} />
+          ) : null}
+          {Pick ? (
+            <Pick key="set-budget-pick" label="🎯\uFE0E Budget per task" value={String(prefs.budgetUsd)} options={stepOptions(BUDGET_STEPS, prefs.budgetUsd, v => fmtCost(v))} onSelect={v => void setBudget($, Number(v) || 0)} />
+          ) : (
+            <Button key="set-budget" label={`🎯\uFE0E Budget per task: ${prefs.budgetUsd ? fmtCost(prefs.budgetUsd) : 'off'} ▸`} plain onPress={async () => setBudget($, nextStep(BUDGET_STEPS, (await read($, settings)).budgetUsd))} />
+          )}
+          {Field ? (
+            <Field key="set-budget-type" label="   …or type a budget" placeholder={`${CURRENCY.symbol || '$'} amount, 0 = off`} value="" submitLabel="set" onSubmit={(v: string) => void typeMoney($, 'budget', v)} />
+          ) : null}
+        </Box>
+
+        {head('h-spend', 'Spend card period')}
+        {spendControls}
+      </Box>
+    )
+    } catch (err) {
+      const { Text } = $.ui.resolve(e)
+      return <Text wrap="wrap">{`Settings could not draw: ${String((err as Error)?.stack ?? err).slice(0, 800)}`}</Text>
+    }
+  })
+
   on('command.run', { command: 'skin' }, async ($, e) => {
     const arg = (e.args ?? '').trim().toLowerCase()
     const listing = () =>
@@ -6692,20 +6874,23 @@ export const register: Register = (on, options) => {
     // A context line outside 10–95%, or any other word, is answered, not quietly
     // clamped or read as a request for the state.
     const pct = /^\d+%?$/.test(arg) ? parseInt(arg, 10) : NaN
-    if (arg && arg !== 'on' && arg !== 'off' && !(pct >= 10 && pct <= 95)) {
-      return { text: 'Usage: /autocrew for its state, /autocrew on|off, or /autocrew <10–95> to call the crew past that context %' }
+    if (arg && arg !== 'on' && arg !== 'off' && arg !== 'always' && !(pct >= 10 && pct <= 95)) {
+      return { text: 'Usage: /autocrew for its state, /autocrew on|off, /autocrew always (every job, small ones too; on goes back to big jobs only), or /autocrew <10–95> to call the crew past that context %' }
     }
     const auto = await readAutoCrew($)
     const next: AutoCrew =
-      arg === 'on' ? { ...auto, on: true }
-      : arg === 'off' ? { ...auto, on: false }
-      : arg ? { on: true, ctxPct: pct }
+      arg === 'on' ? { ...auto, on: true, always: false }
+      : arg === 'always' ? { ...auto, on: true, always: true }
+      : arg === 'off' ? { ...auto, on: false, always: false }
+      : arg ? { ...auto, on: true, ctxPct: pct }
       : auto
     if (next !== auto) await $.store.set('autoCrew', next).catch(() => undefined)
-    await update($, settings, prev => ({ ...prev, crewMode: next.on }))
+    await update($, settings, prev => ({ ...prev, crewMode: next.on, crewAlways: next.always === true }))
     if (!next.on) await update($, session, prev => ({ ...prev, crewMode: '' }))
     return {
-      text: next.on
+      text: next.always
+        ? 'Crew mode on for every job: small ones go to a sub-agent too. /autocrew on goes back to big jobs only.'
+        : next.on
         ? `Crew mode on: a big job (a long brief, 4+ asks, 6+ files, a codebase sweep, a 6-step plan, or context past ${next.ctxPct}%) is split across sub-agents.`
         : 'Crew mode off: big jobs stay in this session.',
     }
