@@ -2,48 +2,48 @@
   "$schema": "./skin.schema.json",
   "id": "mentalist",
   "name": "The Mentalist",
-  "description": "Fan homage: Jane and the CBI team, sunset amber on dark walnut, case-file cream.",
+  "description": "Fan homage: Jane and the CBI team in black, navy and crisp white.",
   "font": "'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,'Noto Serif',serif",
   "corners": "round",
   "dark": true,
   "colors": {
-    "accent": "#E3A857",
-    "accent2": "#8FB8A8",
-    "done": "#86C28B",
-    "warn": "#F2C14E",
-    "alert": "#E06A5A",
-    "meter": "#C98A4B",
-    "text": "#F1E6D2",
-    "subtext": "#C9B9A0",
-    "muted": "#A39380",
-    "tile": "#211A15",
-    "track": "#2E241D",
-    "line": "#3A2E25",
-    "grid": "#3F3229"
+    "accent": "#8DB4EA",
+    "accent2": "#DCE6F5",
+    "done": "#7CC9A0",
+    "warn": "#E8C26A",
+    "alert": "#E0605A",
+    "meter": "#5E8BD6",
+    "text": "#F2F5FA",
+    "subtext": "#B4C0D3",
+    "muted": "#93A0B5",
+    "tile": "#0E1524",
+    "track": "#18223A",
+    "line": "#22304D",
+    "grid": "#1B2740"
   },
   "boss": [
-    "#E3A857",
-    "#8C2F39",
-    "#C98A4B",
-    "#8FB8A8",
-    "#E3A857"
+    "#8DB4EA",
+    "#F2F5FA",
+    "#3E5F99",
+    "#C9D6EA",
+    "#8DB4EA"
   ],
   "roles": [
-    "#E3A857",
-    "#8FB8A8",
-    "#C97B63",
-    "#B9A06A",
-    "#9DA7C9",
-    "#D08C9B"
+    "#8DB4EA",
+    "#E8EEF7",
+    "#7CC9A0",
+    "#E8C26A",
+    "#B39DDB",
+    "#6FC3D6"
   ],
   "effects": {
     "scanlines": false,
     "glitch": false
   },
   "backdrop": {
-    "fill": "#120E0B",
+    "fill": "#070B14",
     "pattern": "lines",
-    "ink": "rgba(227,168,87,.05)"
+    "ink": "rgba(141,180,234,.05)"
   },
   "chat": true,
   "words": [

@@ -183,8 +183,8 @@ test('mentalist cast: sprites are whole and about 46 pixels tall', () => {
   expect(cb!.crew.every(sp => sp.rows.some(r => r.includes('t')))).toBe(true)
 })
 
-test('mentalist colours: cream text reads on the walnut card (4.5 or more)', () => {
-  expect(contrast('#F1E6D2', '#211A15')!).toBeGreaterThan(4.5)
-  expect(contrast('#C9B9A0', '#211A15')!).toBeGreaterThan(4.5)
-  expect(contrast('#A39380', '#211A15')!).toBeGreaterThan(4.5)
+test('mentalist colours: white text reads on the navy card (4.5 or more)', () => {
+  expect(contrast('#F2F5FA', '#0E1524')!).toBeGreaterThan(4.5)
+  expect(contrast('#B4C0D3', '#0E1524')!).toBeGreaterThan(4.5)
+  expect(contrast('#93A0B5', '#0E1524')!).toBeGreaterThan(4.5)
 })
