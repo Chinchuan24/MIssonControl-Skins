@@ -5,7 +5,10 @@ import { BLANK_BILLING, KEY_IN_COMMAND, draft, maskKey, unmaskKey, guideText, is
 import { CASTS, CAST_CSS, hashOf, spriteMarkup } from './cast'
 import { BREACH_H, BREACH_W, CJK_FONT, EGG_CSS, EGG_TOOLS, EGG_WORDS, GREETING, KATAKANA, breachCard, breachTicker, celebration, heatStars, legendsCard, legendsHeight, psychoChip, radio, relicText, sandevistan, skyline, sysTag } from './eggs'
 import type { CyberEgg, Egg, Legend } from './eggs'
-import { CBI_BADGES, CBI_WORDS, CLOSED_FILES_TOAST, COLD_H, COLD_W, MENT_CSS, MENTALIST_BOOT, REDJOHN_BOOT, TEA_WARNING, TYGER_RE, caseClosed, cbiRankOf, cbiToast, coldReadCard, coldTicker, episodeAt, hiddenSmiley, smiley, teaChip } from './mentalist'
+import { TYGER_RE } from './mentalist'
+import { BB_SKIN_WORDS, BB_TOOLS, SAY_MY_NAME_RE } from './breakingbad'
+import { THEMES, themeKeyOf } from './themes'
+import type { ThemeEggs } from './themes'
 import { canNudge, nudge, pickQuiet, prBadge, quietOf, rememberTask, repoAndBranch, rescueText, retryOnHaiku, whatIf, whatIfText, whatIfTip } from './coach'
 import { BEATS_KEPT, BLANK_CRED, BOOT_H, award, rockerRankOf, bdHeight, bootStrip, braindanceCard, cleanCred, credCard, credHeight, levelOf, rankOf, shiftPick, stepPick } from './extras'
 import type { Beat, Cred } from './extras'
@@ -1598,7 +1601,81 @@ const RED_JOHN_SKIN: Skin = {
   tabs: { mission: '☺ Mission Control', skins: '☺ Skins' },
 }
 
-const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, MENTALIST_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN, SAMURAI_SKIN, RED_JOHN_SKIN]
+// Breaking Bad (fan homage): Mr. White, Jesse and the lab. Crystal blue and the periodic
+// table's green on desert green-black, in the system sans (a serif face is wider than the
+// labels assume). Breaking Bad and its characters belong to Sony Pictures Television and
+// AMC, used as fan homage only.
+const BREAKING_BAD_SKIN: Skin = {
+  id: 'breaking-bad',
+  cast: 'breakingbad',
+  name: 'Breaking Bad',
+  description: 'Fan homage: Mr. White, Jesse and the lab, crystal blue on desert green-black.',
+  font: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  corners: 'round',
+  dark: true,
+  colors: {
+    accent: '#5EC8F0',
+    accent2: '#4FB37A',
+    done: '#7FD48F',
+    warn: '#F2C318',
+    alert: '#E0605A',
+    meter: '#5EC8F0',
+    text: '#F2F5F0',
+    subtext: '#B9C7BC',
+    muted: '#94A598',
+    tile: '#0F1A14',
+    track: '#18261D',
+    line: '#22352A',
+    grid: '#1A2A20',
+  },
+  boss: ['#5EC8F0', '#4FB37A', '#4FB37A', '#F2C318', '#5EC8F0'],
+  roles: ['#5EC8F0', '#4FB37A', '#F2C318', '#E0605A', '#B39DDB', '#F2F5F0'],
+  effects: { scanlines: false, glitch: false },
+  chat: true,
+  words: BB_SKIN_WORDS,
+  toolWords: BB_TOOLS,
+  backdrop: { fill: '#0A120D', pattern: 'lines', ink: 'rgba(94,200,240,.05)' },
+  tabs: { mission: '⚗\uFE0E Mission Control', skins: '⚗\uFE0E Skins' },
+}
+
+// Heisenberg: the hidden skin of Breaking Bad. Black and white with crystal blue, the
+// pork-pie hat by the title. Not in the picker or the list: `/skin heisenberg` finds it,
+// or typing "say my name" while wearing Breaking Bad.
+const HEISENBERG_SKIN: Skin = {
+  id: 'heisenberg',
+  cast: 'heisenberg',
+  hidden: true,
+  name: 'Heisenberg',
+  description: 'The hidden one: black and white, with a little blue. Say my name.',
+  font: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  corners: 'round',
+  dark: true,
+  colors: {
+    accent: '#5EC8F0',
+    accent2: '#F4F4F4',
+    done: '#7FD48F',
+    warn: '#F2C318',
+    alert: '#E0605A',
+    meter: '#5EC8F0',
+    text: '#F4F4F4',
+    subtext: '#BDBDC2',
+    muted: '#9A9AA0',
+    tile: '#0A0A0B',
+    track: '#17171A',
+    line: '#2A2A2E',
+    grid: '#161618',
+  },
+  boss: ['#F4F4F4', '#5EC8F0', '#2A2A2E', '#F4F4F4', '#5EC8F0'],
+  roles: ['#5EC8F0', '#F4F4F4', '#F2C318', '#9AA0A6', '#7FD48F', '#E0605A'],
+  effects: { scanlines: false, glitch: false },
+  chat: true,
+  words: [...BB_SKIN_WORDS, 'Saying my name'],
+  toolWords: BB_TOOLS,
+  backdrop: { fill: '#050506', pattern: 'lines', ink: 'rgba(244,244,244,.04)' },
+  tabs: { mission: '⚗\uFE0E Mission Control', skins: '⚗\uFE0E Skins' },
+}
+
+const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, MENTALIST_SKIN, BREAKING_BAD_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN, SAMURAI_SKIN, RED_JOHN_SKIN, HEISENBERG_SKIN]
 
 // Only plain colour and font values reach the drawings: a skin file cannot
 // smuggle markup into an Svg.
@@ -1844,11 +1921,12 @@ async function bumpCredNow($: EngineInterface, change: (c: Cred) => Cred, quiet:
   await update($, cred, () => next)
   const was = levelOf(before.xp)
   const now = levelOf(next.xp)
-  // Street Cred is a cyberpunk add-on (CBI Cred on the Mentalist skins): other skins keep counting quietly, with no cheer.
+  // Street Cred is a cyberpunk add-on (CBI Cred, Empire Cred on the themed skins): other skins keep counting quietly, with no cheer.
   if (!eggOf()) return false
-  if (now > was) $.ui.toast(isCaseEgg(eggOf()) ? cbiToast(now) : `${eggOf() === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED'} ↑ ${now} · ${eggOf() === 'samurai' ? rockerRankOf(now) : rankOf(now)}`)
+  const th = themeOf()
+  if (now > was) $.ui.toast(th ? th.cred.toast(now) : `${eggOf() === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED'} ↑ ${now} · ${eggOf() === 'samurai' ? rockerRankOf(now) : rankOf(now)}`)
   for (const b0 of fresh) {
-    const b = isCaseEgg(eggOf()) ? (CBI_BADGES.find(x => x.id === b0.id) ?? b0) : b0
+    const b = th ? (th.cred.badges.find(x => x.id === b0.id) ?? b0) : b0
     $.ui.toast(`${b.icon} Badge unlocked: ${b.name}`)
   }
   const isCheer = now > was || fresh.length > 0
@@ -1935,11 +2013,11 @@ function applySkin(k: Skin): void {
 }
 
 // Found a hidden skin: the greeting and a badge for the finder. SAMURAI plays its add-on
-// chime; Red John (core) none.
+// chime; the themed ones (Red John, Heisenberg; core) none.
 async function foundSecret($: EngineInterface, k: Skin): Promise<void> {
-  const isRedJohn = k.cast === 'redjohn'
-  $.ui.toast(isRedJohn ? GREETING.redjohn : GREETING.samurai)
-  if (!isRedJohn) void play($, `${ADDON}/assets/done-samurai.wav`)
+  const themed = themeKeyOf(k.cast)
+  $.ui.toast(themed ? THEMES[themed].greeting : GREETING.samurai)
+  if (!themed) void play($, `${ADDON}/assets/done-samurai.wav`)
   // Quiet: the badge's chime would cut the band's own.
   await bumpCred($, c => (c.samurai ? c : { ...c, samurai: true, xp: c.xp + 50 }), true).catch(() => false)
 }
@@ -2616,13 +2694,17 @@ const fmtTokens = (n: number): string =>
   n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${Math.round(n)}`
 
 // The easter eggs' flavour: the cyberpunk skins' casts have them, the rest none.
-// The Mentalist and its hidden Red John skin have eggs of their own; the cyberpunk
-// visuals (Breach, MaxTac, Sandevistan, skyline, glitch, eddies) are `cyberOf()` only.
-const eggOf = (): Egg | undefined => (SKIN.cast === 'runners' || SKIN.cast === 'netrun' || SKIN.cast === 'corpo' || SKIN.cast === 'samurai' || SKIN.cast === 'mentalist' || SKIN.cast === 'redjohn' ? SKIN.cast : undefined)
-const isCaseEgg = (e: Egg | undefined): boolean => e === 'mentalist' || e === 'redjohn'
+// The themed skins (The Mentalist, Breaking Bad and their hidden ones) have eggs of their
+// own, in themes.ts: `themeOf()` is the worn skin's entry. The cyberpunk visuals (Breach,
+// MaxTac, Sandevistan, skyline, glitch, eddies) are `cyberOf()` only.
+const eggOf = (): Egg | undefined => (SKIN.cast === 'runners' || SKIN.cast === 'netrun' || SKIN.cast === 'corpo' || SKIN.cast === 'samurai' || themeKeyOf(SKIN.cast) ? (SKIN.cast as Egg) : undefined)
+const themeOf = (): ThemeEggs | undefined => {
+  const k = themeKeyOf(SKIN.cast)
+  return k ? THEMES[k] : undefined
+}
 const cyberOf = (): CyberEgg | undefined => {
   const e = eggOf()
-  return e && !isCaseEgg(e) ? (e as CyberEgg) : undefined
+  return e && !themeKeyOf(e) ? (e as CyberEgg) : undefined
 }
 
 // The money a cost is shown in. Costs are counted in US dollars and converted at an
@@ -4295,10 +4377,11 @@ const orgSvg = (W: number, root: OrgNode, isLight = false): string => {
 ${(() => {
   const figure = `${crab(left, y, 'boss', false, isWorking, sc)}${crown(left, y, sc)}`
   const egg = cyberOf()
-  if (!egg || !isWorking) return dancing(figure, isParty)
-  // David's Sandevistan: the boss leaves afterimages while the job runs.
-  const sv = sandevistan(figure, egg)
-  return `<defs>${sv.defs}</defs>${sv.svg}${dancing(figure, isParty)}`
+  const th = themeOf()
+  if ((!egg && !th?.afterimages) || !isWorking) return dancing(figure, isParty)
+  // David's Sandevistan (the themed skins' own trails): the boss leaves afterimages while the job runs.
+  const sv = egg ? sandevistan(figure, egg) : (th as ThemeEggs).afterimages?.(figure, { x: left, y, w, h })
+  return sv ? `<defs>${sv.defs}</defs>${sv.svg}${dancing(figure, isParty)}` : dancing(figure, isParty)
 })()}
 <text x="${x}" y="${y + h + 20}" text-anchor="middle" font-size="13" font-weight="800" fill="${SKIN.boss[0]}" letter-spacing=".3" class="gl">Manager</text>`)
       return
@@ -4350,7 +4433,7 @@ ${slot >= 46 ? `<text${isWorking ? ' class="t"' : ' class="s"'} x="${x}" y="${y 
     castGrow = 1
     figureDefs = null
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${FONT}">${PANE_CSS}${CRAB_CSS}${cyberOf() ? `<style>${EGG_CSS}</style>` : ''}
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${FONT}">${PANE_CSS}${CRAB_CSS}${cyberOf() ? `<style>${EGG_CSS}</style>` : themeOf() ? `<style>${themeOf()?.css}</style>` : ''}
 <defs>${figureDefsMarkup(figures)}${isLight ? '' : orgMarks()}
 <radialGradient id="aura"><stop offset="0" stop-color="${SKIN.boss[0]}" stop-opacity=".45"/><stop offset=".6" stop-color="${SKIN.boss[0]}" stop-opacity=".12"/><stop offset="1" stop-color="${SKIN.boss[0]}" stop-opacity="0"/></radialGradient>
 <linearGradient id="ring" x1="0" x2="1"><stop offset="0" stop-color="${SKIN.boss[0]}"/><stop offset=".5" stop-color="${SKIN.boss[2]}" stop-opacity=".2"/><stop offset="1" stop-color="${SKIN.boss[3]}"/></linearGradient>
@@ -5081,6 +5164,7 @@ const hudBandSvg = (OW: number, d: HudData): string => {
   const c = SKIN.colors
   const any = eggOf()
   const egg = cyberOf()
+  const th = themeOf()
   if (d.simple && !any) return hudSimpleSvg(OW, d)
   // The frame takes the whole box; the content sits inside it, padded.
   const OH = HUD_OUT_H
@@ -5111,8 +5195,8 @@ const hudBandSvg = (OW: number, d: HudData): string => {
 <text class="m" x="${rx + 74}" y="20" font-family="${FONT}" font-size="9.5" letter-spacing=".4">5H LIMIT</text>
 ${d.limitPct === null ? `<text class="m" x="${rx + 74}" y="33" font-family="${FONT}" font-size="11">—</text>` : `${segmentBar(rx + 74, 27, 54, d.limitPct, limitTone).replace(/height="8"/g, 'height="5"').replace(/height="3"/g, 'height="0"')}<text x="${rx + 134}" y="33" font-family="${FONT}" font-size="12" font-weight="800" fill="${limitTone}" font-variant-numeric="tabular-nums">${Math.round(d.limitPct)}%</text>`}
 <line x1="${rx + 168}" y1="14" x2="${rx + 168}" y2="34" stroke="${c.line}" stroke-opacity=".6"/>
-<text class="m" x="${rx + 178}" y="20" font-family="${FONT}" font-size="9.5" letter-spacing=".4">${egg ? 'HEAT' : 'BURN/MIN'}</text>
-${egg ? heatStars(rx + 178, 43, burnStars(d.burnPerMin), egg) : ''}
+<text class="m" x="${rx + 178}" y="20" font-family="${FONT}" font-size="${th?.heat ? 8.5 : 9.5}" letter-spacing=".4">${egg ? 'HEAT' : th?.heat ? th.heatLabel ?? 'HEAT' : 'BURN/MIN'}</text>
+${egg ? heatStars(rx + 178, 43, burnStars(d.burnPerMin), egg) : th?.heat ? th.heat(rx + 178, 43, Math.max(burnStars(d.burnPerMin), th.heatFromTime?.(d.taskMs) ?? 0), c) : ''}
 <path d="M${rx + 183} 24l-4 6h3l-1.5 5l5-7h-3l1.5-4z" fill="${MOOD_COLOR[burnMood(d.burnPerMin)]}"/>
 <text x="${rx + 188}" y="33" font-family="${FONT}" font-size="12" font-weight="800" fill="${MOOD_COLOR[burnMood(d.burnPerMin)]}" font-variant-numeric="tabular-nums">${fmtTokens(d.burnPerMin)}</text>`
   // The gauge: the real share when there is one, else a scanner sweeping while it works.
@@ -5133,7 +5217,7 @@ ${egg ? heatStars(rx + 178, 43, burnStars(d.burnPerMin), egg) : ''}
 .shine{animation:shine 2.2s ease-in-out infinite}@keyframes shine{from{transform:translateX(-30px);opacity:0}30%{opacity:1}to{transform:translateX(${Math.max(40, Math.round((barW * (pct ?? 0)) / 100))}px);opacity:0}}
 .cur{animation:cur 1.1s steps(1) infinite}@keyframes cur{50%{opacity:0}}
 @media (prefers-reduced-motion: reduce){.ekg,.hscan,.hedge,.beam,.brk,.shine,.cur{animation:none}}
-${egg ? EGG_CSS : isCaseEgg(any) ? MENT_CSS : ''}
+${egg ? EGG_CSS : th ? th.css : ''}
 </style>`
   // A beam of light that crosses the card, clipped to its shape.
   const beam = `<defs><clipPath id="hudclip">${cardShape(0.5, 0.5, OW - 1, OH - 1, '', 10)}</clipPath>
@@ -5159,7 +5243,7 @@ ${egg ? EGG_CSS : isCaseEgg(any) ? MENT_CSS : ''}
     `${css}
 ${cardShape(0.5, 0.5, OW - 1, OH - 1, `class="tile"`, 10)}
 ${cardShape(0.5, 0.5, OW - 1, OH - 1, `fill="none" stroke="${edge}" stroke-opacity="${d.isWorking ? 0.45 : 0.6}" stroke-width="1.2"${d.isWorking ? ' class="hedge"' : ''}`, 10)}
-${egg && !d.lite ? `<g clip-path="url(#hudclip)">${skyline(OW, OH - 16, 14, egg).replace('<g opacity=".5">', '<g opacity=".25">')}</g>` : ''}
+${egg && !d.lite ? `<g clip-path="url(#hudclip)">${skyline(OW, OH - 16, 14, egg).replace('<g opacity=".5">', '<g opacity=".25">')}</g>` : th?.skyline && !d.lite ? `<g clip-path="url(#hudclip)">${th.skyline(OW, OH - 16, 14, c)}</g>` : ''}
 ${beam}
 ${brackets}
 <rect x="0.5" y="12" width="3" height="${OH - 24}" rx="1.5" fill="${edge}"/>
@@ -5169,11 +5253,13 @@ ${hudHead(W, d)}
 <line x1="12" y1="${HUD_TOP + 0.5}" x2="${W - 12}" y2="${HUD_TOP + 0.5}" stroke="${c.line}"/>
 ${(() => {
   const figure = `${crab(10, 9, 'boss', false, d.isWorking, 1.05)}${crown(10, 9, 1.05)}`
+  // (a themed skin's afterimages trail the figure in the pane; the band keeps to the cyberpunk ones)
   if (!egg || !d.isWorking || d.lite) return dancing(figure, d.isParty)
   const sv = sandevistan(figure, egg)
   return `<defs>${sv.defs}</defs>${sv.svg}${dancing(figure, d.isParty)}`
 })()}
-${egg ? relicText(left, 20, fitText(d.title, 13, titleW), `font-family="${FONT}" font-size="13" font-weight="800" fill="${c.accent}"`, egg) : `<text x="${left}" y="20" font-family="${FONT}" font-size="13" font-weight="800" class="ac gl">${xml(fitText(d.title, 13, titleW))}</text>`}
+${egg ? relicText(left, 20, fitText(d.title, 13, titleW), `font-family="${FONT}" font-size="13" font-weight="800" fill="${c.accent}"`, egg) : th?.glitch ? th.glitch(left, 20, fitText(d.title, 13, titleW), `font-family="${FONT}" font-size="13" font-weight="800" fill="${c.accent}"`, titleW) : `<text x="${left}" y="20" font-family="${FONT}" font-size="13" font-weight="800" class="ac gl">${xml(fitText(d.title, 13, titleW))}</text>`}
+${th?.mark ? th.mark(left - 15, 7) : ''}
 <rect x="${left + titleW + 8}" y="9" width="${pillW}" height="15" rx="7.5" fill="${statusTone}" fill-opacity="${d.isWorking || d.isParty ? 0.95 : 0.25}"/>
 <text x="${left + titleW + 8 + pillW / 2}" y="20" text-anchor="middle" font-family="${FONT}" font-size="10.5" font-weight="800" fill="${d.isWorking || d.isParty ? inkOn(statusTone) : c.text}">${xml(d.status)}</text>
 <text class="s" x="${left + titleW + pillW + 18}" y="20" font-family="${FONT}" font-size="11.5">${xml(fitText(d.activity ? `▸ ${d.activity}` : '', 11.5, Math.max(0, W - right - (left + titleW + pillW + 18) - 8)))}</text>
@@ -5190,8 +5276,8 @@ ${hudLines(W, d)}
 ${hudSpare(W)}
 </g>
 ${egg && d.isParty ? celebration(OW, OH, egg, FONT, d.partyAt) : ''}
-${isCaseEgg(any) && d.isParty ? caseClosed(OW, OH, FONT, c, d.partyAt) : ''}
-${any === 'mentalist' && (d.ctxPct >= 95 || (d.budget && d.budget.usedMs > d.budget.min * 60_000)) ? hiddenSmiley(OW, OH) : ''}`,
+${th && d.isParty ? th.cheer(OW, OH, FONT, c, d.partyAt) : ''}
+${th?.corner ? th.corner(OW, OH, { ctxPct: d.ctxPct, overBudget: Boolean(d.budget && d.budget.usedMs > d.budget.min * 60_000) }) : ''}`,
   )
 }
 
@@ -5205,7 +5291,10 @@ const hudHead = (W: number, d: HudData): string => {
   const nameW = textWidth(name, 10.5) * 1.08 + name.length * 0.9 + textWidth('▮', 10.5) + 4
   const skin = SKIN.name.toUpperCase()
   const skinW = Math.round(textWidth(skin, 9.5) + 14)
-  const sx = 24 + nameW + 8
+  // Small tiles beside the name (Breaking Bad's Br and Ba), when the band has room for them.
+  const tiles = themeOf()?.tiles?.(24 + nameW + 8, y, c, FONT)
+  const hasTiles = Boolean(tiles) && W >= 24 + nameW + 8 + (tiles?.w ?? 0) + skinW + 220
+  const sx = 24 + nameW + 8 + (hasTiles && tiles ? tiles.w + 8 : 0)
   const crewLabel = d.crewMode ? '⚑ CREW MODE' : ''
   const crewW = crewLabel ? Math.round(textWidth(crewLabel, 9.5) + 16) : 0
   // The skin's chip only when it fits the band.
@@ -5216,13 +5305,13 @@ const hudHead = (W: number, d: HudData): string => {
   const bgW = bgLabel ? Math.round(textWidth(bgLabel, 9.5) + 14) : 0
   const bx = cx + (crewW ? crewW + 8 : 0)
   const mx = bgW ? bx + bgW + 12 : cx + (crewW ? crewW + 12 : 4)
-  const any = eggOf()
   const egg = cyberOf()
-  const psy = egg ? psychoChip(mx, y, d.ctxPct, FONT) : isCaseEgg(any) ? teaChip(mx, y, d.ctxPct, c, FONT) : { svg: '', w: 0 }
+  const th = themeOf()
+  const psy = egg ? psychoChip(mx, y, d.ctxPct, FONT) : th ? th.chip(mx, y, d.ctxPct, c, FONT) : { svg: '', w: 0 }
   const mx2 = mx + (psy.w ? psy.w + 10 : 0)
   const model = [PROVIDER, d.model, d.effort].filter(Boolean).join(' · ')
   const clock = d.budget ? `⏱\uFE0E ${budgetLabel(d.budget.usedMs, d.budget.min)}` : d.taskMs > 0 ? `⏱\uFE0E ${fmtTime(d.taskMs)}` : ''
-  const parts = [egg ? `♪ ${radio(d.at)}` : isCaseEgg(any) ? episodeAt(d.at, any === 'redjohn') : '', d.folder ? `▤ ${d.folder}` : '', clock].filter(Boolean)
+  const parts = [egg ? `♪ ${radio(d.at)}` : th ? th.ticker(d.at) : '', d.folder ? `▤ ${d.folder}` : '', clock].filter(Boolean)
   const widthOf = (xs: string[]) => (xs.length ? textWidth(xs.join('   '), 11) + 8 : 0)
   while (parts.length > (clock ? 1 : 0) && W - 14 - widthOf(parts) < mx2 + 60) parts.shift()
   const right = parts.join('   ')
@@ -5230,14 +5319,15 @@ const hudHead = (W: number, d: HudData): string => {
   const done = d.steps.filter(st => st === 'done').length
   // The breach ticker takes the middle when there is room for it.
   const breachX = W - 14 - rightW - BREACH_W - 24
-  const coldX = W - 14 - rightW - COLD_W - 24
+  const coldX = W - 14 - rightW - (th?.readout.w ?? 0) - 24
   const hasBreach = Boolean(egg) && breachX > mx2 + 120
-  const hasCold = isCaseEgg(any) && coldX > mx2 + 120
-  return `${any === 'redjohn' ? smiley(10, y - 11, 11, 1, 'rjs') : `<rect x="14" y="${y - 7}" width="5" height="5" fill="${c.accent2}" transform="rotate(45 16.5 ${y - 4.5})"/>`}
+  const hasCold = Boolean(th) && coldX > mx2 + 120
+  return `${th?.logo ? th.logo(10, y - 11) : `<rect x="14" y="${y - 7}" width="5" height="5" fill="${c.accent2}" transform="rotate(45 16.5 ${y - 4.5})"/>`}
 <text x="24" y="${y}" font-family="${FONT}" font-size="10.5" font-weight="800" letter-spacing=".9" fill="${c.accent2}">${name}<tspan class="cur">▮</tspan></text>
-${egg ? `<text x="24" y="${y + 7}" font-family="${FONT.replace(/,?sans-serif$/, '')},${CJK_FONT}" font-size="7" letter-spacing="1.2" fill="${c.accent2}" fill-opacity=".5">${KATAKANA[egg]}</text>` : ''}
+${egg ? `<text x="24" y="${y + 7}" font-family="${FONT.replace(/,?sans-serif$/, '')},${CJK_FONT}" font-size="7" letter-spacing="1.2" fill="${c.accent2}" fill-opacity=".5">${KATAKANA[egg]}</text>` : th?.glyphs ? th.glyphs(24, y + 7, nameW, c, FONT) : ''}
+${hasTiles && tiles ? tiles.svg : ''}
 ${hasBreach && egg ? breachTicker(breachX, y, d.isWorking, done, d.steps.length, egg, FONT) : ''}
-${hasCold ? coldTicker(coldX, y, d.isWorking, done, d.steps.length, c, FONT) : ''}
+${hasCold && th ? th.readout.draw(coldX, y, d.isWorking, done, d.steps.length, c, FONT) : ''}
 ${psy.svg}
 ${hasSkinChip ? `<rect x="${sx}" y="${y - 10}" width="${skinW}" height="13" rx="2" fill="none" stroke="${c.accent2}" stroke-opacity=".55"/>
 <text x="${sx + skinW / 2}" y="${y - 0.5}" text-anchor="middle" font-family="${FONT}" font-size="9.5" font-weight="700" letter-spacing=".4" fill="${c.accent2}">${xml(skin)}</text>` : ''}
@@ -5510,8 +5600,9 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
   const kept = cleanLegends(await $.store.get('legends').catch(() => []))
   await $.store.set('legends', [legend, ...kept].slice(0, LEGENDS_KEPT)).catch(() => undefined)
   const egg = eggOf()
+  const th = themeOf()
   // A long job makes a legend: the Afterlife names a drink after it.
-  if (isCaseEgg(egg) && legend.ms >= 180_000) $.ui.toast(CLOSED_FILES_TOAST)
+  if (th && legend.ms >= 180_000) $.ui.toast(th.legends.toast)
   else if (egg && legend.ms >= 180_000) $.ui.toast(egg === 'corpo' ? `▣ Engram filed in Mikoshi: ${clip(legend.task, 40)}` : `🍸 The Afterlife named a drink after you: The ${clip(legend.task, 40)}`)
   $.ui.toast(`🎉 Done: ${clip(job.task, 60)}`)
   void $.ui.notify(`Claude finished: ${clip(job.task, 80)}`).catch(() => undefined)
@@ -5522,7 +5613,7 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
   }
   // One chime, not two cut short: the level-up's when the job earned one, else the skin's.
   const isCheer = await paid.catch(() => false)
-  void play($, !egg || isCaseEgg(egg) ? 'assets/done.wav' : isCheer ? `${ADDON}/assets/levelup.wav` : `${ADDON}/assets/done-${egg}.wav`)
+  void play($, !egg || th ? 'assets/done.wav' : isCheer ? `${ADDON}/assets/levelup.wav` : `${ADDON}/assets/done-${egg}.wav`)
 }
 
 // What everyone is doing right now, from each tool call: the live activity line,
@@ -6382,7 +6473,7 @@ export const register: Register = (on, options) => {
       if (ctx < 80) psyWarned = false
       else if (egg && ctx >= 85 && !psyWarned) {
         psyWarned = true
-        $.ui.toast(isCaseEgg(egg) ? TEA_WARNING(ctx) : `⚠ Cyberpsychosis risk: context ${ctx}%. Take your immunosuppressants: /compact`)
+        $.ui.toast(themeOf() ? (themeOf() as ThemeEggs).warning(ctx) : `⚠ Cyberpsychosis risk: context ${ctx}%. Take your immunosuppressants: /compact`)
       }
       if (typeof e.effort === 'string') {
         const effort = e.effort
@@ -6703,6 +6794,7 @@ export const register: Register = (on, options) => {
       )
       if (p.isCompact) return keep(compactView())
       const egg = eggOf()
+      const th = themeOf()
       // A skin with a backdrop paints the pane body behind the cards.
       const fill = SKIN.backdrop.fill
       // A row's own drawing does not change when the rows around it go: drawn once.
@@ -6718,7 +6810,7 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="boot" marginBottom={1}>
                 <Svg
-                  source={isCaseEgg(egg) ? bootStrip(W, SKIN.colors, FONT, ...(egg === 'redjohn' ? REDJOHN_BOOT : MENTALIST_BOOT) as [string, string]) : bootStrip(W, SKIN.colors, FONT, 'JACKING IN…', egg === 'corpo' ? 'ARASAKA NETWORK › IDENTITY VERIFIED › ACCESS GRANTED' : egg === 'samurai' ? 'WAKE UP, SAMURAI › AMPS ON › LIVE AT THE ATLANTIS' : egg === 'netrun' ? 'JACKED IN › DIVING THE NET › ICE BYPASSED' : 'LINK ESTABLISHED › NEURAL HANDSHAKE OK › ICE BYPASSED')}
+                  source={th ? bootStrip(W, SKIN.colors, FONT, ...th.boot) : bootStrip(W, SKIN.colors, FONT, 'JACKING IN…', egg === 'corpo' ? 'ARASAKA NETWORK › IDENTITY VERIFIED › ACCESS GRANTED' : egg === 'samurai' ? 'WAKE UP, SAMURAI › AMPS ON › LIVE AT THE ATLANTIS' : egg === 'netrun' ? 'JACKED IN › DIVING THE NET › ICE BYPASSED' : 'LINK ESTABLISHED › NEURAL HANDSHAKE OK › ICE BYPASSED')}
                   alt="Mission Control online"
                 />
               </Box>
@@ -6738,8 +6830,8 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="cred" marginBottom={1}>
                 <Svg
-                  source={isCaseEgg(egg) ? credCard(W, streetCred, SKIN.colors, FONT, cardShape, 'CBI CRED', '', cbiRankOf, CBI_WORDS) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
-                  alt={`Level ${levelOf(streetCred.xp)} ${(isCaseEgg(egg) ? cbiRankOf : egg === 'samurai' ? rockerRankOf : rankOf)(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
+                  source={th ? (th.cred.card ? th.cred.card(W, streetCred, SKIN.colors, FONT, cardShape) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, th.cred.title, '', th.cred.ranks, th.cred.words)) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
+                  alt={`Level ${levelOf(streetCred.xp)} ${(th ? th.cred.ranks : egg === 'samurai' ? rockerRankOf : rankOf)(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
                 />
               </Box>
             ) : null}
@@ -6761,8 +6853,8 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="breach" marginBottom={1}>
                 <Svg
-                  source={isCaseEgg(egg) ? coldReadCard(W, boss.task, boss.isWorking, steps.filter(st => st.state === 'done').length, steps.length, SKIN.colors, FONT, cardShape, egg === 'redjohn') : breachCard(W, steps.filter(st => st.state === 'done').length, steps.length, boss.isWorking, egg, FONT, cardShape)}
-                  alt={isCaseEgg(egg) ? `Cold read: ${boss.isWorking ? 'reading' : 'waiting'}, ${steps.filter(st => st.state === 'done').length} of ${steps.length} steps` : `Breach Protocol: ${steps.filter(st => st.state === 'done').length} of ${steps.length} steps`}
+                  source={th ? th.card.draw(W, boss.task, boss.isWorking, steps.filter(st => st.state === 'done').length, steps.length, SKIN.colors, FONT, cardShape) : breachCard(W, steps.filter(st => st.state === 'done').length, steps.length, boss.isWorking, egg, FONT, cardShape)}
+                  alt={th ? th.card.alt(boss.isWorking, steps.filter(st => st.state === 'done').length, steps.length) : `Breach Protocol: ${steps.filter(st => st.state === 'done').length} of ${steps.length} steps`}
                 />
               </Box>
             ) : null}
@@ -6770,22 +6862,22 @@ export const register: Register = (on, options) => {
               <Box key="legends" marginBottom={1}>
                 <Svg
                   source={legendsCard(W, legends, egg, FONT, fmtCost, cardShape)}
-                  alt={`${isCaseEgg(egg) ? 'Closed files' : egg === 'corpo' ? 'Mikoshi engrams' : 'Afterlife drinks'}: ${legends.map(l => l.task).join(', ') || 'none yet'}`}
+                  alt={`${th ? th.legends.alt : egg === 'corpo' ? 'Mikoshi engrams' : 'Afterlife drinks'}: ${legends.map(l => l.task).join(', ') || 'none yet'}`}
                 />
               </Box>
             ) : null}
             {egg ? (
               <Box key="bd" flexDirection="column" marginBottom={1}>
                 <Svg
-                  source={isCaseEgg(egg) ? braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, 'CASE BOARD', undefined, ['CLUES', 'ALIBIS', 'TELLS'], 'REPLAY') : braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
-                  alt={braindanceAlt(beats, pick)}
+                  source={th ? th.log.draw(W, beats, pick, SKIN.colors, FONT, cardShape) : braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
+                  alt={th && !th.log.hasControls ? `Lab log: ${beats.length} tool calls` : braindanceAlt(beats, pick)}
                 />
-                <Box flexDirection="row" gap={2}>
+                {th && !th.log.hasControls ? null : <Box flexDirection="row" gap={2}>
                   <Button key="bd-first" label={'⏮\uFE0E First'} plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, () => (n ? 0 : -1)) }} />
                   <Button key="bd-prev" label={'◀\uFE0E Back'} plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, i => stepPick(i, n, -1)) }} />
                   <Button key="bd-next" label={'Next ▶\uFE0E'} plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, i => stepPick(i, n, 1)) }} />
                   <Button key="bd-live" label="● Live" plain onPress={() => update($, bdPick, () => -1)} />
-                </Box>
+                </Box>}
               </Box>
             ) : null}
             <Svg
@@ -7135,6 +7227,17 @@ export const register: Register = (on, options) => {
     // The hidden skin: "tyger tyger" typed while wearing The Mentalist. The prompt goes on unchanged.
     if (asked && SKIN.id === 'mentalist' && TYGER_RE.test(asked)) {
       const found = SKINS.get('red-john')
+      if (found) {
+        applySkin(found)
+        await $.store.set('skin', found.id).catch(() => undefined)
+        await update($, skin, () => found.id)
+        await retitle($).catch(() => undefined)
+        await foundSecret($, found).catch(() => undefined)
+      }
+    }
+    // The same for "say my name" typed while wearing Breaking Bad: Heisenberg.
+    if (asked && SKIN.id === 'breaking-bad' && SAY_MY_NAME_RE.test(asked)) {
+      const found = SKINS.get('heisenberg')
       if (found) {
         applySkin(found)
         await $.store.set('skin', found.id).catch(() => undefined)
