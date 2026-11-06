@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mission Control Demo</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap">
+<style>
+  html, body { margin: 0; height: 100%; background: #050608; overflow: hidden; }
+  #stage { position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px; transform-origin: center; }
+  #stage > section { position: absolute; inset: 0; box-sizing: border-box; }
+  section h1, section h2, section h3, section p, section ul, section ol { margin: 0; }
+  section ul, section ol { padding-left: 1.2em; }
+  section table { border-collapse: collapse; width: 100%; }
+  section th, section td { text-align: left; padding: 0.35em 0.6em; border-bottom: 1px solid rgba(128,128,128,.35); }
+  section th { font-weight: 700; }
+  section aside { display: none; }
+  #nav { position: fixed; right: 16px; bottom: 12px; font: 14px system-ui, sans-serif; color: #8D93A0; }
+</style>
+</head>
+<body>
+<!-- Mission Control demo. Arrow keys, space or click to move; open from the docs folder so the screenshots load. -->
+<div id="stage">
+<section id="cover" data-transition="fade" style="background:#0B0C10;color:#ECEAE4;font-family:'DM Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;justify-content:center;gap:56px">
+<img src="hero.png" alt="Mission Control banner: Crab Classic crabs on the left, the Cyberpunk Skins cast in Night City on the right" style="width:1664px;height:582px;object-fit:cover;border-radius:24px">
+<div style="display:flex;flex-direction:row;justify-content:space-between;align-items:end;gap:48px">
+<h1 style="font-family:'Rajdhani', Arial, sans-serif;font-size:72px;font-weight:700;line-height:1.1;color:#ECEAE4">See everything Claude is doing. Live.</h1>
+<p style="font-size:32px;color:#A3A8B4;white-space:nowrap">A mod for Claude Code</p>
+</div>
+<aside>Mission Control is a mod for Claude Code, in the desktop app and the CLI. It shows who is working, on what, how far along, and what it costs, while Claude works.</aside>
+</section>
+
+<section id="problem" data-transition="fade" style="background:#F4F2EC;color:#16181F;font-family:'DM Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;justify-content:space-between;gap:64px">
+<p style="font-family:'Rajdhani', Arial, sans-serif;font-size:32px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:#A3480F">The problem</p>
+<h2 style="font-family:'Rajdhani', Arial, sans-serif;font-size:96px;font-weight:700;line-height:1.05;color:#16181F">Claude works in steps, tools and sub-agents. Most of it scrolls past unseen.</h2>
+<div style="display:flex;flex-direction:row;gap:32px">
+<div style="flex:1;display:flex;flex-direction:column;gap:12px;background:#FFFFFF;border:1px solid #DDD9CF;border-radius:20px;padding:40px">
+<h3 style="font-size:40px;font-weight:700;color:#16181F">Who is working?</h3>
+<p style="font-size:28px;line-height:1.4;color:#4A4F5C">Sub-agents start and finish out of sight.</p>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:12px;background:#FFFFFF;border:1px solid #DDD9CF;border-radius:20px;padding:40px">
+<h3 style="font-size:40px;font-weight:700;color:#16181F">How far along?</h3>
+<p style="font-size:28px;line-height:1.4;color:#4A4F5C">The plan lives in the chat, not on screen.</p>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:12px;background:#FFFFFF;border:1px solid #DDD9CF;border-radius:20px;padding:40px">
+<h3 style="font-size:40px;font-weight:700;color:#16181F">What does it cost?</h3>
+<p style="font-size:28px;line-height:1.4;color:#4A4F5C">Tokens and limits only show up when you ask.</p>
+</div>
+</div>
+<aside>The three questions everyone asks while Claude runs a long job. Mission Control answers all three at a glance, without asking Claude.</aside>
+</section>
+
+<section id="overview" data-transition="fade" style="background:#0B0C10;color:#ECEAE4;font-family:'DM Sans', Arial, sans-serif;padding:128px;display:grid;grid-template-columns:860px 1fr;gap:72px;align-items:center">
+<img src="mission-control.png" alt="Mission Control in the Cyberpunk 2077 skin: the HUD band, usage limits, Breach Protocol, the manager card and the Token Manager" style="width:860px;height:824px;object-fit:contain;background:#14161D;border-radius:20px">
+<div style="display:flex;flex-direction:column;gap:40px">
+<p style="font-family:'Rajdhani', Arial, sans-serif;font-size:32px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:#FCEE0A">What it shows</p>
+<h2 style="font-family:'Rajdhani', Arial, sans-serif;font-size:72px;font-weight:700;line-height:1.05;color:#ECEAE4">A HUD band and a live pane</h2>
+<ul style="font-size:32px;line-height:1.45;color:#C9CCD4">
+<li><b>Band above the prompt:</b> the boss, the task, a progress gauge</li>
+<li><b>Readouts:</b> context, 5-hour limit, burn rate, tok/s, cost</li>
+<li><b>Steps:</b> the plan as pips, live</li>
+<li><b>Done chime</b> and a <b>stuck alarm</b> after 2 quiet minutes</li>
+</ul>
+</div>
+<aside>Left: the full pane. The band sits above the prompt and is always on. Open the pane with /missioncontrol. Live in the demo: start a task and watch the band and steps move.</aside>
+</section>
+
+<section id="crew" data-transition="fade" style="background:#0B0C10;color:#ECEAE4;font-family:'DM Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;justify-content:space-between;gap:48px">
+<div style="display:flex;flex-direction:column;gap:16px">
+<p style="font-family:'Rajdhani', Arial, sans-serif;font-size:32px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:#FCEE0A">The crew</p>
+<h2 style="font-family:'Rajdhani', Arial, sans-serif;font-size:72px;font-weight:700;line-height:1.05;color:#ECEAE4">Every sub-agent, by role, under the manager</h2>
+</div>
+<img src="crew-cyberpunk-2077.png" alt="Crew hierarchy: the manager on top, then Token Manager, Designers, Engineers, Testers, Researchers, Writers, Planners and Artists, each with its sub-agents" style="width:1664px;height:520px;object-fit:contain;background:#14161D;border-radius:20px">
+<p style="font-size:32px;line-height:1.4;color:#C9CCD4"><b style="color:#22D3EE">Crew mode</b> splits big jobs across sub-agents on its own. Finished agents fold away.</p>
+<aside>Each role gets a colour and a figure. Big jobs (a long brief, many files, a codebase sweep, a long plan, or a full context) are split across sub-agents automatically; /autocrew turns it on or off.</aside>
+</section>
+
+<section id="tokens" data-transition="fade" style="background:#F4F2EC;color:#16181F;font-family:'DM Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;justify-content:space-between;gap:56px">
+<div style="display:flex;flex-direction:column;gap:16px">
+<p style="font-family:'Rajdhani', Arial, sans-serif;font-size:32px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:#A3480F">Token Manager</p>
+<h2 style="font-family:'Rajdhani', Arial, sans-serif;font-size:72px;font-weight:700;line-height:1.05;color:#16181F">Watches every token, so you don’t have to</h2>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:32px">
+<div style="display:flex;flex-direction:column;gap:12px;background:#FFFFFF;border:1px solid #DDD9CF;border-radius:20px;padding:40px">
+<h3 style="font-size:40px;font-weight:700;color:#16181F">Cost per task</h3>
+<p style="font-size:28px;line-height:1.4;color:#4A4F5C">Burn rate, cache hits and spend, in 6 currencies.</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:12px;background:#FFFFFF;border:1px solid #DDD9CF;border-radius:20px;padding:40px">
+<h3 style="font-size:40px;font-weight:700;color:#16181F">Budget warnings</h3>
+<p style="font-size:28px;line-height:1.4;color:#4A4F5C">Set a per-task budget; it warns at 80% and 100%.</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:12px;background:#FFFFFF;border:1px solid #DDD9CF;border-radius:20px;padding:40px">
+<h3 style="font-size:40px;font-weight:700;color:#16181F">Haiku autopilot</h3>
+<p style="font-size:28px;line-height:1.4;color:#4A4F5C">Read-only explorers run on Haiku unless you pick a model.</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:12px;background:#FFFFFF;border:1px solid #DDD9CF;border-radius:20px;padding:40px">
+<h3 style="font-size:40px;font-weight:700;color:#16181F">Cache countdown</h3>
+<p style="font-size:28px;line-height:1.4;color:#4A4F5C">A toast at 10 and 5 minutes before the prompt cache expires.</p>
+</div>
+</div>
+<aside>All of this runs locally in the mod; it reads the session's usage and the requests Claude makes. /tokens gives a text report, /tokens budget 2 sets a 2-dollar budget per task, /tokens autopilot on turns on the Haiku autopilot.</aside>
+</section>
+
+<section id="skins" data-transition="fade" style="background:#0B0C10;color:#ECEAE4;font-family:'DM Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;justify-content:space-between;gap:48px">
+<div style="display:flex;flex-direction:column;gap:16px">
+<p style="font-family:'Rajdhani', Arial, sans-serif;font-size:32px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:#FCEE0A">Skins</p>
+<h2 style="font-family:'Rajdhani', Arial, sans-serif;font-size:72px;font-weight:700;line-height:1.05;color:#ECEAE4">Five looks, plus one hidden</h2>
+</div>
+<table style="font-size:30px;color:#ECEAE4;font-family:'DM Sans', Arial, sans-serif">
+<tr><th style="width:30%">Skin</th><th style="width:20%">Edition</th><th style="width:50%">The look</th></tr>
+<tr><td>default</td><td>Core</td><td>The app’s own look, just the data</td></tr>
+<tr><td>Crab Classic</td><td>Core</td><td>A working crab in costume per role</td></tr>
+<tr><td>Cyberpunk 2077</td><td>Add-on</td><td>Neon yellow, cyan and hot red</td></tr>
+<tr><td>Lucy · Edgerunners</td><td>Add-on</td><td>Rose-pink and cyan under the moon</td></tr>
+<tr><td>Arasaka</td><td>Add-on</td><td>Corporate red and black</td></tr>
+<tr><td>???</td><td>Add-on</td><td>Not in the picker. Wake up…</td></tr>
+</table>
+<p style="font-size:28px;color:#A3A8B4">Pick with <b style="color:#22D3EE">/skins</b>, or make your own as a small JSON file.</p>
+<aside>Each skin restyles the band, the pane, the chat’s tool rows and the spinner. Custom skins go in a “Custom Claude Skins” folder; /skin reload picks up edits.</aside>
+</section>
+
+<section id="cyberpunk" data-transition="fade" style="background:#0B0C10;color:#ECEAE4;font-family:'DM Sans', Arial, sans-serif;padding:128px;display:grid;grid-template-columns:1fr 820px;gap:72px;align-items:center">
+<div style="display:flex;flex-direction:column;gap:40px">
+<p style="font-family:'Rajdhani', Arial, sans-serif;font-size:32px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:#FCEE0A">Cyberpunk add-on</p>
+<h2 style="font-family:'Rajdhani', Arial, sans-serif;font-size:72px;font-weight:700;line-height:1.05;color:#ECEAE4">Your crew moves to Night City</h2>
+<ul style="font-size:32px;line-height:1.45;color:#C9CCD4">
+<li><b>Street Cred:</b> XP per job, ranks and 9 badges</li>
+<li><b>Braindance:</b> replay the session, every tool call a mark</li>
+<li><b>Pixel-art cast</b> and per-skin sound packs</li>
+</ul>
+<p style="font-size:24px;line-height:1.4;color:#8D93A0">Unofficial, non-commercial fan project.</p>
+</div>
+<img src="street-cred.png" alt="Street Cred card at level 4 with badges, and the Braindance replay timeline" style="width:820px;height:677px;object-fit:contain;background:#14161D;border-radius:20px">
+<aside>The add-on swaps the crabs for a pixel-art cast and adds a progression system. It is a fan homage, not affiliated with CD PROJEKT RED, Studio Trigger or Netflix.</aside>
+</section>
+
+<section id="install" data-transition="fade" style="background:#F4F2EC;color:#16181F;font-family:'DM Sans', Arial, sans-serif;padding:128px;display:grid;grid-template-columns:1fr 1fr;gap:72px">
+<div style="display:flex;flex-direction:column;gap:32px">
+<p style="font-family:'Rajdhani', Arial, sans-serif;font-size:32px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:#A3480F">Install in 3 steps</p>
+<ol style="font-size:32px;line-height:1.5;color:#2A2E38">
+<li>Clone the repo, or download a zip</li>
+<li>Add the folder to <b>CLAUDE_CODE_PLUGIN_DIRS</b> in ~/.claude/settings.json</li>
+<li>Restart Claude Code</li>
+</ol>
+<p style="font-size:28px;line-height:1.4;color:#4A4F5C">Works on macOS, Windows and Linux, in the desktop app and the CLI.</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:32px">
+<p style="font-family:'Rajdhani', Arial, sans-serif;font-size:32px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:#A3480F">Commands</p>
+<table style="font-size:28px;color:#16181F;font-family:'DM Sans', Arial, sans-serif">
+<tr><th style="width:42%">Command</th><th style="width:58%">What it does</th></tr>
+<tr><td>/missioncontrol</td><td>Open the pane</td></tr>
+<tr><td>/skins</td><td>Pick a skin</td></tr>
+<tr><td>/tokens</td><td>Token report and budget</td></tr>
+<tr><td>/autocrew</td><td>Crew mode on or off</td></tr>
+<tr><td>/prefs</td><td>How Claude should answer</td></tr>
+</table>
+</div>
+<aside>On macOS several mod folders are separated with a colon in CLAUDE_CODE_PLUGIN_DIRS; on Windows with a semicolon. CLAUDE_CODE_PLUGIN_DIR_WATCH=1 reloads the mod when its files change.</aside>
+</section>
+
+<section id="status" data-transition="fade" style="background:#FCEE0A;color:#16181F;font-family:'DM Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;justify-content:space-between;gap:48px">
+<p style="font-family:'Rajdhani', Arial, sans-serif;font-size:32px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:#16181F">Where it stands · v0.3.0</p>
+<h2 style="font-family:'Rajdhani', Arial, sans-serif;font-size:96px;font-weight:700;line-height:1.05;color:#16181F">Now being hardened for Mac</h2>
+<div style="display:flex;flex-direction:row;gap:32px">
+<div style="flex:1;display:flex;flex-direction:column;gap:12px;background:#16181F;border-radius:20px;padding:40px">
+<h3 style="font-size:40px;font-weight:700;color:#FCEE0A">Fixed</h3>
+<p style="font-size:28px;line-height:1.4;color:#ECEAE4">The blank Mission Control pane in the Mac desktop app (pull request #1)</p>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:12px;background:#16181F;border-radius:20px;padding:40px">
+<h3 style="font-size:40px;font-weight:700;color:#FCEE0A">Tested</h3>
+<p style="font-size:28px;line-height:1.4;color:#ECEAE4">89 of 89 automated tests pass</p>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:12px;background:#16181F;border-radius:20px;padding:40px">
+<h3 style="font-size:40px;font-weight:700;color:#FCEE0A">Next</h3>
+<p style="font-size:28px;line-height:1.4;color:#ECEAE4">A Mac audit of design, bugs and platform quirks</p>
+</div>
+</div>
+<aside>Today the pane drew nothing on the Mac desktop app; the cards now stack in plain flow. An audit crew is checking design, bugs and Mac specifics next.</aside>
+</section>
+
+</div>
+<div id="nav"></div>
+<script>
+  const slides = [...document.querySelectorAll('#stage > section')]
+  const shown = slides.map(s => s.style.display || 'flex')
+  let i = Math.max(0, Math.min(slides.length - 1, parseInt(location.hash.slice(1), 10) - 1 || 0))
+  const show = () => {
+    slides.forEach((s, n) => { s.style.display = n === i ? shown[n] : 'none' })
+    document.getElementById('nav').textContent = `${i + 1} / ${slides.length}`
+    history.replaceState(null, '', `#${i + 1}`)
+  }
+  const fit = () => {
+    const k = Math.min(innerWidth / 1920, innerHeight / 1080)
+    document.getElementById('stage').style.transform = `translate(-50%, -50%) scale(${k})`
+  }
+  addEventListener('keydown', e => {
+    if (['ArrowRight', 'ArrowDown', ' ', 'PageDown'].includes(e.key)) i = Math.min(slides.length - 1, i + 1)
+    else if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(e.key)) i = Math.max(0, i - 1)
+    else return
+    e.preventDefault(); show()
+  })
+  addEventListener('click', e => { i = e.clientX < innerWidth / 3 ? Math.max(0, i - 1) : Math.min(slides.length - 1, i + 1); show() })
+  addEventListener('resize', fit)
+  fit(); show()
+</script>
+</body>
+</html>
