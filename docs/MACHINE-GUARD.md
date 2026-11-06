@@ -201,7 +201,7 @@ The refusals above only stop *new* work. They did not stop one `tsc` that grew t
 
 **Which process.** From that same read (plus a second `ps -Ao pid=,ppid=,rss=,args=` for full command lines; on Windows `Win32_Process.CommandLine`):
 
-1. Take every process that is a descendant of a Claude process.
+1. Take every process that is a descendant of a Claude Code process (`claude`, `claude.exe`). The desktop app (`Claude`) is not such a root: its own Terminal tabs run your commands, not Claude's.
 2. Keep those whose command line is *heavy*, using the same classifier as the lock (`tsc`, jest, vitest, mocha, pytest, `npm test|build`, cargo, go, make, gradle, xcodebuild, docker build), also when run through `node .../tsc.js`.
 3. Drop a heavy process that has another heavy process below it (the `npm test` around `jest`): only the one at the bottom is a target, never its parent.
 4. Stop the **single biggest** one.
@@ -212,7 +212,7 @@ The refusals above only stop *new* work. They did not stop one `tsc` that grew t
 - The user's apps and tools (Slack, editors, Docker, databases, ssh...)
 - MCP servers (any command line with `mcp` or `modelcontextprotocol`)
 - Shells (`sh`, `bash`, `zsh`, `fish`, PowerShell...), including the shell that is the parent of the heavy process
-- Processes **not** under a Claude process
+- Processes **not** under a Claude Code process, including what you type in the desktop app's own Terminal tab
 - Any process whose command line changed since the read (a reused pid): it is checked again right before stopping
 
 **How it stops it.** `kill -TERM <pid>`, then `kill -KILL <pid>` if it is still alive 5 s later. On Windows, `Stop-Process -Id <pid>`, then `-Force`. One process at a time, then the 20 s cooldown, then it measures again.
@@ -243,7 +243,7 @@ The refusals above only stop *new* work. They did not stop one `tsc` that grew t
 - The shared budget uses only the mod's own local store file.
 - Nothing leaves your machine.
 
-Note for maintainers: [PRIVACY.md](PRIVACY.md) should list these local commands (`sysctl`, `vm_stat`, PowerShell `Get-CimInstance`, `/proc/meminfo`, and the process list) in its "What it reads on your machine" table. It does not yet.
+The exact commands are listed in [PRIVACY.md](PRIVACY.md#local-commands-machine-guard-runs).
 
 ## Windows notes
 

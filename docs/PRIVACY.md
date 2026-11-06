@@ -23,6 +23,26 @@ The one web address in the code is the skin schema's `$schema` label, written in
 | Your macOS language (`defaults read -g AppleLanguages`) | Which language the panel speaks |
 | The current git branch (`git rev-parse`) | The label on the PR cost badge |
 
+## Local commands Machine Guard runs
+
+[Machine Guard](MACHINE-GUARD.md) runs a few system commands on your machine, only while Claude works. Their output stays in the mod: nothing leaves the machine.
+
+| Command | What it reads or does |
+|---|---|
+| `sysctl -n hw.memsize`, `sysctl -n hw.ncpu` (Mac) | Total RAM and the number of cores |
+| `vm_stat` (Mac) | Free RAM (free, inactive and speculative pages) |
+| `/proc/meminfo` and `nproc` (Linux) | Total and available RAM, the number of cores |
+| `ps -Ao pid=,ppid=,rss=,comm=` (Mac, Linux) | The process list: ids, parents, memory and names, to add up Claude's own RAM |
+| `ps -Ao pid=,ppid=,rss=,args=` (Mac, Linux) | The same list with command lines. Only when Claude is over its RAM limit and the kill switch is on |
+| `ps -p <pid> -o args=` (Mac, Linux) | One process's command line, checked again just before it is stopped |
+| `kill -TERM <pid>`, then `kill -KILL <pid>` (Mac, Linux) | Stops the one heavy command (a type check, test run or build) the kill switch picked |
+| PowerShell `Get-CimInstance Win32_OperatingSystem` (Windows) | Total and free RAM |
+| PowerShell `Get-CimInstance Win32_Process` (Windows) | The process list, and its command lines when the kill switch looks |
+| PowerShell `Stop-Process -Id <pid>`, then `-Force` (Windows) | Stops the one heavy command the kill switch picked |
+| `sleep` / PowerShell `Start-Sleep` | Waits a few seconds while a second heavy command queues |
+
+Sessions share one budget through the mod's own store file (keys `mg.s.<session id>`), not through any service.
+
 ## What it writes on your machine
 
 | What | When |

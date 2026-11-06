@@ -561,8 +561,16 @@ export function heavyArgs(args: unknown): string | null {
   if (typeof args !== 'string' || !args.trim()) return null
   const direct = heavyCommand(args)
   if (direct) return direct
-  const toks = args.trim().split(/\s+/)
-  if (!INTERPRETERS.test(base(toks[0] ?? ''))) return null
+  // Windows quotes paths with spaces ("C:\Program Files\nodejs\node.exe" "C:\My app\...\tsc"): the program
+  // path is kept as one word and the quotes dropped, so it reads like a `ps` line.
+  const toks = args
+    .trim()
+    .replace(/^"([^"]*)"/, (_m, exe: string) => exe.replace(/\s+/g, '_'))
+    .replace(/"/g, '')
+    .split(/\s+/)
+  const exe = base(toks[0] ?? '')
+  if (HEAVY_TOOLS.has(exe)) return exe === 'gradlew' ? 'gradle' : exe
+  if (!INTERPRETERS.test(exe)) return null
   const rest = toks.slice(1)
   const mIdx = rest.indexOf('-m')
   if (mIdx >= 0) {
@@ -584,9 +592,13 @@ export function heavyArgs(args: unknown): string | null {
   return null
 }
 
-/** The processes under Claude: every descendant of a Claude root (a process called claude whose parent is not one). */
+/**
+ * The processes under Claude Code: every descendant of a `claude` root (a process called claude
+ * whose parent is not one). Only Claude Code itself (`claude`, `claude.exe`), not the desktop app
+ * (`Claude`, `Claude.exe`): the app's own Terminal tabs run the person's commands, not Claude's.
+ */
 function claudeTree(procs: readonly Proc[]): Proc[] {
-  const isClaude = (p: Proc) => base(p.name) === 'claude'
+  const isClaude = (p: Proc) => /^claude(\.exe)?$/.test((p.name.split(/[\\/]/).pop() ?? '').trim())
   const byPid = new Map(procs.map(p => [p.pid, p]))
   const kids = new Map<number, Proc[]>()
   for (const p of procs) kids.set(p.ppid, [...(kids.get(p.ppid) ?? []), p])
@@ -676,10 +688,17 @@ export function killDecision(i: KillInput): { kill: KillTarget; claudeBytes: num
   return kill ? { kill, claudeBytes: used } : { skip: 'none' }
 }
 
-/** Process rows from the name list with their command lines from the second list, matched by pid. A row with no command line stays as it was. */
-export function withArgs(procs: readonly Proc[], argRows: readonly { pid: number; args: string }[]): Proc[] {
-  const byPid = new Map(argRows.map(r => [r.pid, r.args]))
-  return procs.map(p => (byPid.has(p.pid) ? { ...p, args: byPid.get(p.pid) } : p))
+/**
+ * Process rows from the name list with their command lines from the second list, matched by pid
+ * (and by parent, when the row has one: a pid reused between the two reads has another parent).
+ * A row with no command line stays as it was.
+ */
+export function withArgs(procs: readonly Proc[], argRows: readonly { pid: number; ppid?: number; args: string }[]): Proc[] {
+  const byPid = new Map(argRows.map(r => [r.pid, r]))
+  return procs.map(p => {
+    const r = byPid.get(p.pid)
+    return r && (r.ppid === undefined || r.ppid === p.ppid) ? { ...p, args: r.args } : p
+  })
 }
 
 const gbText = (bytes: number): string => fmtGb(roundGb(bytes))
