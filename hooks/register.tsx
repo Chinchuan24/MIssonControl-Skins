@@ -6212,7 +6212,7 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="bd" flexDirection="column" marginBottom={1}>
                 <Svg
-                  source={braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, isCaseEgg(egg) ? 'CASE BOARD' : egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
+                  source={isCaseEgg(egg) ? braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, 'CASE BOARD', undefined, ['CLUES', 'ALIBIS', 'TELLS'], 'REPLAY') : braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
                   alt={braindanceAlt(beats, pick)}
                 />
                 <Box flexDirection="row" gap={2}>

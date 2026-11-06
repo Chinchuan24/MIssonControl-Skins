@@ -291,7 +291,9 @@ const bdRows = (beats: Beat[]): string[] => ['Manager', ...[...new Set(beats.map
 export const bdHeight = (beats: Beat[]): number => 91 + 17 * bdRows(beats).length
 // The tallest card (five lanes); the default room to keep for it.
 export const BD_H = 176
-export const braindanceCard = (W: number, beats: Beat[], pick: number, t: Theme, font: string, frame: Frame, title: string, _tone?: (k: string) => string): string => {
+// `names` relabel the three layer tabs and `play` the playback mark (a themed skin's words);
+// the layers themselves stay the same.
+export const braindanceCard = (W: number, beats: Beat[], pick: number, t: Theme, font: string, frame: Frame, title: string, _tone?: (k: string) => string, names: readonly [string, string, string] = ['VISUAL', 'AUDIO', 'THERMAL'], play = 'PLAYBACK'): string => {
   // The layers in the skin's colours; a caller may pass its own.
   const colors = layerColors(t)
   const tone = (k: string) => (_tone ? _tone(k) : colors[layerName(k)])
@@ -392,7 +394,7 @@ export const braindanceCard = (W: number, beats: Beat[], pick: number, t: Theme,
       const color = tone(name === 'VISUAL' ? 'read' : name === 'AUDIO' ? 'web' : 'edit')
       const x = W - 14 - (3 - i) * 74
       const on = name === active
-      return `<path d="M${x + 4} 10h64l-4 14h-64z" fill="${on ? color : 'none'}" fill-opacity="${on ? 0.9 : 0}" stroke="${color}" stroke-opacity="${on ? 1 : 0.55}"/><text x="${x + 34}" y="21" text-anchor="middle" font-family="${font}" font-size="9.5" font-weight="900" letter-spacing="1" fill="${on ? inkOn(color) : color}">${name}</text>`
+      return `<path d="M${x + 4} 10h64l-4 14h-64z" fill="${on ? color : 'none'}" fill-opacity="${on ? 0.9 : 0}" stroke="${color}" stroke-opacity="${on ? 1 : 0.55}"/><text x="${x + 34}" y="21" text-anchor="middle" font-family="${font}" font-size="9.5" font-weight="900" letter-spacing="1" fill="${on ? inkOn(color) : color}">${names[i]}</text>`
     })
     .join('')
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><style>.rec{animation:rec 1.2s steps(1) infinite}@keyframes rec{50%{opacity:.2}}@media (prefers-reduced-motion: reduce){.rec{animation:none}}</style>
@@ -400,7 +402,7 @@ export const braindanceCard = (W: number, beats: Beat[], pick: number, t: Theme,
 ${frame(0.5, 0.5, W - 1, H - 1, `fill="${t.tile}" stroke="${t.accent}" stroke-opacity=".35"`, 10)}
 <rect x="16" y="11" width="3" height="14" fill="${t.accent}"/>
 <text x="25" y="23" font-family="${font}" font-size="14" font-weight="800" letter-spacing=".8" fill="${t.text}">${esc(title)}</text>
-<text class="rec" x="${(25 + textW(title, 14, 0.8) + 12).toFixed(1)}" y="22.5" font-family="${font}" font-size="9" font-weight="900" letter-spacing="1" fill="${t.accent2}">▶\uFE0E PLAYBACK</text>
+<text class="rec" x="${(25 + textW(title, 14, 0.8) + 12).toFixed(1)}" y="22.5" font-family="${font}" font-size="9" font-weight="900" letter-spacing="1" fill="${t.accent2}">▶\uFE0E ${play}</text>
 ${W >= 520 && W - 236 > 25 + textW(title, 14, 0.8) + 100 ? legend : ''}
 ${ticks}
 ${lanes}${marks}${head}

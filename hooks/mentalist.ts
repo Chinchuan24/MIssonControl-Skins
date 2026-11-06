@@ -94,13 +94,15 @@ export const coldReads = (task: string, n = 3): string[] => {
 export const readStatus = (isWorking: boolean, done: number, total: number): string => (isWorking ? 'Reading…' : total > 0 && done >= total ? 'Got you.' : 'Waiting for a subject.')
 
 // The band's little ticker: the label, the status, the steps as dots.
-export const COLD_W = 150
+// The label is set in the skin's serif caps, wider than the sans the measure assumes:
+// the status starts well clear of it.
+export const COLD_W = 184
 export const coldTicker = (x: number, y: number, isWorking: boolean, done: number, total: number, t: Th, font: string): string => {
   const slots = Math.max(1, Math.min(6, total || 6))
   const filled = total ? Math.min(slots, Math.round((done / total) * slots)) : 0
-  const dots = Array.from({ length: slots }, (_, i) => `<circle${i === filled && isWorking ? ' class="cold"' : ''} cx="${x + 108 + i * 7 + 2.5}" cy="${y - 3}" r="2.4" fill="${i < filled ? t.accent : 'none'}" stroke="${t.accent}" stroke-opacity="${i < filled ? 1 : 0.55}"/>`).join('')
+  const dots = Array.from({ length: slots }, (_, i) => `<circle${i === filled && isWorking ? ' class="cold"' : ''} cx="${x + 140 + i * 7 + 2.5}" cy="${y - 3}" r="2.4" fill="${i < filled ? t.accent : 'none'}" stroke="${t.accent}" stroke-opacity="${i < filled ? 1 : 0.55}"/>`).join('')
   const status = readStatus(isWorking, done, total)
-  return `<text x="${x}" y="${y}" font-family="${font}" font-size="9" font-weight="800" letter-spacing=".6" fill="${t.muted}">COLD READ</text><text x="${x + 52}" y="${y}" font-family="${font}" font-size="9.5" font-style="italic" fill="${isWorking ? t.accent : t.subtext}">${esc(clipW(status, 9.5, 54))}</text>${dots}`
+  return `<text x="${x}" y="${y}" font-family="${font}" font-size="9" font-weight="800" letter-spacing=".6" fill="${t.muted}">COLD READ</text><text x="${x + 80}" y="${y}" font-family="${font}" font-size="9.5" font-style="italic" fill="${isWorking ? t.accent : t.subtext}">${esc(clipW(status, 9.5, 54))}</text>${dots}`
 }
 
 export const COLD_H = 124
