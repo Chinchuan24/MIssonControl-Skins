@@ -1,0 +1,76 @@
+{
+  "$schema": "./skin.schema.json",
+  "id": "breaking-bad",
+  "name": "Breaking Bad",
+  "description": "Fan homage: Mr. White, Jesse and the lab, crystal blue on desert green-black.",
+  "font": "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  "corners": "round",
+  "dark": true,
+  "colors": {
+    "accent": "#5EC8F0",
+    "accent2": "#4FB37A",
+    "done": "#7FD48F",
+    "warn": "#F2C318",
+    "alert": "#E0605A",
+    "meter": "#5EC8F0",
+    "text": "#F2F5F0",
+    "subtext": "#B9C7BC",
+    "muted": "#94A598",
+    "tile": "#0F1A14",
+    "track": "#18261D",
+    "line": "#22352A",
+    "grid": "#1A2A20"
+  },
+  "boss": [
+    "#5EC8F0",
+    "#4FB37A",
+    "#4FB37A",
+    "#F2C318",
+    "#5EC8F0"
+  ],
+  "roles": [
+    "#5EC8F0",
+    "#4FB37A",
+    "#F2C318",
+    "#E0605A",
+    "#B39DDB",
+    "#F2F5F0"
+  ],
+  "effects": {
+    "scanlines": false,
+    "glitch": false
+  },
+  "backdrop": {
+    "fill": "#0A120D",
+    "pattern": "lines",
+    "ink": "rgba(94,200,240,.05)"
+  },
+  "chat": true,
+  "words": [
+    "Respecting the chemistry",
+    "Applying yourself",
+    "Calling Saul",
+    "Washing cars",
+    "Treading lightly",
+    "Building an empire"
+  ],
+  "toolWords": {
+    "Read": "Study",
+    "Grep": "Trace",
+    "Glob": "Sort",
+    "Edit": "Adjust",
+    "MultiEdit": "Adjust",
+    "Write": "Label",
+    "Bash": "Cook",
+    "PowerShell": "Cook",
+    "Agent": "Call Saul",
+    "WebFetch": "Pick up",
+    "WebSearch": "Canvass ABQ",
+    "ToolSearch": "Ask Mike"
+  },
+  "tabs": {
+    "mission": "⚗︎ Mission Control",
+    "skins": "⚗︎ Skins"
+  },
+  "cast": "breakingbad"
+}
