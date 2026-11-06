@@ -61,16 +61,17 @@ test('"Change skin ▸" brings the skin picker forward from behind another tab',
   expect(calls.join(', ')).toContain('close crab-skins, open crab-skins')
 })
 
-test('"⚙ Settings and billing ▸" and the one-shot "Change ▸" open the settings pane from the main pane', async ($, on) => {
+test('"⚙ Settings and billing ▸" opens the settings pane from the main pane; the one-shot chip is read-only', async ($, on) => {
   const calls = base(on)
   await start($)
   const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', requestId: 'crab-agents', props: pane } as never)
-  for (const key of ['open-settings', 'oneshot-open']) {
+  for (const key of ['open-settings']) {
     calls.length = 0
     await ui.press({ key })
     await ui.drawn()
     expect(calls.join(', ')).toContain('close crab-settings, open crab-settings')
   }
+  expect(await ui.find({ key: 'oneshot-open' })).toBeUndefined()
   // Nothing of the settings or billing stays on the busy pane.
   for (const key of ['set-crew-pick', 'set-daily-pick', 'set-budget-pick', 'bill-guide', 'spend-period']) expect(await ui.find({ key })).toBeUndefined()
   await ui.unmount()

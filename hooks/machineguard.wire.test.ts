@@ -12,12 +12,19 @@ let machineOut: string | null = null
 let idleOnes = 0
 let finishedOnes = 0
 let spawnDelay = 0
+let sleeps = 0
+let gate: Promise<void> | null = null
+let openGate = () => {}
+const ran: string[] = []
 
 const base = (on: On, store: Record<string, unknown> = {}) => {
   toasts.length = 0
   idleOnes = 0
   finishedOnes = 0
   spawnDelay = 0
+  sleeps = 0
+  gate = null
+  ran.length = 0
   mock.clock(on, { now: Date.parse('2026-10-20T10:00:00Z') })
   mock.env(on, { LANG: 'en_US.UTF-8' })
   mock.store(on, store)
@@ -33,8 +40,20 @@ const base = (on: On, store: Record<string, unknown> = {}) => {
   })
   on('process.run', async (_$, e) => {
     const { argv } = e as { argv: string[] }
+    if (argv[0] === 'sleep') {
+      sleeps++
+      await new Promise<void>(r => (globalThis as unknown as { setTimeout: (f: () => void, ms: number) => void }).setTimeout(r, 5))
+      return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
+    }
     if (machineOut === null || argv[0] !== 'sh') throw new Error('no such command')
     return { value: { exitCode: 0, stdout: machineOut, stderr: '' } } as never
+  })
+  on('tool.call', async (_$, e) => {
+    const command = String((e as { command?: string }).command)
+    ran.push(command)
+    // Only the first type check is held open; a light command is never in its way.
+    if (gate && command.startsWith('tsc')) await gate
+    return { result: 'ok' } as never
   })
   on('agent.list', async () => ({
     value: [
@@ -63,7 +82,7 @@ test('a full crew refuses a new agent with a reason, toasts once, and lets one i
   base(on, { maxAgents: 2 })
   await start($)
   const first = await spawn($, 1)
-  expect(first).toMatchObject({ deny: 'Machine Guard: 2 of 2 agents running on this 48 GB Mac. Wait for one to finish, or raise the limit in Settings.' })
+  expect(first).toMatchObject({ deny: 'Machine Guard: 2 of 2 agents running (RAM limit 24 GB, ≈0.5 GB per agent). Wait for one to finish, or raise the limit in Settings.' })
   await spawn($, 2)
   expect(toasts.filter(t => t.startsWith('Machine Guard:'))).toHaveLength(1)
   running = 1
@@ -73,14 +92,74 @@ test('a full crew refuses a new agent with a reason, toasts once, and lets one i
   expect(toasts.filter(t => t.startsWith('Machine Guard:'))).toHaveLength(2)
 })
 
-test('Auto follows the calibration: 48 GB and 12 cores is 6 agents', async ($, on) => {
-  machineOut = `os=mac\ntotal=${48 * GB}\ncores=12\nfree=${30 * GB}\n`
-  running = 5
+test('Auto follows the RAM limit alone: 48 GB at Auto (24 GB) and 0.5 GB per agent is 48 agents', async ($, on) => {
+  machineOut = `os=mac\ntotal=${48 * GB}\ncores=2\nfree=${30 * GB}\n`
+  running = 47
   base(on)
   await start($)
   expect(await spawn($, 1)).toMatchObject({ agentId: 'a1' })
-  running = 6
-  expect(await spawn($, 2)).toMatchObject({ deny: expect.stringContaining('6 of 6 agents') })
+  running = 48
+  expect(await spawn($, 2)).toMatchObject({ deny: expect.stringContaining('48 of 48 agents') })
+})
+
+test('a typed 15 GB limit gives 30 agents, even on a machine that could not be measured', async ($, on) => {
+  machineOut = null
+  running = 29
+  base(on, { ramLimit: 'gb:15' })
+  await start($)
+  expect(await spawn($, 1)).toMatchObject({ agentId: 'a1' })
+  running = 30
+  expect(await spawn($, 2)).toMatchObject({ deny: expect.stringContaining('30 of 30 agents running (RAM limit 15 GB, ≈0.5 GB per agent)') })
+})
+
+test('Claude is told the limit and the max in its prompt', async ($, on) => {
+  machineOut = `os=mac\ntotal=${48 * GB}\ncores=12\nfree=${30 * GB}\n`
+  base(on, { ramLimit: 'gb:15' })
+  on('prompt.compose', async () => ({ sections: [] }) as never)
+  await start($)
+  const r = (await $.prompt.compose({ model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: [], tools: ['Agent'], outputStyle: null, traits: [] } as never)) as unknown as { sections: { id: string; text: string }[] }
+  const text = r.sections.find(sc => sc.id === 'crab-progress:machineguard')?.text ?? ''
+  expect(text).toContain('Machine Guard: Claude may use 15 GB of RAM \u2192 at most 30 agents at once (\u22480.5 GB each).')
+})
+
+// The engine's tool result type is huge: narrowed here so expect() never has to compare against it.
+const bash = async ($: Engine, command: string, id: string): Promise<{ result?: string; deny?: string }> => (await $.tool.call({ tool: 'Bash', command, tool_use_id: id, agentId: id } as never)) as unknown as { result?: string; deny?: string }
+
+test('heavy lock: a second tsc waits for the first and then runs; light commands never wait', async ($, on) => {
+  machineOut = `os=mac\ntotal=${48 * GB}\ncores=12\nfree=${30 * GB}\n`
+  base(on)
+  await start($)
+  gate = new Promise<void>(r => (openGate = r))
+  const first = bash($, 'tsc --noEmit -p .', 'h1')
+  await new Promise<void>(r => (globalThis as unknown as { setTimeout: (f: () => void, ms: number) => void }).setTimeout(r, 20))
+  const second = bash($, 'npm test', 'h2')
+  const light = await bash($, 'ls -la', 'l1')
+  expect(light).toMatchObject({ result: 'ok' })
+  await new Promise<void>(r => (globalThis as unknown as { setTimeout: (f: () => void, ms: number) => void }).setTimeout(r, 40))
+  // The second has not started: only the first heavy one and the light one ran.
+  expect(ran).toEqual(['tsc --noEmit -p .', 'ls -la'])
+  expect(sleeps).toBeGreaterThan(0)
+  openGate()
+  gate = null
+  expect(await first).toMatchObject({ result: 'ok' })
+  expect(await second).toMatchObject({ result: 'ok' })
+  expect(ran).toEqual(['tsc --noEmit -p .', 'ls -la', 'npm test'])
+})
+
+test('heavy lock: after the wait is up the second is refused with the holder named', async ($, on) => {
+  machineOut = `os=mac\ntotal=${48 * GB}\ncores=12\nfree=${30 * GB}\n`
+  base(on)
+  await start($)
+  gate = new Promise<void>(r => (openGate = r))
+  const first = bash($, 'tsc --noEmit -p .', 'h1')
+  await new Promise<void>(r => (globalThis as unknown as { setTimeout: (f: () => void, ms: number) => void }).setTimeout(r, 20))
+  const second = await bash($, 'npx vitest run', 'h2')
+  expect(second).toMatchObject({ deny: 'Machine Guard: another heavy command (tsc) is running; retry when it finishes.' })
+  openGate()
+  await first
+  // The lock is free again.
+  gate = null
+  expect(await bash($, 'cargo test', 'h3')).toMatchObject({ result: 'ok' })
 })
 
 test('free RAM under 10% refuses a new agent', async ($, on) => {

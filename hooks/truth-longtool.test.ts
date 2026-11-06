@@ -51,6 +51,12 @@ const base = (on: On, store: Record<string, unknown> = {}) => {
     sounds.push(String((e as { asset?: string }).asset))
     return { value: undefined } as never
   })
+  // Machine Guard's heavy-command lock waits with a `sleep`: here it lasts as long as the held tool call.
+  on('process.run', async (_$, e) => {
+    if ((e as { argv: string[] }).argv[0] !== 'sleep') throw new Error('no such command')
+    if (gate) await gate
+    return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
+  })
   on('tool.call', async () => {
     if (gate) await gate
     return { result: 'ok' } as never
