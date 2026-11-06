@@ -10,6 +10,7 @@ import { BB_SKIN_WORDS, BB_TOOLS, SAY_MY_NAME_RE } from './breakingbad'
 import { THEMES, themeKeyOf } from './themes'
 import type { ThemeEggs } from './themes'
 import { canNudge, nudge, pickQuiet, prBadge, quietOf, rememberTask, repoAndBranch, rescueText, retryOnHaiku, whatIf, whatIfText, whatIfTip } from './coach'
+import { flatSmiley, serifClip, serifW } from './mentalist-cards'
 import { BEATS_KEPT, BLANK_CRED, BOOT_H, award, rockerRankOf, bdHeight, bootStrip, braindanceCard, cleanCred, credCard, credHeight, levelOf, rankOf, shiftPick, stepPick } from './extras'
 import type { Beat, Cred } from './extras'
 import { ONESHOT_KEY, ULTRA_KEY, pillChip, oneShotChipWord, cleanOneShot, cleanUltraRules, isUltraAgent, matchUltra, nextOneShot, oneShotChip, oneShotSaid, oneShotSection, oneShotWord, parseOneShot, resolveEffort, ultraCommand, ultraLine, withUltraBrief } from './crewcontrol'
@@ -4445,6 +4446,7 @@ ${slot >= 46 ? `<text${isWorking ? ' class="t"' : ' class="s"'} x="${x}" y="${y 
 .spark{animation:spark 1.1s ease-out infinite;opacity:0}.s1{animation-delay:-.37s}.s2{animation-delay:-.74s}
 @keyframes spark{0%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-12px)}}
 @media (prefers-reduced-motion: reduce){.flow,.aura,.spark{animation:none}.spark{opacity:0}}</style>
+${themeOf()?.pane && !isLight ? themeOf()?.pane?.backdrop(W, H, 0, SKIN.colors) : ''}
 ${edges.join('\n')}
 ${nodes.join('\n')}${SKIN.effects.scanlines && !isLight ? scanlines(W, H) : ''}</svg>`
 }
@@ -4635,6 +4637,9 @@ const tokenSvg = (W: number, r: TokenReport, isWatching: boolean): string => {
   const color = MOOD_COLOR[r.mood]
   const word = MOOD_WORD[r.mood]
   const pillW = Math.round(22 + textWidth(word, 11))
+  // A themed skin shows its heat (the Mentalist's red smileys) when the spend runs high.
+  const th = themeOf()
+  const heatOn = Boolean(th?.pane) && r.mood > 0
   const stats: Stat[] = [
     { k: 'Burn rate', v: `${fmtTokens(r.burnPerMin)}/min`, color: r.burnPerMin > 150_000 ? '#E9B44C' : undefined },
     { k: isApiCredits(BILLING) ? (r.budget ? `API credits · of ${fmtCost(r.budget)}` : 'API credits · task') : r.budget ? `This task · of ${fmtCost(r.budget)}` : 'This task', v: `${fmtTokens(r.taskTokens)} · ≈${fmtCost(r.taskCost)}`, color: r.budget && r.taskCost >= r.budget ? '#E5675E' : undefined },
@@ -4655,9 +4660,10 @@ ${cardShape(0.5, 0.5, W - 1, H - 1, `fill="none" stroke="${color}" stroke-opacit
 <rect x="0.5" y="14" width="3" height="${H - 28}" rx="1.5" fill="${color}"/>
 ${crab(10, 4, 'role:banker', false, isWatching, 1.05)}
 <text x="50" y="22" font-family="${FONT}" font-size="13" font-weight="800" fill="${color}" class="gl">Token Manager<tspan class="s" font-weight="400" font-size="11.5">${(() => {
-  const room = W - 14 - pillW - 8 - 50 - textWidth('Token Manager', 13) - 12
+  const room = W - 14 - pillW - 8 - 50 - textWidth('Token Manager', 13) - 12 - (heatOn ? (th?.pane?.heatW ?? 0) : 0)
   return room >= 60 ? `   ${xml(fitText(isApiCredits(BILLING) ? 'paid with API credits: real money' : 'watching every token, at no cost', 11.5, room))}` : ''
 })()}</tspan></text>
+${heatOn && th?.pane ? th.pane.heat(W - 14 - pillW - th.pane.heatW, 24, r.mood === 2 ? 5 : 3, SKIN.colors) : ''}
 <rect x="${W - 14 - pillW}" y="10" width="${pillW}" height="18" rx="9" fill="${color}"/>
 <text x="${W - 14 - pillW / 2}" y="22.5" text-anchor="middle" font-family="${FONT}" font-size="11" font-weight="700" fill="${inkOn(color)}">${word}</text>
 ${statGrid(50, 38, W - 50 - 14, stats)}
@@ -5160,12 +5166,223 @@ ${label(y3, 'COST')}
   )
 }
 
+// The slim band of The Mentalist and Red John (themes.ts `slimBand`): 132 high, four type sizes
+// (9.5 caps labels, 11.5 body, 13 values, 15 title) in two weights. Header, task row, then two
+// info rows; nothing decorative (no skin chip, beam or brackets), the hidden smiley in a corner of its own.
+const SLIM_H = 132
+const slimBandSvg = (OW: number, d: HudData): string => {
+  const c = SKIN.colors
+  const th = themeOf() as ThemeEggs
+  const W = OW
+  const H = SLIM_H
+  const sw = serifW
+  const RJ = '#E0261F'
+  const edge = d.isParty ? c.done : d.isWorking ? c.accent : c.line
+  const x0 = 20
+  const xr = W - 20
+  const Lb = (x: number, y: number, text: string, anchor = 'start', fill = c.muted) =>
+    `<text x="${r2(x)}" y="${y}"${anchor !== 'start' ? ` text-anchor="${anchor}"` : ''} font-family="${FONT}" font-size="9.5" font-weight="700" letter-spacing=".8" fill="${fill}">${xml(text)}</text>`
+  const Vl = (x: number, y: number, text: string, fill = c.text, anchor = 'start') =>
+    `<text x="${r2(x)}" y="${y}"${anchor !== 'start' ? ` text-anchor="${anchor}"` : ''} font-family="${FONT}" font-size="13" font-weight="700" fill="${fill}" font-variant-numeric="tabular-nums">${xml(text)}</text>`
+  const Bd = (x: number, y: number, text: string, fill = c.subtext, extra = '') => `<text x="${r2(x)}" y="${y}" font-family="${FONT}" font-size="11.5" fill="${fill}" ${extra}>${xml(text)}</text>`
+  const s: string[] = []
+  s.push(`<style>.tea{animation:tea 1.6s ease-in-out infinite}@keyframes tea{50%{opacity:.6}}.rjs{animation:rjs2 3.6s ease-in-out infinite}@keyframes rjs2{50%{opacity:.12}}@media (prefers-reduced-motion: reduce){.tea,.rjs{animation:none}}${th.css}</style>`)
+  s.push(`<rect x=".5" y=".5" width="${W - 1}" height="${H - 1}" rx="10" class="tile"/><rect x=".5" y=".5" width="${W - 1}" height="${H - 1}" rx="10" fill="none" stroke="${edge}" stroke-opacity=".5"${d.isWorking ? ' class="hedge"' : ''}/>`)
+  s.push(`<rect x=".5" y="14" width="3" height="${H - 28}" rx="1.5" fill="${edge}"/>`)
+  // ---- header (baseline 22)
+  const y = 22
+  s.push(Lb(x0, y, 'MISSION CONTROL', 'start', c.accent2).replace('letter-spacing=".8"', 'letter-spacing="1.6"'))
+  let hx = x0 + sw('MISSION CONTROL', 9.5, 1.6, true) + 16
+  const chip = th.chip(hx, y, d.ctxPct, c, FONT)
+  s.push(chip.svg)
+  if (chip.w) hx += chip.w + 16
+  const smallChip = (x: number, label: string, tip: string, live: boolean) => {
+    const w = Math.round(sw(label, 9.5, 0.8, true) + 16)
+    s.push(`<rect${live ? ' class="live"' : ''} x="${x}" y="${y - 12}" width="${w}" height="16" rx="3" fill="none" stroke="${c.accent}" stroke-opacity=".8"/><text x="${x + w / 2}" y="${y}" text-anchor="middle" font-family="${FONT}" font-size="9.5" font-weight="700" letter-spacing=".8" fill="${c.accent}"><title>${xml(tip)}</title>${xml(label)}</text>`)
+    return w + 12
+  }
+  if (d.crewMode) hx += smallChip(hx, 'CREW MODE', d.crewMode, true)
+  if (d.bg) hx += smallChip(hx, `${d.bg} BACKGROUND`, `${d.bg} ${tr().bgBand}`, false)
+  const model = [PROVIDER, d.model, d.effort].filter(Boolean).join(' · ')
+  const modelW = sw(model, 11.5)
+  const clockTxt = d.budget ? `${fmtTime(d.budget.usedMs)} / ${d.budget.min}m` : d.taskMs > 0 ? fmtTime(d.taskMs) : ''
+  const clockW = clockTxt ? sw(clockTxt, 11.5) + 4 : 0
+  const epm = /^\S+\s+(S\d+E\d+)\s+(.*)$/.exec(th.ticker(d.at))
+  const ep: [string, string] = epm ? [epm[1] as string, epm[2] as string] : ['', '']
+  const epW = ep[0] ? sw(ep[0], 9.5, 0.8, true) + sw(ep[1], 11.5) + 12 : 0
+  const rightEdge = (withEp: boolean) => xr - clockW - (withEp && epW ? epW + (clockW ? 28 : 0) : 0)
+  let showModel = Boolean(model)
+  let showEp = epW > 0
+  if (showModel && rightEdge(showEp) - (hx + modelW + 24) < 24) showModel = false
+  if (!showModel && showEp && rightEdge(true) - hx < 24) showEp = false
+  const baseEnd = showModel ? hx + modelW + 24 : hx
+  if (showModel) s.push(Bd(hx, y, model, c.muted))
+  const tone = d.budget ? budgetTone(d.budget.usedMs, d.budget.min, c.subtext) : c.subtext
+  if (clockTxt) {
+    s.push(!d.budget && d.taskFrom
+      ? liveText(xr, y, d.at, 11.5, `text-anchor="end" font-family="${FONT}" font-size="11.5" fill="${tone}" font-variant-numeric="tabular-nums"`, t => fmtTime(Math.max(0, t - (d.taskFrom ?? t))))
+      : `<text x="${xr}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11.5" fill="${tone}" font-variant-numeric="tabular-nums">${xml(clockTxt)}</text>`)
+  }
+  let epLeft = xr - clockW
+  if (showEp) {
+    const ex = xr - clockW - 14
+    if (clockW) s.push(`<line x1="${r2(ex + 7)}" y1="${y - 10}" x2="${r2(ex + 7)}" y2="${y + 2}" stroke="${c.line}"/>`)
+    s.push(`<text x="${r2(clockW ? ex - 4 : xr)}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11.5" fill="${c.muted}"><tspan font-size="9.5" font-weight="700" letter-spacing=".8">${xml(ep[0])}</tspan>  <tspan font-style="italic" fill="${c.subtext}">${xml(ep[1])}</tspan></text>`)
+    epLeft = (clockW ? ex - 4 : xr) - epW
+  }
+  const cold = th.coldLine?.(d.title) ?? ''
+  const crRight = epLeft - 28
+  if (cold && crRight - baseEnd > 220) s.push(`<text x="${r2(crRight)}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11.5" font-style="italic" fill="${c.muted}">${xml(serifClip(`“${cold}”`, 11.5, crRight - baseEnd))}</text>`)
+  s.push(`<line x1="14" y1="32.5" x2="${W - 14}" y2="32.5" stroke="${c.line}"/>`)
+  // ---- task row
+  const fig = `${crab(14, 38, 'boss', false, d.isWorking, 1.05)}${crown(14, 38, 1.05)}`
+  s.push(dancing(fig, d.isParty))
+  const tx = 64
+  const rw = 92
+  const pillW = Math.round(sw(d.status, 11.5) + 18)
+  const titleW = Math.min(300, Math.ceil(sw(d.title, 15) * 1.04) + 4)
+  const hasReadouts = W >= tx + titleW + pillW + 80 + rw * 3 + 40
+  const r0 = hasReadouts ? W - 20 - rw * 3 : W - 14
+  s.push(th.glitch ? th.glitch(tx, 54, fitText(d.title, 15, titleW), `font-family="${FONT}" font-size="15" font-weight="700" fill="${c.accent}"`, titleW) : `<text x="${tx}" y="54" font-family="${FONT}" font-size="15" font-weight="700" fill="${c.accent}">${xml(fitText(d.title, 15, titleW))}</text>`)
+  const px = tx + titleW + 12
+  const statusOn = d.isWorking || d.isParty
+  const pillFill = d.isParty ? c.done : d.isWorking ? c.accent : c.muted
+  s.push(`<rect x="${px}" y="41" width="${pillW}" height="18" rx="9" fill="${pillFill}" fill-opacity="${statusOn ? 1 : 0.25}"/><text x="${px + pillW / 2}" y="54" text-anchor="middle" font-family="${FONT}" font-size="11.5" font-weight="700" fill="${statusOn ? inkOn(pillFill) : c.text}">${xml(d.status)}</text>`)
+  const ax = px + pillW + 12
+  const actRoom = Math.max(0, (hasReadouts ? r0 - 18 : W - 14) - ax - 12)
+  if (d.activity) s.push(Bd(ax, 54, `› ${fitText(d.activity, 11.5, Math.max(0, actRoom - 14))}`))
+  if (hasReadouts) {
+    s.push(`<line x1="${r0 - 18}" y1="40" x2="${r0 - 18}" y2="76" stroke="${c.line}"/>`)
+    const ctxTone = d.ctxPct >= 95 ? c.alert : d.ctxPct >= 85 ? c.warn : c.text
+    const lim = d.limitPct === null ? null : Math.round(d.limitPct)
+    const limTone = (lim ?? 0) >= 90 ? c.alert : (lim ?? 0) >= 70 ? c.warn : c.text
+    const cols: [string, string, string, number | null][] = [['CONTEXT', `${d.ctxPct}%`, ctxTone, d.ctxPct], ['5-HOUR LIMIT', lim === null ? '—' : `${lim}%`, limTone, lim], ['BURN / MIN', fmtTokens(d.burnPerMin), c.text, null]]
+    cols.forEach(([k, v, tn, pct], i) => {
+      const rx = r0 + i * rw
+      s.push(Lb(rx, 50, k))
+      s.push(Vl(rx, 70, v, tn))
+      if (pct !== null) {
+        const bx = rx + sw(v, 13) + 8
+        const fill = tn === c.text ? c.accent : tn === c.alert ? RJ : tn
+        s.push(`<rect x="${r2(bx)}" y="63" width="34" height="4" fill="${c.track}"/><rect x="${r2(bx)}" y="63" width="${r2((34 * Math.min(100, pct)) / 100)}" height="4" fill="${fill}"/>`)
+      }
+    })
+  }
+  // gauge
+  const idle = !d.isWorking && !d.isParty && th.idle
+  const gw = (hasReadouts ? r0 - 18 : W - 14) - 20 - tx - 44 - (idle ? 30 : 0)
+  const segs = Math.max(0, Math.floor(gw / 6))
+  const pct = d.progress === null ? null : Math.round(d.progress * 100)
+  const climb = d.progressAt
+  const gy = 66
+  const litN = pct === null ? 0 : Math.round((pct / 100) * segs)
+  if (segs > 0) {
+    if (pct !== null && climb) s.push(liveSegmentBar(tx, gy, segs * 6 - 2, d.at, t => Math.round(climb(t) * 100), d.isParty ? c.done : c.accent).replace(/height="8"/g, 'height="6"'))
+    else s.push(`<g shape-rendering="crispEdges">${Array.from({ length: segs }, (_, i) => `<rect x="${tx + i * 6}" y="${gy}" width="4" height="6" fill="${i < litN ? (d.isParty ? c.done : c.accent) : c.track}"/>`).join('')}</g>`)
+    if (pct !== null && climb) s.push(liveText(tx + segs * 6 + 8, 73, d.at, 13, `font-family="${FONT}" font-size="13" font-weight="700" fill="${c.text}" font-variant-numeric="tabular-nums"`, t => `${Math.round(climb(t) * 100)}%`))
+    else s.push(Vl(tx + segs * 6 + 8, 73, pct === null ? (d.isWorking ? '···' : '') : `${pct}%`))
+    if (idle) s.push(th.idle?.(tx + segs * 6 + 8 + 44, 56, c) ?? '')
+  }
+  s.push(`<line x1="14" y1="84.5" x2="${W - 14}" y2="84.5" stroke="${c.line}"/>`)
+  // ---- row A: steps left, crew right
+  const ya = 103
+  const stepDone = d.steps.filter(st => st === 'done').length
+  // The crew first (right-aligned): role pills, then figures.
+  let cx = xr
+  const pills: string[] = []
+  const leftMin = x0 + 150
+  const roleList = [...d.roles].reverse().slice(0, 4)
+  for (const r of roleList) {
+    const txt = `${r.role} ${r.count}`
+    const w = Math.round(sw(txt, 11.5) + 18)
+    if (cx - w < leftMin + 150) break
+    cx -= w
+    pills.push(`<rect x="${cx}" y="${ya - 12}" width="${w}" height="16" rx="8" fill="${r.color}" fill-opacity=".14" stroke="${r.color}" stroke-opacity=".55"/><text x="${cx + w / 2}" y="${ya}" text-anchor="middle" font-family="${FONT}" font-size="11.5" fill="${r.color}">${xml(txt)}</text>`)
+    cx -= 6
+  }
+  s.push(...pills.reverse())
+  const room = Math.max(0, Math.floor((cx - 8 - (leftMin + 150)) / 20))
+  if (d.crew.length && pills.length) {
+    cx -= 8
+    const shown = d.crew.slice(0, room)
+    shown.forEach((m, i) => {
+      const fx = cx - (shown.length - i) * 20
+      if (d.lite) s.push(`<circle cx="${fx + 9}" cy="${ya - 4}" r="4.5" fill="${m.color}" fill-opacity="${m.status === 'running' ? 1 : 0.4}"/>`)
+      else s.push(crab(fx, ya - 17, m.costume, m.status !== 'running', m.status === 'running' && !m.isQuiet, 0.62) + (m.isQuiet ? `<circle cx="${fx + 9}" cy="${ya - 5}" r="9" fill="none" stroke="${c.alert}" stroke-width="1.3"/>` : ''))
+    })
+    if (d.crew.length > room && room > 0) s.push(Bd(cx - shown.length * 20 - 24, ya, `+${d.crew.length - room}`, c.muted))
+  } else if (!d.crew.length) s.push(Bd(xr, ya, 'No crew on this job yet', c.muted, 'text-anchor="end"'))
+  // steps
+  if (!d.steps.length) s.push(Bd(x0, ya, 'No steps yet', c.muted))
+  else {
+    const pips = Math.max(0, Math.min(16, d.steps.length, Math.floor((cx - leftMin - 150 - 60) / 13)))
+    d.steps.slice(0, pips).forEach((st, i) => {
+      const px2 = x0 + 5 + i * 13
+      const py = ya - 4
+      s.push(st === 'done' ? `<circle cx="${px2}" cy="${py}" r="4.2" fill="${c.done}"/>`
+        : st === 'running' ? `<circle cx="${px2}" cy="${py}" r="3.9" fill="none" stroke="${c.accent}" stroke-width="1.3"/><circle class="live" cx="${px2}" cy="${py}" r="1.9" fill="${c.accent}"/>`
+        : st === 'failed' ? `<path d="M${px2 - 3.2} ${py - 3.2}l6.4 6.4M${px2 + 3.2} ${py - 3.2}l-6.4 6.4" stroke="${c.alert}" stroke-width="1.8" stroke-linecap="round"/>`
+        : st === 'stopped' ? `<rect x="${px2 - 3.2}" y="${py - 3.2}" width="6.4" height="6.4" rx="1.2" fill="${c.muted}"/>`
+        : `<circle cx="${px2}" cy="${py}" r="4" fill="none" stroke="${c.muted}" stroke-width="1.3"/>`)
+    })
+    const sx = x0 + pips * 13 + 10
+    const cnt = `${stepDone}/${d.steps.length}`
+    s.push(Vl(sx, ya, cnt))
+    s.push(Bd(sx + sw(cnt, 13) + 10, ya, fitText(d.stepText, 11.5, Math.max(0, cx - 8 - (sx + sw(cnt, 13) + 10) - 150))))
+  }
+  // ---- row B: tip left, totals right; the corner is the smiley's
+  const yb = 123
+  const ss = d.session
+  const left = ss.cacheLeft
+  const cacheTone = ss.isBusy || left === null ? c.accent2 : left <= 600 ? c.alert : left <= 1200 ? c.warn : c.accent2
+  const until = !ss.isBusy && left ? ss.cacheUntil : null
+  const leftAt = (t: number) => Math.max(0, Math.floor(((until ?? t) - t) / 1000))
+  const cacheText = cacheTextOf(ss.isBusy, left)
+  const barW = 36
+  const barX = xr - 24 - barW
+  const cacheShare = ss.isBusy ? 1 : left === null ? 0 : Math.min(1, left / (CACHE_TTL_MS / 1000))
+  const live = until ? liveWidth(d.at, t => barW * Math.min(1, leftAt(t) / (CACHE_TTL_MS / 1000))) : null
+  const tipX = x0 + 14
+  const parts: [string, string][] = [['TODAY', `${d.today.tasks} ${d.today.tasks === 1 ? 'task' : 'tasks'} · ≈${fmtCost(d.today.costUsd)}`], ['TURN', `${ss.turn} · ${fmtCost(ss.turnCost)}`]]
+  // What goes on the right, from the right: CACHE, then TURN, then TODAY, as long as the tip keeps 160px.
+  const rights: string[] = []
+  let rx = barX - 8
+  const cacheW = sw(cacheText, 11.5) + 6
+  const place = (label: string, value: string | null, valueW: number): boolean => {
+    const need = valueW + 7 + sw(label, 9.5, 0.8, true) + 22
+    if (rx - need < tipX + 160) return false
+    if (value !== null) rights.push(`<text x="${r2(rx)}" y="${yb}" text-anchor="end" font-family="${FONT}" font-size="11.5" font-weight="700" fill="${c.text}" font-variant-numeric="tabular-nums">${xml(value)}</text>`)
+    rx -= valueW + 7
+    rights.push(Lb(rx, yb, label, 'end'))
+    rx -= sw(label, 9.5, 0.8, true) + 22
+    return true
+  }
+  const cacheOk = rx - (cacheW + 7 + sw('CACHE', 9.5, 0.8, true)) > tipX + 160
+  if (cacheOk) {
+    if (until) rights.push(liveText(rx, yb, d.at, 11.5, `text-anchor="end" font-family="${FONT}" font-size="11.5" font-weight="700" font-variant-numeric="tabular-nums"`, t => cacheTextOf(false, leftAt(t)), cacheTone))
+    else rights.push(`<text x="${r2(rx)}" y="${yb}" text-anchor="end" font-family="${FONT}" font-size="11.5" font-weight="700" fill="${cacheTone}" font-variant-numeric="tabular-nums">${xml(cacheText)}</text>`)
+    rx -= cacheW + 7
+    rights.push(Lb(rx, yb, 'CACHE', 'end'))
+    rx -= sw('CACHE', 9.5, 0.8, true) + 22
+    rights.push(`<rect class="k" x="${barX}" y="${yb - 7}" width="${barW}" height="4"/><rect x="${barX}" y="${yb - 7}" width="${live ? live.start : r2(barW * cacheShare)}" height="4" fill="${cacheTone}"${left !== null && left <= 600 && !ss.isBusy ? ' class="live"' : ''}>${live ? live.animate : ''}</rect>`)
+    for (const [k, v] of [parts[1], parts[0]] as [string, string][]) if (!place(k, v, sw(v, 11.5) + 2)) break
+  }
+  s.push(...rights)
+  const tipLive = d.tip.level === 2
+  s.push(`<circle${tipLive ? ' class="live"' : ''} cx="${x0 + 4}" cy="${yb - 4}" r="3.5" fill="${MOOD_COLOR[d.tip.level]}"/>`)
+  s.push(Bd(tipX, yb, fitText(d.tip.text, 11.5, Math.max(0, rx - tipX - 12)), tipLive ? c.text : c.subtext))
+  if (d.ctxPct >= 95 || (d.budget && d.budget.usedMs > d.budget.min * 60_000)) s.push(flatSmiley(W - 21, H - 19, 9, RJ, 0.3, 'rjs'))
+  const body = `${s.join('\n')}${d.isParty ? th.cheer(W, H, FONT, c, d.partyAt) : ''}`
+  return svg(W, H, body)
+}
+
 const hudBandSvg = (OW: number, d: HudData): string => {
   const c = SKIN.colors
   const any = eggOf()
   const egg = cyberOf()
   const th = themeOf()
   if (d.simple && !any) return hudSimpleSvg(OW, d)
+  if (th?.slimBand) return slimBandSvg(OW, d)
   // The frame takes the whole box; the content sits inside it, padded.
   const OH = HUD_OUT_H
   const W = OW - HUD_PAD * 2
@@ -6870,7 +7087,7 @@ export const register: Register = (on, options) => {
               <Box key="bd" flexDirection="column" marginBottom={1}>
                 <Svg
                   source={th ? th.log.draw(W, beats, pick, SKIN.colors, FONT, cardShape) : braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
-                  alt={th && !th.log.hasControls ? `Lab log: ${beats.length} tool calls` : braindanceAlt(beats, pick)}
+                  alt={th?.log.alt ? th.log.alt(beats, pick) : th && !th.log.hasControls ? `Lab log: ${beats.length} tool calls` : braindanceAlt(beats, pick)}
                 />
                 {th && !th.log.hasControls ? null : <Box flexDirection="row" gap={2}>
                   <Button key="bd-first" label={'⏮\uFE0E First'} plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, () => (n ? 0 : -1)) }} />
@@ -8168,7 +8385,7 @@ export const register: Register = (on, options) => {
     if (isDesktop && 'Svg' in ui && band.hud) {
       const { Svg } = ui
       const hud = { ...band.hud, simple: !SKIN.cast && (await read($, settings)).simple }
-      const outH = hud.simple ? SIMPLE_OUT_H : HUD_OUT_H
+      const outH = themeOf()?.slimBand ? SLIM_H : hud.simple ? SIMPLE_OUT_H : HUD_OUT_H
       // About 8 CSS px per reported column; the rest is the count, the dismiss
       // and their gaps. No floor above the slot: a row wider than it would wrap.
       // The desktop reports cells, not pixels, and its cells are not a fixed width: draw a

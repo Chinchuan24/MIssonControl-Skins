@@ -20,9 +20,10 @@ import {
 } from './breakingbad'
 import {
   CBI_BADGES, CBI_WORDS, CLOSED_FILES_TOAST, COLD_W, MENT_CSS, MENTALIST_BOOT, MENTALIST_GREETING, MENTALIST_TOOLS, MENTALIST_WORDS, REDJOHN_BOOT, REDJOHN_GREETING, TEA_WARNING,
-  caseClosed, cbiRankOf, cbiToast, coldReadCard, coldTicker, episodeAt, hiddenSmiley, smiley, teaChip,
+  caseClosed, cbiRankOf, cbiToast, coldReadCard, coldReads, coldTicker, episodeAt, hiddenSmiley, smiley,
 } from './mentalist'
-import { braindanceCard } from './extras'
+import { MENT_EXTRA_CSS, cardGlyphs, hypnosis, mentSkyline, redJohnHeat, smileGlitch, teaSteam } from './mentalist-extra'
+import { caseBoard, caseBoardAlt, ctxChip, personnelFile } from './mentalist-cards'
 import type { Badge, Beat, Cred, CredWords, Frame } from './extras'
 
 export type ThemeKey = 'mentalist' | 'redjohn' | 'breakingbad' | 'heisenberg'
@@ -50,12 +51,24 @@ export type ThemeEggs = {
   card: { draw: (W: number, task: string, isWorking: boolean, done: number, total: number, t: ThemeColors, font: string, frame: Frame) => string; alt: (isWorking: boolean, done: number, total: number) => string }
   legends: { title: string; empty: string; icon: string; alt: string; toast: string }
   /** The pane's log of tool calls. `hasControls`: it has the First/Back/Next/Live buttons (a replay timeline). */
-  log: { draw: (W: number, beats: Beat[], pick: number, t: ThemeColors, font: string, frame: Frame) => string; hasControls: boolean }
+  log: { draw: (W: number, beats: Beat[], pick: number, t: ThemeColors, font: string, frame: Frame) => string; hasControls: boolean; alt?: (beats: Beat[], pick: number) => string }
   boot: [string, string]
   greeting: string
   words: string[]
   tools: Record<string, string>
   // --- optional slots: leave out and nothing is drawn ---
+  /** The slim band (two info rows, one quiet cold-read line, no skin chip, beam or brackets) in place of the full HUD band. */
+  slimBand?: boolean
+  /** One line of the cold read for the slim band. */
+  coldLine?: (task: string) => string
+  /** The slim band's idle drawing (a cup of tea): the top-left of a 12 by 16 box. */
+  idle?: (x: number, y: number, t: ThemeColors) => string
+  /** The pane's own eggs: a skyline on the org chart's floor, a faint drift of glyphs behind it, and heat for a high spend. */
+  pane?: {
+    backdrop: (W: number, H: number, at: number, t: ThemeColors) => string
+    heat: (x: number, y: number, level: number, t: ThemeColors) => string
+    heatW: number
+  }
   /** The faint hidden egg in the band's corner. */
   corner?: (W: number, H: number, ctx: ThemeCtx) => string
   /** A mark beside the task's title (a hat). */
@@ -78,22 +91,33 @@ export type ThemeEggs = {
   glitch?: (x: number, y: number, text: string, attrs: string, titleW: number) => string
 }
 
+const MENT_COLORS = { accent: '#8DB4EA', accent2: '#DCE6F5', done: '#7CC9A0', warn: '#E8C26A', text: '#F2F5FA', subtext: '#B4C0D3', muted: '#93A0B5', tile: '#0E1524', track: '#18223A', line: '#22304D' }
 const caseTheme = (red: boolean): ThemeEggs => ({
   ticker: at => episodeAt(at, red),
-  css: MENT_CSS,
+  css: `${MENT_CSS}${MENT_EXTRA_CSS}`,
   readout: { w: COLD_W, draw: coldTicker },
-  chip: teaChip,
+  chip: ctxChip,
+  slimBand: true,
+  coldLine: task => coldReads(task, 1)[0] ?? '',
+  idle: teaSteam,
+  glitch: (x, y, text, attrs) => smileGlitch(x, y, text, attrs, MENT_COLORS),
+  afterimages: (_figure, box) => ({ defs: '', svg: hypnosis(box.x + box.w / 2, box.y + box.h / 2, MENT_COLORS, 0) }),
+  pane: {
+    backdrop: (W, H, at, t) => `<g opacity=".55">${cardGlyphs(W, H, at, t)}</g><g transform="translate(0 ${H - 26})" opacity=".7">${mentSkyline(W, 24, t, red)}</g>`,
+    heat: redJohnHeat,
+    heatW: 52,
+  },
   warning: TEA_WARNING,
   cheer: caseClosed,
   corner: red ? undefined : (W, H, x) => (x.ctxPct >= 95 || x.overBudget ? hiddenSmiley(W, H) : ''),
   logo: red ? (x, y) => smiley(x, y, 11, 1, 'rjs') : undefined,
-  cred: { title: 'CBI CRED', ranks: cbiRankOf, words: CBI_WORDS, badges: CBI_BADGES, toast: cbiToast },
+  cred: { title: 'PERSONNEL FILE', ranks: cbiRankOf, words: CBI_WORDS, badges: CBI_BADGES, toast: cbiToast, card: (W, c, t, font, frame) => personnelFile(W, c, t, font, frame) },
   card: {
     draw: (W, task, isWorking, done, total, t, font, frame) => coldReadCard(W, task, isWorking, done, total, t, font, frame, red),
     alt: (isWorking, done, total) => `Cold read: ${isWorking ? 'reading' : 'waiting'}, ${done} of ${total} steps`,
   },
   legends: { title: 'CLOSED FILES', empty: 'No closed files yet. Close a case.', icon: '🗂', alt: 'Closed files', toast: CLOSED_FILES_TOAST },
-  log: { draw: (W, beats, pick, t, font, frame) => braindanceCard(W, beats, pick, t, font, frame, 'CASE BOARD', undefined, ['CLUES', 'ALIBIS', 'TELLS'], 'REPLAY'), hasControls: true },
+  log: { draw: (W, beats, pick, t, font, frame) => caseBoard(W, beats, pick, t, font, frame), hasControls: true, alt: caseBoardAlt },
   boot: (red ? REDJOHN_BOOT : MENTALIST_BOOT) as [string, string],
   greeting: red ? REDJOHN_GREETING : MENTALIST_GREETING,
   words: red ? [] : MENTALIST_WORDS,
