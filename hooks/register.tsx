@@ -1164,7 +1164,7 @@ const SKINS = new Map<string, Skin>(BUILT_IN_SKINS.map(k => [k.id, k]))
 // The Cyberpunk Skins add-on: its skins (and their sounds) ship in addons/cyberpunk/.
 // Without that folder Mission Control is the core edition: default and Crab Classic.
 const ADDON = 'addons/cyberpunk'
-const ADDON_URL = 'https://github.com/Chinchuan24/MIssonControl-Skins#-choose-your-edition'
+const ADDON_URL = 'https://github.com/Chinchuan24/MissionControl#-choose-your-edition'
 const ADDON_CASTS = new Set(['runners', 'netrun', 'corpo', 'samurai'])
 let HAS_CYBER = false
 const checkAddon = async ($: EngineInterface): Promise<boolean> => {
