@@ -264,7 +264,7 @@ const history = (on: On, lines: string) => {
   })
   on('process.spawn', async function* () {
     yield { stream: 'stdout', text: lines }
-    return { code: 0, signal: null }
+    return { value: { code: 0, signal: null } }
   } as never)
 }
 const when = new Date(2026, 9, 20, 9).toISOString()

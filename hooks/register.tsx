@@ -1720,7 +1720,21 @@ async function setKeepWarm($: EngineInterface, isOn: boolean): Promise<void> {
   await update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), on: isOn, halted: '' } }))
   await update($, settings, prev => ({ ...prev, keepWarm: isOn }))
 }
+// A typed amount as a number: a currency sign, spaces and thousands commas allowed, a
+// decimal comma too ("2,50"); "off" is 0. Anything else (letters, a minus, "1e3") is null.
+const typedAmount = (typed: string): number | null => {
+  let s = typed.trim().toLowerCase()
+  if (s === 'off') return 0
+  s = s.replace(/^(?:rm|s\$|€\$|us\$|\$|€|£|¥)/, '').replace(/(?:rm|s\$|€\$|\$|€|£|¥|usd|eur|gbp|jpy|myr|sgd)$/, '').replace(/\s/g, '')
+  if (!s.includes('.') && /^\d+,\d{1,2}$/.test(s)) s = s.replace(',', '.')
+  else if (/^\d{1,3}(,\d{3})+(\.\d*)?$/.test(s)) s = s.replace(/,/g, '')
+  if (!/^(\d+\.?\d*|\.\d+)$/.test(s)) return null
+  const n = Number(s)
+  return Number.isFinite(n) ? n : null
+}
 async function setDailyCap($: EngineInterface, dollars: number): Promise<void> {
+  // A new cap warns afresh: the 80% and 100% marks are of this cap, not the last one.
+  if (dollars !== dailyCapUsd) capWarned = { date: '', level: 0 }
   dailyCapUsd = dollars
   await $.store.set(DAILY_KEY, dollars).catch(() => undefined)
   await update($, settings, prev => ({ ...prev, dailyUsd: dollars }))
@@ -1728,12 +1742,13 @@ async function setDailyCap($: EngineInterface, dollars: number): Promise<void> {
 // A typed amount for the daily cap or the budget per task: in the currency the pane shows,
 // turned back into dollars. 0 turns it off; anything else that is not a number is refused.
 async function typeMoney($: EngineInterface, what: 'daily' | 'budget', typed: string): Promise<void> {
-  const n = Number(typed.trim().replace(/[^0-9.]/g, ''))
-  if (!typed.trim() || !Number.isFinite(n) || n < 0) {
+  const n = typedAmount(typed)
+  if (n === null) {
     $.ui.toast('Type an amount like 3 or 2.50, or 0 to turn it off')
     return
   }
-  const dollars = Math.round((n / (CURRENCY.rate || 1)) * 100) / 100
+  // Kept to a hundredth of a cent, so the amount shows back as typed (RM3, not RM2.99).
+  const dollars = Math.round((n / (CURRENCY.rate || 1)) * 10_000) / 10_000
   if (what === 'daily') await setDailyCap($, dollars)
   else await setBudget($, dollars)
   $.ui.toast(`${what === 'daily' ? 'Daily cap' : 'Budget per task'}: ${dollars ? fmtCost(dollars) : 'off'}`)
@@ -5062,6 +5077,9 @@ const hudSimpleSvg = (OW: number, d: HudData): string => {
   // Row 3: the money and the context, in words.
   const y3 = 86
   const ctxTone = gaugeColor(d.ctxPct)
+  // Today's spend in the warn colour from 80% of the daily cap, the alert colour from 100%.
+  const capPct = dailyCapUsd > 0 ? ((d.todayUsd ?? 0) / dailyCapUsd) * 100 : 0
+  const todayFill = capPct >= 100 ? ` fill="${c.alert}"` : capPct >= 80 ? ` fill="${c.warn}"` : ''
   const label = (y: number, text: string) => `<text class="m" x="14" y="${y}" font-family="${FONT}" font-size="10" font-weight="700" letter-spacing=".6">${text}</text>`
   return svg(
     OW,
@@ -5083,7 +5101,7 @@ ${label(y2 + 14, 'CREW')}
 ${crabs}${more}
 <text class="s" x="${W - 14}" y="${y2 + 14}" text-anchor="end" font-family="${FONT}" font-size="12">${xml(count)}</text>
 ${label(y3, 'COST')}
-<text class="t" x="${left}" y="${y3}" font-family="${FONT}" font-size="12.5" font-variant-numeric="tabular-nums">This task <tspan font-weight="800">≈${fmtCost(d.taskUsd ?? 0)}</tspan><tspan class="m">   ·   </tspan>Today <tspan font-weight="800">≈${fmtCost(d.todayUsd ?? 0)}</tspan></text>
+<text class="t" x="${left}" y="${y3}" font-family="${FONT}" font-size="12.5" font-variant-numeric="tabular-nums">This task <tspan font-weight="800">≈${fmtCost(d.taskUsd ?? 0)}</tspan><tspan class="m">   ·   </tspan>Today <tspan font-weight="800"${todayFill}>≈${fmtCost(d.todayUsd ?? 0)}</tspan></text>
 <text class="s" x="${W - 14}" y="${y3}" text-anchor="end" font-family="${FONT}" font-size="12">Context <tspan font-weight="800" fill="${ctxTone}">${d.ctxPct}%</tspan></text>
 </g>`,
   )
@@ -7819,7 +7837,11 @@ export const register: Register = (on, options) => {
     }
     if (verb === 'budget') {
       const dollars = arg === 'off' ? 0 : Number(arg.replace(/^\$/, ''))
-      if (!Number.isFinite(dollars) || dollars < 0) return { text: 'Usage: /tokens budget 2  (dollars per task), or /tokens budget off' }
+      // No amount is a question, not "off": it says the budget and leaves it be.
+      if (!arg || !Number.isFinite(dollars) || dollars < 0) {
+        const now = Number(await $.store.get('budgetUsd').catch(() => 0)) || 0
+        return { text: `Usage: /tokens budget 2  (dollars per task), or /tokens budget off${now ? `. Now: ${fmtCost(now)} per task` : ''}` }
+      }
       await setBudget($, dollars)
       return { text: dollars ? `Budget set: ${fmtCost(dollars)} per task. The Token Manager warns at 80% and 100%.` : 'Budget off.' }
     }
