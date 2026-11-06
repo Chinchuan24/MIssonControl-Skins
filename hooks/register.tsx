@@ -6205,16 +6205,6 @@ export const register: Register = (on, options) => {
               <Button key="set-warm" label={`${(money.warm ?? BLANK_WARM).on ? '☑\uFE0E' : '☐'} Keep-Warm: refresh the prompt cache when that saves more than it costs`} plain onPress={async () => setKeepWarm($, !((await read($, watch)).warm ?? BLANK_WARM).on)} />
               <Button key="set-daily" label={`💵\uFE0E Daily cap: ${prefs.dailyUsd ? `${fmtCost(prefs.dailyUsd)} a day` : 'off'} ▸`} plain onPress={async () => setDailyCap($, nextStep(DAILY_STEPS, (await read($, settings)).dailyUsd))} />
               <Button key="set-budget" label={`🎯\uFE0E Budget per task: ${money.budgetUsd ? fmtCost(money.budgetUsd) : 'off'} ▸`} plain onPress={async () => setBudget($, nextStep(BUDGET_STEPS, (await read($, watch)).budgetUsd))} />
-              <Button
-                key="set-export"
-                label="📤\uFE0E Export the spend card's period as a CSV (to Downloads)"
-                plain
-                onPress={async () => {
-                  const at = await $.clock.now()
-                  const r = await exportSpend($, spendIo, await spendDirs($), (await read($, spend)).period, at)
-                  $.ui.toast(r.error ? `Export failed: ${r.error}` : `Saved ${r.from} to ${r.to}, ≈$${r.cost.toFixed(2)}: ${r.path}`, { timeoutMs: 15000 })
-                }}
-              />
             </Box>
           </Box>
         </Box>
