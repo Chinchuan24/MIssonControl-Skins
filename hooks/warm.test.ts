@@ -15,7 +15,9 @@ test('keep-warm: a big idle cache pays, a small idle one does not, a small busy 
   expect(warmCall(OPUS, 500_000, false, 40).isWarm).toBe(true)
   const small = warmCall(OPUS, 20_000, false, 40)
   expect(small.isWarm).toBe(false)
-  expect(small.reason).toMatch(/too small/)
+  // It says why in money: what a refresh costs and what it would likely save.
+  expect(small.reason).toMatch(/^skipped: a refresh costs \$0\.\d\d and would likely save \$0\.\d\d$/)
+  expect(warmCall(OPUS, 20_000, false, 40, undefined, usd => `€${(usd * 0.9).toFixed(2)}`).reason).toMatch(/costs €0\.\d\d .* save €0\.\d\d/)
   expect(warmCall(OPUS, 20_000, true, 40).isWarm).toBe(true)
 })
 
@@ -52,13 +54,13 @@ const usage = { model: 'claude-opus-5-5', input_tokens: 20_000, output_tokens: 8
 const pane = { title: '', isFocused: false, bodyColumns: 120, placement: 'dock', scroll: { offset: 0, bodyRows: 80 }, view: {} } as const
 const BAND = { component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 200 } as never } as const
 
-const base = (on: On) => {
+const base = (on: On, kept: Record<string, unknown> = {}) => {
   toasts.length = 0
   forks.length = 0
   forkRead = 500_000
   const clock = mock.clock(on, { now: Date.parse('2026-10-21T10:00:00Z') })
   mock.env(on, { LANG: 'en_US.UTF-8' })
-  mock.store(on, {})
+  mock.store(on, kept)
   on('fs.exists', async () => ({ value: false }) as never)
   on('settings.read', async () => ({ value: {} }) as never)
   on('tool.register', async () => ({ value: undefined }) as never)
@@ -121,7 +123,8 @@ test('keep-warm off (the default): no refresh goes out, the toast offers it', as
 })
 
 test('keep-warm on: one refresh before the hour runs out, and the cache counts from an hour again', async ($, on) => {
-  const clock = base(on)
+  // The full band, which shows the cache's minutes (the simple band, the default, does not).
+  const clock = base(on, { simpleBand: false })
   await start($)
   expect(await tokens($, 'warm on')).toMatch(/Keep-warm on/)
   await turn($)
@@ -161,4 +164,26 @@ test('keep-warm idle: it stops after the idle limit, close to three more warm ho
   await wait(clock, (HOUR / 60_000) * (IDLE_LIMIT + 2))
   expect(forks.length).toBe(IDLE_LIMIT)
   expect(await tokens($)).toMatch(/paused: idle limit reached/)
+})
+
+test('keep-warm saved: refreshes count their cost, and the prompt they kept warm counts one lapse saved, once', { timeoutMs: 20_000 }, async ($, on) => {
+  const clock = base(on)
+  await start($)
+  await tokens($, 'warm on')
+  await turn($)
+  await wait(clock, 56)
+  await wait(clock, 60)
+  expect(forks.length).toBe(2)
+  const money = (re: RegExp, s: string) => Number(re.exec(s)?.[1] ?? NaN)
+  // The first refresh's toast: its cost, and what it saves on the next prompt (a lapse less that cost).
+  const first = toasts.find(t => t.startsWith('🧊 Cache kept warm')) ?? ''
+  const lapse = money(/· \$([\d.]+) ·/, first) + money(/saves ≈\$([\d.]+)/, first)
+  // Before a prompt nothing is saved yet: only spent.
+  expect(await tokens($)).toMatch(/2 refreshes · spent ≈\$[\d.]+ · saved ≈\$0\.00/)
+  await turn($)
+  const after = await tokens($)
+  const spent = money(/spent ≈\$([\d.]+)/, after)
+  const saved = money(/saved ≈\$([\d.]+)/, after)
+  // Two refreshes kept one prompt warm: one lapse saved, net of both refreshes.
+  expect(Math.abs(saved + spent - lapse)).toBeLessThan(0.03)
 })

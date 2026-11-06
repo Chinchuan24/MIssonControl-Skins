@@ -175,10 +175,12 @@ const dayOf = (at: number): string => {
 }
 // Tab-to-Save: after a main turn, the Token Manager's top tip that has a command goes
 // into the prompt box as its dim suggestion, Tab to take. The same one waits 10 minutes.
+// The tips come sorted by level, so a warning's command goes first; the what-if coach's
+// tip (level 0, over a fifth saved) is the only quiet tip with a command.
 let lastSuggest = { cmd: '', at: 0 }
 async function suggestSaving($: EngineInterface, at: number): Promise<void> {
   const r = tokenReport(liveEnv(await read($, env), at), await read($, agents), await read($, manager), await read($, watch), at)
-  const tip = r.tips.find(tp => tp.cmd && tp.level >= 1)
+  const tip = r.tips.find(tp => tp.cmd)
   if (!tip?.cmd || (tip.cmd === lastSuggest.cmd && at - lastSuggest.at < 600_000)) return
   const shown = await $.prompt.suggest({ text: tip.cmd })
   if (shown.isShown) lastSuggest = { cmd: tip.cmd, at }
@@ -4609,11 +4611,15 @@ const MOOD_WORD = ['Healthy', 'Watch it', 'Act now'] as const
 // refresh pauses it until the next prompt.
 const warmTurns = new Set<string>()
 let isRefreshing = false
+// What the next prompt saves when it finds the cache warm: a lapsed cache's rewrite.
+// Counted as saved once, when that prompt comes, however many refreshes kept it warm.
+let warmPendingUsd = 0
 
 async function keepWarm($: EngineInterface): Promise<void> {
   if (isRefreshing) return
   isRefreshing = true
-  const halt = (why: string, spent = 0) => update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), halted: why, spentUsd: (prev.warm ?? BLANK_WARM).spentUsd + spent } }))
+  // `savedUsd` is net: every refresh's cost comes off it, a wasted one's too.
+  const halt = (why: string, spent = 0) => update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), halted: why, spentUsd: (prev.warm ?? BLANK_WARM).spentUsd + spent, savedUsd: (prev.warm ?? BLANK_WARM).savedUsd - spent } }))
   try {
     const [st, w, list, bg, info] = await Promise.all([read($, session), read($, watch), read($, agents), read($, background), read($, env)])
     const kw = w.warm ?? BLANK_WARM
@@ -4621,7 +4627,7 @@ async function keepWarm($: EngineInterface): Promise<void> {
     // Work still running is a sure return; its own requests do not warm the main cache.
     const isLikely = list.some(a => a.status === 'running') || bg.tasks.length + bg.crons.length > 0
     if (warmLimitHit(isLikely, kw.idle, kw.busy)) return void (await halt(isLikely ? 'refresh limit reached' : 'idle limit reached'))
-    const call = warmCall(priceOf(st.model, st.promptTokens), st.promptTokens, isLikely, info.contextPct)
+    const call = warmCall(priceOf(st.model, st.promptTokens), st.promptTokens, isLikely, info.contextPct, undefined, fmtCost)
     if (!call.isWarm) {
       await halt(call.reason ?? 'does not pay')
       // Keep-Warm explains itself: the one time it decides not to, it says why in money.
@@ -4635,6 +4641,8 @@ async function keepWarm($: EngineInterface): Promise<void> {
     const cost = costOf(st.model, usage, true)
     const at = await $.clock.now()
     if (!isWarmed(usage.cache_read_input_tokens || 0, st.promptTokens)) {
+      // The cache went before its hour: the earlier refreshes kept nothing for the next prompt.
+      warmPendingUsd = 0
       await halt(reply.isAnswered ? 'the cache had already lapsed' : `refresh failed (${reply.reason})`, cost)
       $.ui.toast(`🧊 Keep-warm: the cache had lapsed · ${fmtCost(cost)}`, { timeoutMs: 15000 })
       return
@@ -4643,8 +4651,9 @@ async function keepWarm($: EngineInterface): Promise<void> {
     await update($, session, prev => ({ ...prev, cacheUntil: at + CACHE_TTL_MS, cacheLeft: CACHE_TTL_MS / 1000, warned: 0 }))
     await update($, watch, prev => {
       const p = prev.warm ?? BLANK_WARM
-      return { ...prev, warm: { ...p, idle: p.idle + (isLikely ? 0 : 1), busy: p.busy + (isLikely ? 1 : 0), count: p.count + 1, spentUsd: p.spentUsd + cost, savedUsd: p.savedUsd + saved } }
+      return { ...prev, warm: { ...p, idle: p.idle + (isLikely ? 0 : 1), busy: p.busy + (isLikely ? 1 : 0), count: p.count + 1, spentUsd: p.spentUsd + cost, savedUsd: p.savedUsd - cost } }
     })
+    warmPendingUsd = call.missUsd
     $.ui.toast(`🧊 Cache kept warm · ${fmtCost(cost)} · saves ≈${fmtCost(Math.max(0, saved))} on your next prompt`, { timeoutMs: 15000 })
   } finally {
     isRefreshing = false
@@ -6651,8 +6660,13 @@ export const register: Register = (on, options) => {
       return next(e)
     }
     if (!e.agentId) {
-      // A prompt: the refreshes count again from zero.
-      await update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), idle: 0, busy: 0, halted: '' } }))
+      // A prompt: the refreshes count again from zero. One that finds the cache the
+      // refreshes kept warm is what they saved.
+      const promptAt = await $.clock.now()
+      const cacheUntil = (await read($, session)).cacheUntil
+      const gain = warmPendingUsd > 0 && cacheUntil !== null && promptAt < cacheUntil ? warmPendingUsd : 0
+      warmPendingUsd = 0
+      await update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), idle: 0, busy: 0, halted: '', savedUsd: (prev.warm ?? BLANK_WARM).savedUsd + gain } }))
       const total = (await $.session.usage().catch(() => null))?.cost?.usd ?? (await read($, env)).costUsd
       await update($, session, prev => ({ ...prev, turn: prev.turn + 1, costAtStart: total, isBusy: true }))
       // A slash command's turn is its job; any other main turn is the manager at work.
@@ -8148,14 +8162,18 @@ export const register: Register = (on, options) => {
       const w = await read($, watch)
       const info = await read($, env)
       const out = coachWhatIf(info, await read($, agents), w, st.promptTokens && st.model ? { promptTokens: st.promptTokens, model: st.model } : undefined)
-      return { text: whatIfText(out, fmtCost) }
+      // One tap to turn it on: the best scenario's command waits in the prompt box, Tab to take.
+      const shown = out.best ? await $.prompt.suggest({ text: out.best.cmd }).catch(() => ({ isShown: false })) : { isShown: false }
+      return { text: `${whatIfText(out, fmtCost)}${shown.isShown ? '\n(Tab puts it in the prompt box.)' : ''}` }
     }
     if (verb === 'pr') {
       const crew = crewOf(await read($, agents), await read($, manager))
       const boss = await read($, manager)
       const info = await read($, env)
       const where = await repoAndBranch($)
-      const badge = prBadge({ costUsd: Math.max(0, info.costUsd - (boss.costAtStart ?? info.costUsd)), agents: crew.length, tokens: crew.reduce((n, a) => n + a.tokens, 0), ...where }, fmtCost, fmtTokens)
+      // The tokens are the task's, the main loop's with the crew's, like its cost.
+      const tokens = Math.max(crew.reduce((n, a) => n + a.tokens, 0), sumTokens(info) - (boss.tokensAtStart ?? sumTokens(info)))
+      const badge = prBadge({ costUsd: Math.max(0, info.costUsd - (boss.costAtStart ?? info.costUsd)), agents: crew.length, tokens, ...where }, fmtCost, fmtTokens)
       const copied = await $.ui.copy({ text: badge.text }).catch(() => ({ isCopied: false }))
       return { text: `${badge.text}\n\n${copied.isCopied ? '(Copied: paste it into the PR description.)' : '(Select and copy it from here.)'}` }
     }
