@@ -513,12 +513,14 @@ async function sampleGuard($: EngineInterface, at: number, running: number): Pro
       mgProcsAt = at
       // A table that timed out or failed keeps the last measure, not the system-wide fallback.
       const seq = mgLockSeq
+      // The read's age counts from the read itself, not from the free-RAM look before it (slow on Windows).
+      const readAt = await $.clock.now()
       const procs = p.parseProcs(await probeOut($, p.procs))
       if (procs.length) {
         mgClaude = claudeBytes(procs)
         mgClaudeLean = claudeBytes(procs, true)
         await learnFromSample($, running, canLearn(mgLock !== null, seq, mgLockSeq))
-        await killIfOver($, procs, at)
+        await killIfOver($, procs, readAt)
       }
     }
     await beatGuard($, at)
@@ -7484,7 +7486,7 @@ export const register: Register = (on, options) => {
         'opt-kill',
         'If Claude goes over its RAM limit, stops its biggest heavy command (tsc, tests, builds).',
         Pick ? (
-          <Pick key="set-kill-pick" label="🔪\uFE0E Kill switch" value={among(cleanKillSwitch(prefs.killSwitch), killChoices)} options={killChoices} onSelect={v => void setKillSwitch($, cleanKillSwitch(v))} />
+          <Pick key="set-kill-pick" label={'🔪\uFE0E Kill switch'} value={among(cleanKillSwitch(prefs.killSwitch), killChoices)} options={killChoices} onSelect={v => void setKillSwitch($, cleanKillSwitch(v))} />
         ) : (
           <Button key="set-kill" label={`🔪\uFE0E Kill switch: ${cleanKillSwitch(prefs.killSwitch) === 'on' ? 'On' : 'Off'} ▸`} plain onPress={async () => setKillSwitch($, cleanKillSwitch((await read($, settings)).killSwitch) === 'on' ? 'off' : 'on')} />
         ),

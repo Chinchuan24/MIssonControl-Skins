@@ -194,6 +194,21 @@ test('killPick: the Desktop app\'s Claude counts as Claude, so what it started i
   expect(killPick(desktop)).toMatchObject({ pid: 12, label: 'vitest' })
 })
 
+test('killPick: what the person runs in the desktop app\'s own Terminal tab is not Claude\'s, so it is never stopped', () => {
+  const tab = [P(10, 1, 400, '/Applications/Claude.app/Contents/MacOS/Claude'), P(13, 10, 150, '/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper'), P(14, 13, 20, '/bin/zsh', '-zsh'), P(15, 14, 9000, 'node', 'node /r/node_modules/.bin/tsc --noEmit')]
+  expect(killPick(tab)).toBe(null)
+  expect(killPick([...tab, P(16, 10, 900, 'Claude.exe'), P(17, 16, 5000, 'node.exe', 'node C:\\r\\node_modules\\.bin\\tsc')])).toBe(null)
+  expect(killPick([...tab, P(18, 10, 900, 'claude.exe'), P(19, 18, 5000, 'node.exe', 'node C:\\r\\node_modules\\.bin\\tsc')])?.pid).toBe(19)
+})
+
+test('heavyArgs: Windows command lines, with their quoted paths', () => {
+  expect(heavyArgs('"C:\\Program Files\\nodejs\\node.exe" C:\\app\\node_modules\\typescript\\bin\\tsc -p .')).toBe('tsc')
+  expect(heavyArgs('"C:\\Program Files\\nodejs\\node.exe" "C:\\My app\\node_modules\\jest\\bin\\jest.js" --ci')).toBe('jest')
+  expect(heavyArgs('"C:\\tools\\tsc.exe" -p .')).toBe('tsc')
+  expect(heavyArgs('"C:\\Program Files\\nodejs\\node.exe" C:\\app\\server.js tsc')).toBe(null)
+  expect(heavyArgs('"C:\\Program Files\\Slack\\slack.exe" --startup')).toBe(null)
+})
+
 test('killDecision: only on a fresh read over the limit, with the switch on, once per cooldown', () => {
   const base = { enabled: true, limitBytes: 20 * GB, procs: TREE, readAgeMs: 800, sinceKillMs: null as number | null }
   // Claude: 900+20+80+6000+19700+3000+2000 MB = 31.2 GB, over 20.
@@ -228,6 +243,9 @@ test('killDecision: one process per look; the next look, after the cooldown, tak
 test('withArgs matches command lines to the name list by pid; rows without one stay as they were', () => {
   const merged = withArgs([P(1, 0, 1, 'a'), P(2, 1, 1, 'b')], [{ pid: 2, args: 'b --flag' }, { pid: 9, args: 'zzz' }])
   expect(merged).toEqual([P(1, 0, 1, 'a'), P(2, 1, 1, 'b', 'b --flag')])
+  // A pid reused between the two reads has another parent: its command line is not taken.
+  expect(withArgs([P(2, 1, 1, 'b')], [{ pid: 2, ppid: 7, args: 'tsc -p .' }])).toEqual([P(2, 1, 1, 'b')])
+  expect(withArgs([P(2, 1, 1, 'b')], [{ pid: 2, ppid: 1, args: 'tsc -p .' }])).toEqual([P(2, 1, 1, 'b', 'tsc -p .')])
 })
 
 test('the kill switch setting is on unless it says off, and the Pick holds both options', () => {
