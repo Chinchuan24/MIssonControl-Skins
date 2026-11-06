@@ -1030,7 +1030,42 @@ const SAMURAI_SKIN: Skin = {
   tabs: { mission: '♪ Mission Control', skins: '♪ Skins' },
 }
 
-const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN, SAMURAI_SKIN]
+// The Mentalist (fan homage): Jane and the CBI team. Sacramento sunset amber on dark
+// walnut, case-file cream text, a serif face; Jane's tea in the spinner.
+const MENTALIST_SKIN: Skin = {
+  id: 'mentalist',
+  cast: 'mentalist',
+  name: 'The Mentalist',
+  description: 'Fan homage: Jane and the CBI team, sunset amber on dark walnut, case-file cream.',
+  font: "'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,'Noto Serif',serif",
+  corners: 'round',
+  dark: true,
+  colors: {
+    accent: '#E3A857',
+    accent2: '#8FB8A8',
+    done: '#86C28B',
+    warn: '#F2C14E',
+    alert: '#E06A5A',
+    meter: '#C98A4B',
+    text: '#F1E6D2',
+    subtext: '#C9B9A0',
+    muted: '#A39380',
+    tile: '#211A15',
+    track: '#2E241D',
+    line: '#3A2E25',
+    grid: '#3F3229',
+  },
+  boss: ['#E3A857', '#8C2F39', '#C98A4B', '#8FB8A8', '#E3A857'],
+  roles: ['#E3A857', '#8FB8A8', '#C97B63', '#B9A06A', '#9DA7C9', '#D08C9B'],
+  effects: { scanlines: false, glitch: false },
+  chat: true,
+  words: ['Reading the room', 'Cold reading', 'Brewing tea', 'Noticing', 'Connecting dots', 'Following a hunch', 'Checking the alibi'],
+  toolWords: { Read: 'Study', Edit: 'Amend', MultiEdit: 'Amend', Write: 'Note', Bash: 'Run', PowerShell: 'Run', Grep: 'Search', Glob: 'Sift', Agent: 'Brief', WebFetch: 'Look up', WebSearch: 'Canvass', ToolSearch: 'Ask around' },
+  backdrop: { fill: '#120E0B', pattern: 'lines', ink: 'rgba(227,168,87,.05)' },
+  tabs: { mission: '🍵 Mission Control', skins: '🍵 Skins' },
+}
+
+const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, MENTALIST_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN, SAMURAI_SKIN]
 
 // Only plain colour and font values reach the drawings: a skin file cannot
 // smuggle markup into an Svg.
@@ -4593,7 +4628,9 @@ const hudHead = (W: number, d: HudData): string => {
   const c = SKIN.colors
   const y = 16
   const name = 'MISSION CONTROL'
-  const nameW = textWidth(name, 10.5) * 1.08 + 4
+  // The name's letter-spacing (.9 a letter) and its cursor (▮) take room too: a wide font
+  // (a serif skin) would otherwise run the name into the skin's chip.
+  const nameW = textWidth(name, 10.5) * 1.08 + name.length * 0.9 + textWidth('▮', 10.5) + 4
   const skin = SKIN.name.toUpperCase()
   const skinW = Math.round(textWidth(skin, 9.5) + 14)
   const sx = 24 + nameW + 8

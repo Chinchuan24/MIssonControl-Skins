@@ -1,0 +1,77 @@
+{
+  "$schema": "./skin.schema.json",
+  "id": "mentalist",
+  "name": "The Mentalist",
+  "description": "Fan homage: Jane and the CBI team, sunset amber on dark walnut, case-file cream.",
+  "font": "'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,'Noto Serif',serif",
+  "corners": "round",
+  "dark": true,
+  "colors": {
+    "accent": "#E3A857",
+    "accent2": "#8FB8A8",
+    "done": "#86C28B",
+    "warn": "#F2C14E",
+    "alert": "#E06A5A",
+    "meter": "#C98A4B",
+    "text": "#F1E6D2",
+    "subtext": "#C9B9A0",
+    "muted": "#A39380",
+    "tile": "#211A15",
+    "track": "#2E241D",
+    "line": "#3A2E25",
+    "grid": "#3F3229"
+  },
+  "boss": [
+    "#E3A857",
+    "#8C2F39",
+    "#C98A4B",
+    "#8FB8A8",
+    "#E3A857"
+  ],
+  "roles": [
+    "#E3A857",
+    "#8FB8A8",
+    "#C97B63",
+    "#B9A06A",
+    "#9DA7C9",
+    "#D08C9B"
+  ],
+  "effects": {
+    "scanlines": false,
+    "glitch": false
+  },
+  "backdrop": {
+    "fill": "#120E0B",
+    "pattern": "lines",
+    "ink": "rgba(227,168,87,.05)"
+  },
+  "chat": true,
+  "words": [
+    "Reading the room",
+    "Cold reading",
+    "Brewing tea",
+    "Noticing",
+    "Connecting dots",
+    "Following a hunch",
+    "Checking the alibi"
+  ],
+  "toolWords": {
+    "Read": "Study",
+    "Edit": "Amend",
+    "MultiEdit": "Amend",
+    "Write": "Note",
+    "Bash": "Run",
+    "PowerShell": "Run",
+    "Grep": "Search",
+    "Glob": "Sift",
+    "Agent": "Brief",
+    "WebFetch": "Look up",
+    "WebSearch": "Canvass",
+    "ToolSearch": "Ask around"
+  },
+  "tabs": {
+    "mission": "🍵 Mission Control",
+    "skins": "🍵 Skins"
+  },
+  "cast": "mentalist"
+}

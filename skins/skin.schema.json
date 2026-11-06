@@ -220,9 +220,10 @@
         "runners",
         "netrun",
         "samurai",
-        "corpo"
+        "corpo",
+        "mentalist"
       ],
-      "description": "Characters in place of the crabs. These belong to the Cyberpunk Skins add-on; leave out of your own skins."
+      "description": "Characters in place of the crabs: mentalist ships with the mod, the others need the Cyberpunk Skins add-on. Leave out of your own skins."
     }
   },
   "$defs": {

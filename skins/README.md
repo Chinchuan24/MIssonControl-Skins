@@ -2,15 +2,16 @@
 
 Skins for the **Mission Control** mod: the band above the prompt, the Mission Control pane, its cards and the hierarchy.
 
-Skins load from, in order: the folder you used last, a `Custom Claude Skins/` folder in your working folder (on Linux, or a case-sensitive Mac drive, the name must match exactly), then the `skins/` examples shipped with the mod. The JSON files here are copies of the built-in skins: copy one to start your own. The cyberpunk ones live in `addons/cyberpunk/skins/` (Cyberpunk Skins add-on).
+Skins load from, in order: the folder you used last, a `Custom Claude Skins/` folder in your working folder (on Linux, or a case-sensitive Mac drive, the name must match exactly), then the `skins/` examples shipped with the mod. The JSON files here are copies of the built-in skins: copy one to start your own. `mentalist.json` is The Mentalist, a fan-homage skin with Jane and the CBI team as its pixel cast. The cyberpunk ones live in `addons/cyberpunk/skins/` (Cyberpunk Skins add-on).
 
-> Unofficial, non-commercial fan project. Cyberpunk 2077, Cyberpunk: Edgerunners and all related names and characters belong to their respective owners (CD PROJEKT S.A., Studio Trigger, Netflix) and are used as fan homage only.
+> Unofficial, non-commercial fan project. Cyberpunk 2077, Cyberpunk: Edgerunners and all related names and characters belong to their respective owners (CD PROJEKT S.A., Studio Trigger, Netflix) and are used as fan homage only. The Mentalist and its characters belong to CBS and Warner Bros. Television, likewise used as fan homage only.
 
 ## Use
 
 - `/skins`: open the skin picker panel
 - `/skin`: list skins (▸ marks the one that's on)
 - `/skin crab-classic`: switch, live
+- `/skin mentalist`: Jane and the CBI team (dark, its own pixel cast)
 - `/skin off`: back to Default (no skin)
 - `/skin reload`: re-read this folder after you edit or add a file
 - `/skin new <idea>`: Claude drafts a skin from a one-line idea and saves it

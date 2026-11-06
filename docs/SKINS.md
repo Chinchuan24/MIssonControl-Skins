@@ -59,7 +59,7 @@ Colors are hex (`#FCEE0A`) or `rgb()` / `rgba()`. Anything else is replaced by a
 
 ## Names and logos
 
-Make it your own. A skin must not use another brand's name or logo: no company, product, game or film names. `/skin new` tells the model so, and both `/skin new` and `/skin check` refuse ids and names containing `anthropic`, `claude`, `aws`, `amazon`, `cyberpunk`, `arasaka` or `cd projekt`. The `cast` field (characters in place of the crabs) belongs to the Cyberpunk Skins add-on, so leave it out.
+Make it your own. A skin must not use another brand's name or logo: no company, product, game or film names. `/skin new` tells the model so, and both `/skin new` and `/skin check` refuse ids and names containing `anthropic`, `claude`, `aws`, `amazon`, `cyberpunk`, `arasaka` or `cd projekt`. The `cast` field (characters in place of the crabs) picks the mod's own pixel characters (The Mentalist's, or the Cyberpunk Skins add-on's), so leave it out.
 
 ## Skin jam: share yours
 
