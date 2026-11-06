@@ -283,6 +283,8 @@ declare module 'claude-code' {
       settings: { openOnStart: boolean; crewMode: boolean; crewAlways?: boolean; currency: string; sounds: boolean; simple: boolean; calm: boolean; voice: boolean; staffing: boolean; oneShot: 'ask' | 'on' | 'off'; dailyUsd: number; autopilot: boolean; keepWarm: boolean; budgetUsd: number; tkOn: boolean; tkJobMin: number; tkAgentMin: number; ramLimit: string; maxAgents: number; killSwitch: string }
       /** Machine Guard: the detected machine as one line and in two words ("48 GB Mac", '' unknown), RAM in use (%, -1 before the first sample), the crew size in force and the calibrated one, and whether RAM is tight. */
       guard: { line: string; short: string; ramPct: number; max: number; calibrated: number; isTight: boolean }
+      // What the Settings pane shows of it: changes only with the machine, the limit or the learned figure.
+      guardSettings: { line: string; autoLabel: string; perAgent: string }
       /** Billing: the Keychain key's status and the apiKeyHelper mode. See hooks/billing.ts. */
       billing: Billing
       /** Street Cred: XP, the counts badges are earned on, the badges. Mirrored from `$.store`. */

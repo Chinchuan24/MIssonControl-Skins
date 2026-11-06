@@ -333,6 +333,8 @@ async function syncGuard($: EngineInterface, running: number): Promise<void> {
   }
   const was = await read($, guard)
   if (JSON.stringify(was) !== JSON.stringify(next)) await update($, guard, () => next)
+  const shown = { line: next.line, autoLabel: next.autoLabel, perAgent: next.perAgent }
+  if (JSON.stringify(await read($, guardSettings)) !== JSON.stringify(shown)) await update($, guardSettings, () => shown)
 }
 // Session start and every reload: what the person set, what was found last time, then a fresh look.
 async function loadGuard($: EngineInterface): Promise<void> {
@@ -1667,6 +1669,10 @@ const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.i
 const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, crewAlways: false, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, dailyUsd: 0, autopilot: false, keepWarm: false, budgetUsd: 0, tkOn: true, tkJobMin: 60, tkAgentMin: 20, ramLimit: 'auto', maxAgents: 0, killSwitch: 'on' })
 // Machine Guard (hooks/machineguard.ts): what the Settings pane and the band draw. Written only when it changes.
 const guard = atom({ plugin: 'crab-progress', key: 'guard' } as const, { line: 'unknown machine', usedGb: -1, limitGb: 0, max: 4, calibrated: 4, autoLabel: 'Auto · 4 (machine unknown)', perAgent: '≈0.5 GB per agent (default)', isTight: false, others: 0, sessions: 1 })
+// The part of it the Settings pane shows. The RAM in use, the crew and the other sessions
+// change at each look while Claude works; this changes only with the machine, the limit or
+// the learned figure, so an open dropdown in Settings is not closed by a redraw.
+const guardSettings = atom({ plugin: 'crab-progress', key: 'guardSettings' } as const, { line: 'unknown machine', autoLabel: 'Auto · 4 (machine unknown)', perAgent: '≈0.5 GB per agent (default)' })
 const cred = atom({ plugin: 'crab-progress', key: 'cred' } as const, BLANK_CRED)
 // Billing (hooks/billing.ts): which way Claude Code is paid for, and the Keychain key's
 // status. Never the key: the typed text lives in billing.ts's `draft`, in memory only.
@@ -7302,7 +7308,7 @@ export const register: Register = (on, options) => {
 
   // Settings and billing, in a pane of their own. The main pane redraws in bursts while a
   // turn runs, which would close an open dropdown; this one reads only atoms that change
-  // when the person acts: skin, settings, timekeeper, billing and spendPick. (The spend
+  // when the person acts: skin, settings, guardSettings, billing and spendPick. (The spend
   // atom itself is also written at each sub-agent's end, when the day's cost grew, so this
   // pane reads spendPick, the period and typed days only, and takes the month list from the
   // store, which does not subscribe.) It reads no watch, agents, manager, env, today,
@@ -7315,7 +7321,7 @@ export const register: Register = (on, options) => {
     const { Box, Text, Button } = ui
     const clockNow = await $.clock.now().catch(() => 0)
     const prefs = await read($, settings)
-    const gd = await read($, guard)
+    const gd = await read($, guardSettings)
     const tkNow = { on: prefs.tkOn, jobMin: prefs.tkJobMin, agentMin: prefs.tkAgentMin }
     const sp = await read($, spendPick)
     const spendLedger = combineDays(cleanDays(await $.store.get('spendDays').catch(() => undefined)), cleanDays(await $.store.get('spendLog').catch(() => undefined)))

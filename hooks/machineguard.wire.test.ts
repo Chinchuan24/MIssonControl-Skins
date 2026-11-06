@@ -25,6 +25,7 @@ let aliveArgs: Record<string, string> = {}
 const stopped: string[] = []
 // The store, kept here so a test can read what the mod wrote and play the other sessions.
 let kv = new Map<string, unknown>()
+let settingsDraws = 0
 const clone = (v: unknown): unknown => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)))
 
 const base = (on: On, store: Record<string, unknown> = {}) => {
@@ -45,7 +46,11 @@ const base = (on: On, store: Record<string, unknown> = {}) => {
   on('session.root', async () => ({ value: '/repo/claude mod' }) as never)
   mock.env(on, { LANG: 'en_US.UTF-8' })
   kv = new Map(Object.entries(store).map(([k, v]) => [k, clone(v)]))
-  on('store.get', async (_$, e) => ({ value: clone(kv.get((e as { key: string }).key)) }) as never)
+  on('store.get', async (_$, e) => {
+    // Only the Settings pane reads this key, once a draw: a count of its draws.
+    if ((e as { key: string }).key === 'spendDays') settingsDraws++
+    return { value: clone(kv.get((e as { key: string }).key)) } as never
+  })
   on('store.set', async (_$, e) => {
     kv.set((e as { key: string }).key, clone((e as { value: unknown }).value))
     return { value: undefined } as never
@@ -422,4 +427,37 @@ test('kill switch: the heavy command that was running when it was stopped comes 
   const done = (await run) as unknown as { result?: string; context?: string[] }
   expect(done.result).toBe('ok')
   expect(done.context?.join(' ')).toContain('Machine Guard stopped `tsc` because Claude\'s RAM use went over its limit. Re-run only when RAM is under the limit; prefer smaller scopes')
+})
+
+test('the Settings pane does not redraw when only the RAM in use changes, so an open dropdown stays open', async ($, on) => {
+  machineOut = `os=mac\ntotal=${48 * GB}\ncores=12\nfree=${30 * GB}\n`
+  running = 0
+  base(on, { ramLimit: 'gb:40' })
+  const used: number[] = []
+  on('state.set', async (_$, e, next) => {
+    if ((e as { key?: string }).key === 'guard') used.push(Number(((e as { value?: { usedGb?: number } }).value ?? {}).usedGb))
+    return next(e)
+  })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'crab-progress', surface: 'desktop', component: 'Pane', requestId: 'crab-settings', props: { title: '', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} } } as never)
+  await ui.drawn()
+  const before = settingsDraws
+  const seen = used.length
+  // The RAM in use moves twice between looks while an agent runs; nothing the pane shows changes.
+  running = 1
+  for (const free of [26, 21]) {
+    machineOut = `os=mac\ntotal=${48 * GB}\ncores=12\nfree=${free * GB}\n`
+    await clock?.advance(31_000)
+    await spawn($, free)
+  }
+  await ui.drawn()
+  expect(before).toBeGreaterThan(0)
+  expect(new Set(used.slice(seen)).size).toBeGreaterThan(1)
+  expect(settingsDraws).toBe(before)
+  expect((await ui.findAll({ type: 'Text' })).map(t => String(t.text ?? '')).some(t => t.startsWith('🖥︎ 48 GB RAM'))).toBe(true)
+  // A change the person makes still redraws it.
+  await ui.press({ key: 'set-calm' })
+  await ui.drawn()
+  expect(settingsDraws).toBeGreaterThan(before)
+  await ui.unmount()
 })
