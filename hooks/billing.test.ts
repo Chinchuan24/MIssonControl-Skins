@@ -325,6 +325,8 @@ const base = (on: On) => {
 const start = ($: Engine) => $.session.start({ source: 'startup', cwd: '/repo', surface: 'desktop', isInteractive: true } as never)
 const pane = { title: '', isFocused: false, bodyColumns: 100, placement: 'dock', scroll: { offset: 0, bodyRows: 60 }, view: {} } as const
 const mountPane = ($: Engine) => $.ui.mount({ plugin: 'crab-progress', surface: 'desktop', component: 'Pane', requestId: 'crab-agents', props: pane })
+// Billing lives in the settings pane, apart from the busy main pane.
+const mountSettings = ($: Engine) => $.ui.mount({ plugin: 'crab-progress', surface: 'desktop', component: 'Pane', requestId: 'crab-settings', props: pane })
 const everyText = async (ui: Awaited<ReturnType<typeof mountPane>>) => (await ui.findAll({ type: 'Text' })).map(t => String(t.text ?? '')).join('\n')
 const svgs = async (ui: Awaited<ReturnType<typeof mountPane>>) => (await ui.findAll({ type: 'Svg' })).map(el => String(el.props.source)).join('')
 // The line `/missioncontrol billing` tells the person to add, as settings.json would hold it.
@@ -337,7 +339,7 @@ const helperLine = async ($: Engine): Promise<string> => {
 test('billing pane: typing a key and pressing Save puts it in the Keychain, shows only ••••last4, and empties the box', async ($, on) => {
   base(on)
   await start($)
-  const ui = await mountPane($)
+  const ui = await mountSettings($)
   expect(await everyText(ui)).toContain('Billing: Plan')
   expect(await everyText(ui)).toContain('No key saved')
   await ui.input({ key: 'bill-key-0', text: FAKE, kind: 'change' })
@@ -359,7 +361,7 @@ test('billing pane: typing a key and pressing Save puts it in the Keychain, show
 test('billing pane: Enter in the box saves too, and a wrong paste is refused with nothing echoed', async ($, on) => {
   base(on)
   await start($)
-  const ui = await mountPane($)
+  const ui = await mountSettings($)
   await ui.input({ key: 'bill-key-0', text: 'hunter2-not-a-key' })
   expect(hostCalls.some(c => c.argv[1] === '-i')).toBe(false)
   expect(await everyText(ui)).not.toContain('hunter2')
@@ -372,7 +374,7 @@ test('billing pane: Enter in the box saves too, and a wrong paste is refused wit
 test('billing pane: Remove takes the key out and the status goes back to "No key saved"', async ($, on) => {
   base(on)
   await start($)
-  const ui = await mountPane($)
+  const ui = await mountSettings($)
   await ui.input({ key: 'bill-key-0', text: FAKE })
   expect(await ui.find({ key: 'bill-remove' })).toBeDefined()
   await ui.press({ key: 'bill-remove' })
@@ -385,7 +387,7 @@ test('billing pane: Remove takes the key out and the status goes back to "No key
 test('billing pane: the box says it cannot hide the key and offers the hidden terminal way', async ($, on) => {
   base(on)
   await start($)
-  const ui = await mountPane($)
+  const ui = await mountSettings($)
   const text = await everyText(ui)
   expect(text).toContain('cannot hide it')
   expect(text).toContain(`security add-generic-password -U -a "$(id -un)" -s ${KEYCHAIN_SERVICE} -w`)
@@ -396,7 +398,7 @@ test('billing pane: off macOS there is no box, only the macOS-only line', async 
   base(on)
   world.os = 'Linux'
   await start($)
-  const ui = await mountPane($)
+  const ui = await mountSettings($)
   expect(await everyText(ui)).toContain('macOS-only')
   expect(await ui.find({ type: 'Input' })).toBeUndefined()
   await ui.unmount()
@@ -406,9 +408,12 @@ test('billing pane: apiKeyHelper pointing at our script shows the API-credits ch
   base(on)
   await start($)
   world.helper = await helperLine($) // what the person would add to settings.json
-  const ui = await mountPane($)
-  await ui.press({ key: 'bill-guide' }) // looks again
-  expect(await everyText(ui)).toContain('Billing: API credits (Keychain)')
+  const ui = await mountPane($) // open before the change: it must follow it without a remount
+  const settingsUi = await mountSettings($)
+  await settingsUi.press({ key: 'bill-guide' }) // looks again
+  expect(await everyText(settingsUi)).toContain('Billing: API credits (Keychain)')
+  await settingsUi.unmount()
+  await ui.drawn()
   const drawn = await svgs(ui)
   expect(drawn).toContain('API credits')
   expect(drawn).toContain('real money')

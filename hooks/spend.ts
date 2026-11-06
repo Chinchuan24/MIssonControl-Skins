@@ -500,6 +500,8 @@ export type SpendState = {
 }
 
 /** What register.tsx lends: the atom, the price of a message, the words. */
+export type SpendPick = Pick<SpendState, 'period' | 'draft' | 'error'>
+
 export type SpendIo = {
   price: (r: SpendRecord) => number
   badDay: (v: string) => string
@@ -509,6 +511,10 @@ export type SpendIo = {
 // does not let $ be handed to an object's method, so these read and write it directly.
 export const BLANK_SPEND: SpendState = { period: TODAY_PERIOD, days: {}, status: 'idle', draft: { from: '', to: '' }, error: '' }
 export const spendAtom = atom({ plugin: 'crab-progress', key: 'spend' } as const, BLANK_SPEND)
+// The pick alone (period, typed days, error), mirrored from `spend` at every write of those.
+// The settings pane reads this, not the ledger, so a day's cost landing mid-turn does not redraw it.
+export const BLANK_PICK: SpendPick = { period: TODAY_PERIOD, draft: { from: '', to: '' }, error: '' }
+export const spendPickAtom = atom({ plugin: 'crab-progress', key: 'spendPick' } as const, BLANK_PICK)
 
 /** Claude Code's configuration folder, and the person's home. */
 export type SpendDirs = { config: string; home: string }
@@ -747,18 +753,26 @@ async function saveSpend($: EngineInterface, io: SpendIo, root: string, fresh: M
   await refreshSpendDays($, io)
 }
 
+/** Copies the pick out of `spend` into `spendPick`; writes only when it differs. */
+async function mirrorPick($: EngineInterface): Promise<void> {
+  const { period, draft, error } = await read($, spendAtom)
+  if (!same({ period, draft, error }, await read($, spendPickAtom))) await update($, spendPickAtom, () => ({ period, draft, error }))
+}
+
 // --- the picks ---------------------------------------------------------------------
 
 /** The kept pick and ledger now, at the session start; the transcripts are read later. */
 export async function loadSpend($: EngineInterface, io: SpendIo): Promise<void> {
   const period = cleanPeriod(await $.store.get('spendPeriod').catch(() => undefined))
   await update($, spendAtom, prev => ({ ...prev, period, draft: period.kind === 'custom' ? { from: period.from, to: period.to } : prev.draft }))
+  await mirrorPick($)
   await refreshSpendDays($, io)
 }
 
 export async function setSpendPeriod($: EngineInterface, io: SpendIo, period: SpendPeriod): Promise<void> {
   await $.store.set('spendPeriod', period).catch(() => undefined)
   await update($, spendAtom, prev => ({ ...prev, period, error: '', draft: period.kind === 'custom' ? { from: period.from, to: period.to } : prev.draft }))
+  await mirrorPick($)
 }
 
 /** A month picked: the month itself, or the next/previous one from the buttons. */
@@ -782,6 +796,7 @@ export async function typeSpendDay($: EngineInterface, io: SpendIo, which: 'from
   const v = value.trim()
   if (!isDay(v)) {
     await update($, spendAtom, prev => ({ ...prev, error: io.badDay(v) }))
+    await mirrorPick($)
     return
   }
   const sp = await read($, spendAtom)
@@ -789,6 +804,7 @@ export async function typeSpendDay($: EngineInterface, io: SpendIo, which: 'from
   const other = which === 'from' ? draft.to : draft.from
   if (!isDay(other)) {
     await update($, spendAtom, prev => ({ ...prev, draft, error: '' }))
+    await mirrorPick($)
     return
   }
   const [from, to] = draft.from <= draft.to ? [draft.from, draft.to] : [draft.to, draft.from]

@@ -16,7 +16,7 @@ const base = (on: On, calls: string[] = []) => {
   on('ui.toast', async () => ({ value: undefined }) as never)
   on('ui.panes', async () =>
     ({
-      value: ['crab-agents', 'crab-skins', 'crab-memory'].map(id => ({ id, title: id, isShown: false, isFocused: false, isPlaced: true })),
+      value: ['crab-agents', 'crab-skins', 'crab-memory', 'crab-settings'].map(id => ({ id, title: id, isShown: false, isFocused: false, isPlaced: true })),
     }) as never,
   )
   on('ui.close', async (_$, e) => {
@@ -53,12 +53,27 @@ test('a pane open behind another tab is brought forward: closed, then opened', a
 test('"Change skin ▸" brings the skin picker forward from behind another tab', async ($, on) => {
   const calls = base(on)
   await start($)
-  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', requestId: 'crab-agents', props: pane } as never)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', requestId: 'crab-settings', props: pane } as never)
   calls.length = 0
   await ui.press({ key: 'set-skin' })
   await ui.drawn()
   await ui.unmount()
   expect(calls.join(', ')).toContain('close crab-skins, open crab-skins')
+})
+
+test('"⚙ Settings and billing ▸" and the one-shot "Change ▸" open the settings pane from the main pane', async ($, on) => {
+  const calls = base(on)
+  await start($)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', requestId: 'crab-agents', props: pane } as never)
+  for (const key of ['open-settings', 'oneshot-open']) {
+    calls.length = 0
+    await ui.press({ key })
+    await ui.drawn()
+    expect(calls.join(', ')).toContain('close crab-settings, open crab-settings')
+  }
+  // Nothing of the settings or billing stays on the busy pane.
+  for (const key of ['set-crew-pick', 'set-daily-pick', 'set-budget-pick', 'bill-guide', 'spend-period']) expect(await ui.find({ key })).toBeUndefined()
+  await ui.unmount()
 })
 
 test("only the person's own prompts count as tasks, not a notification or a plugin's", async ($, on) => {

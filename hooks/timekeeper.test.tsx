@@ -267,7 +267,7 @@ test('settings: the pane toggle turns it off and on, and off hides every budget'
   await ask($)
   await plan($, { minutes: 5 })
   await clock.advance(MIN)
-  const { ui } = await desktopPane($)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', requestId: 'crab-settings', props: pane(120) as never })
   const label = async () => String(((await ui.find({ key: 'set-timekeeper' })) as { props?: { label?: string } } | undefined)?.props?.label ?? '')
   expect(await label()).toMatch(/^☑︎ Timekeeper: 60 min per job, 20 min per sub-agent$/)
   await ui.press({ key: 'set-timekeeper' })
