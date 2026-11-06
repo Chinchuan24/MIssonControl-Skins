@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { calibrate, claudeBytes, cleanMaxAgents, cleanRamLimit, effectiveMax, guardVerdict, hudText, machineLine, machineOf, maxAgentsOptions, noteTrip, ramLimitBytes, ramLimitOptions, ruleText, tightKind, typedRamLimit } from './machineguard'
+import { calibrate, claudeBytes, cleanMaxAgents, cleanRamLimit, effectiveMax, guardVerdict, hudText, isLiveAgent, machineLine, machineOf, maxAgentsOptions, noteTrip, paneLine, ramLimitBytes, ramLimitOptions, ruleText, shortMachine, tightKind, typedRamLimit } from './machineguard'
 import type { GuardInput, Machine, Proc } from './machineguard'
 
 const GB = 1024 ** 3
@@ -56,6 +56,14 @@ test('a typed amount is GB; nonsense is refused', () => {
   expect(typedRamLimit(' 12 GB ')).toBe('gb:12')
   expect(typedRamLimit('6.5gb')).toBe('gb:6.5')
   for (const bad of ['', '0', '-4', 'lots', '12 apples']) expect(typedRamLimit(bad)).toBe(null)
+})
+
+test('a limit that rounds to 0 is Auto, never a limit that refuses every agent', () => {
+  expect(typedRamLimit('0.01')).toBe(null)
+  expect(cleanRamLimit('gb:0.04')).toBe('auto')
+  expect(cleanRamLimit('pct:0.4')).toBe('auto')
+  expect(cleanRamLimit('pct:100.4')).toBe('pct:100')
+  expect(ramLimitOptions('gb:0.04').map(o => o.value)).toEqual(['auto', 'pct:25', 'pct:50', 'pct:75'])
 })
 
 test('max agents: Auto is 0 and follows the calibration; the pick is always an option', () => {
@@ -148,4 +156,18 @@ test('warn once when a guard trips; warn again only after it recovered and tripp
 test('hudText: RAM 62% · 3/6 agents', () => {
   expect(hudText(input({ running: 3, freeBytes: 18.24 * GB }))).toBe('RAM 62% · 3/6 agents')
   expect(hudText(input({ freeBytes: null }))).toBe('RAM ? · 0/6 agents')
+})
+
+test('the desktop pane line: RAM and the crew while working, else what the machine allows', () => {
+  expect(shortMachine(mac48)).toBe('48 GB Mac')
+  expect(paneLine('48 GB Mac', 62, 3, 6, true)).toBe('🛡\uFE0E RAM 62% · 3/6 agents')
+  expect(paneLine('48 GB Mac', -1, 1, 6, true)).toBe('🛡\uFE0E RAM ? · 1/6 agents')
+  expect(paneLine('48 GB Mac', 62, 0, 6, false)).toBe('🛡\uFE0E 48 GB Mac · up to 6 agents')
+  expect(paneLine('', -1, 0, 4, false)).toBe('🛡\uFE0E up to 4 agents')
+  expect(paneLine('8 GB Mac', -1, 0, 1, false)).toBe('🛡\uFE0E 8 GB Mac · up to 1 agent')
+})
+
+test('the crew counts running, pending and waiting agents, not ended or idle ones', () => {
+  for (const s of ['running', 'pending', 'waiting']) expect(isLiveAgent(s)).toBe(true)
+  for (const s of ['idle', 'completed', 'failed', 'killed']) expect(isLiveAgent(s)).toBe(false)
 })

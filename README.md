@@ -236,6 +236,8 @@ Stops a big crew from freezing your computer.
 - **Watches RAM live.** If it gets tight, it refuses to start *new* agents. Running ones are never killed.
 - **Tell Claude to go easy:** heavy commands (tests, builds) run one at a time.
 - **Tune it** in ⚙ Settings: "RAM Claude may use" and "Max agents at once".
+- **Claude's RAM counts every Claude process** on the computer: other sessions and the desktop app too.
+- **See it** in the desktop pane: "🛡 RAM 62% · 3/6 agents" while working.
 
 Details: [docs/MACHINE-GUARD.md](docs/MACHINE-GUARD.md)
 

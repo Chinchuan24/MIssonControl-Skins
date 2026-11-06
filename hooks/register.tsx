@@ -18,7 +18,7 @@ import { BLANK_PICK, BLANK_SPEND, SPEND_KINDS, TODAY_PERIOD, exportSpend, isResc
 import type { SpendDirs, SpendIo, SpendKind, SpendRecord } from './spend'
 import { minMove, noteSample, planProgress as stepProgress, stopSignal, stopText } from './stopsignal'
 import type { ProgressSample, StopSignal } from './stopsignal'
-import { SAMPLE_EVERY_MS as GUARD_EVERY_MS, UNKNOWN_MACHINE, calibrate, claudeBytes, cleanMaxAgents, cleanRamLimit, effectiveMax, guardVerdict, hudLine, machineLine, machineOf, maxAgentsOptions, noteTrip, ramLimitBytes, ramLimitOptions, ruleText, tightKind, typedRamLimit, usedPct } from './machineguard'
+import { SAMPLE_EVERY_MS as GUARD_EVERY_MS, UNKNOWN_MACHINE, calibrate, claudeBytes, cleanMaxAgents, cleanRamLimit, effectiveMax, guardVerdict, hudLine, isLiveAgent, machineLine, machineOf, maxAgentsOptions, noteTrip, paneLine, ramLimitBytes, ramLimitOptions, ruleText, shortMachine, tightKind, typedRamLimit, usedPct } from './machineguard'
 import type { GuardInput, Machine, Warned } from './machineguard'
 import { machineCmd as unixMachine, parseMachine as parseUnixMachine, parseProcs as parseUnixProcs, procsCmd as unixProcs } from './probeunix'
 import { machineCmd as winMachine, parseMachine as parseWinMachine, parseProcs as parseWinProcs, procsCmd as winProcs } from './probewin'
@@ -236,6 +236,11 @@ let mgWarned: Warned = []
 let mgRam = 'auto'
 let mgMaxSetting = 0
 let mgRunning = 0
+// Spawns let through whose agent has not started yet, by when: parallel Agent calls each see
+// the others. One not released within a minute (a hook that threw) stops counting.
+let mgPending: number[] = []
+// A workflow's agents, which $.agent.list() leaves out: id → when it started.
+const mgWorkflow = new Map<string, number>()
 
 // The output of a command, or '' when it cannot start, fails or takes over 10 s (PowerShell's first run can take 3).
 async function probeOut($: EngineInterface, cmd: { cmd: string; args: string[] }): Promise<string> {
@@ -264,9 +269,9 @@ async function syncGuard($: EngineInterface, running: number): Promise<void> {
     if (r.toast) $.ui.toast(guardVerdict({ ...g, running: 0 })?.reason ?? 'Machine Guard: RAM is tight')
   }
   if (running < g.maxAgents) mgWarned = noteTrip(mgWarned, 'agents', false).warned
-  const next = { line: machineLine(mgMachine), ramPct: usedPct(g) ?? -1, max: g.maxAgents, calibrated: calibrate(mgMachine), isTight: tight !== null }
+  const next = { line: machineLine(mgMachine), short: shortMachine(mgMachine), ramPct: usedPct(g) ?? -1, max: g.maxAgents, calibrated: calibrate(mgMachine), isTight: tight !== null }
   const was = await read($, guard)
-  if (was.line !== next.line || was.ramPct !== next.ramPct || was.max !== next.max || was.calibrated !== next.calibrated || was.isTight !== next.isTight) await update($, guard, () => next)
+  if (was.line !== next.line || was.short !== next.short || was.ramPct !== next.ramPct || was.max !== next.max || was.calibrated !== next.calibrated || was.isTight !== next.isTight) await update($, guard, () => next)
 }
 // Session start and every reload: what the person set, what was found last time, then a fresh look.
 async function loadGuard($: EngineInterface): Promise<void> {
@@ -312,7 +317,9 @@ async function sampleGuard($: EngineInterface, at: number, running: number): Pro
     if (info.freeBytes !== null) mgFreeBytes = info.freeBytes
     if (at - mgProcsAt >= p.procsEveryMs) {
       mgProcsAt = at
-      mgClaude = claudeBytes(p.parseProcs(await probeOut($, p.procs)))
+      // A table that timed out or failed keeps the last measure, not the system-wide fallback.
+      const procs = p.parseProcs(await probeOut($, p.procs))
+      if (procs.length) mgClaude = claudeBytes(procs)
     }
     await syncGuard($, running)
   } catch {
@@ -321,18 +328,48 @@ async function sampleGuard($: EngineInterface, at: number, running: number): Pro
     mgBusy = false
   }
 }
-// The agent.spawn guard: a reason to refuse a NEW sub-agent, or null. Fails open.
-async function guardSpawn($: EngineInterface): Promise<string | null> {
-  const running = (await $.agent.list()).filter(a => a.status === 'running').length
-  await sampleGuard($, await $.clock.now(), running)
+// The crew in force: live agents the engine lists (running, pending, or waiting on work of
+// their own), plus a workflow's agents, which it does not list, until their row ends.
+async function crewCount($: EngineInterface): Promise<number> {
+  const ids = new Set((await $.agent.list()).filter(a => isLiveAgent(a.status)).map(a => a.id))
+  if (mgWorkflow.size) {
+    const at = await $.clock.now()
+    const rows = await read($, agents)
+    for (const [id, since] of mgWorkflow) {
+      const row = rows.find(a => a.id === id)
+      // No row yet: counted for a minute (the row is written just after the spawn).
+      if (row ? row.status !== 'running' : at - since >= 60_000) mgWorkflow.delete(id)
+      else if (!row?.isStuck) ids.add(id)
+    }
+  }
+  return ids.size
+}
+// The agent.spawn guard: a reason to refuse a NEW sub-agent, or none. A spawn let through is
+// held in mgPending (by its `at`) until it starts, so parallel calls cannot all slip in. Fails open.
+async function guardSpawn($: EngineInterface): Promise<{ deny?: string; at?: number }> {
+  const at = await $.clock.now()
+  await sampleGuard($, at, mgRunning)
+  // Counted after the (slow) look, then no await till the verdict: a spawn let through meanwhile is counted.
+  const listed = await crewCount($)
+  mgPending = mgPending.filter(t => at - t < 60_000)
+  const running = listed + mgPending.length
   const g = guardInput(running)
   const v = guardVerdict(g)
   const r = noteTrip(mgWarned, 'agents', v?.kind === 'agents')
   mgWarned = r.warned
   if (r.toast && v) $.ui.toast(v.reason)
+  if (!v) {
+    mgPending.push(at)
+    return { at }
+  }
   // A refusal for RAM tells the person once too (the sample may not have).
-  if (v && v.kind !== 'agents') await syncGuard($, running)
-  return v?.reason ?? null
+  if (v.kind !== 'agents') await syncGuard($, running)
+  return { deny: v.reason }
+}
+// The spawn let through at `at` has started (or failed): it is listed now, no longer pending.
+function releaseSpawn(at: number | undefined): void {
+  const i = at === undefined ? -1 : mgPending.indexOf(at)
+  if (i >= 0) mgPending.splice(i, 1)
 }
 const guardRule = (): string => ruleText(effectiveMax(mgMaxSetting, calibrate(mgMachine)), tightKind(guardInput(0)) !== null)
 async function setRamLimit($: EngineInterface, v: string): Promise<void> {
@@ -1233,7 +1270,7 @@ const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.i
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
 const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, crewAlways: false, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, dailyUsd: 0, autopilot: false, keepWarm: false, budgetUsd: 0, tkOn: true, tkJobMin: 60, tkAgentMin: 20, ramLimit: 'auto', maxAgents: 0 })
 // Machine Guard (hooks/machineguard.ts): what the Settings pane and the band draw. Written only when it changes.
-const guard = atom({ plugin: 'crab-progress', key: 'guard' } as const, { line: 'unknown machine', ramPct: -1, max: 4, calibrated: 4, isTight: false })
+const guard = atom({ plugin: 'crab-progress', key: 'guard' } as const, { line: 'unknown machine', short: '', ramPct: -1, max: 4, calibrated: 4, isTight: false })
 const cred = atom({ plugin: 'crab-progress', key: 'cred' } as const, BLANK_CRED)
 // Billing (hooks/billing.ts): which way Claude Code is paid for, and the Keychain key's
 // status. Never the key: the typed text lives in billing.ts's `draft`, in memory only.
@@ -5709,9 +5746,9 @@ export const register: Register = (on, options) => {
 
   on('agent.spawn', async ($, e, next) => {
     // Machine Guard: refuse a NEW sub-agent when the crew is full or RAM is short, before anything else
-    // counts it. A guard that throws lets the agent start.
-    const why = await guardSpawn($).catch(() => null)
-    if (why) return { deny: why }
+    // counts it. A resumed agent is no new one. A guard that throws lets the agent start.
+    const gate: { deny?: string; at?: number } = e.resume ? {} : await guardSpawn($).catch(() => ({}))
+    if (gate.deny) return { deny: gate.deny }
     const isUnbriefed = isWorker(e.subagentType) && !e.prompt.includes(STEP_TOOL)
     const briefed = isUnbriefed ? { ...e, prompt: e.prompt + STEP_BRIEF } : e
     // Autopilot: read-only explorers go to Haiku, unless a model was chosen for them.
@@ -5724,7 +5761,9 @@ export const register: Register = (on, options) => {
     const ultraRule = matchUltra(ultraRules, e.subagentType, e.description)
     const routed0 = staff?.model ? { ...piloted, model: staff.model } : piloted
     const routed = ultraRule ? { ...routed0, prompt: withUltraBrief(routed0.prompt) } : routed0
-    const started = await next(routed)
+    const started = await next(routed).finally(() => releaseSpawn(gate.at))
+    // A workflow's agent is not in $.agent.list(): Machine Guard counts it from here.
+    if (e.workflow && started.agentId && started.deny === undefined) mgWorkflow.set(started.agentId, gate.at ?? 0)
     if (started.deny !== undefined) return started
     rememberTask(started.agentId, { prompt: e.prompt, description: e.description, subagentType: e.subagentType })
     if (ultraRule && started.agentId) {
@@ -6115,6 +6154,10 @@ export const register: Register = (on, options) => {
     // after the turn too: the same as the band.
     const bossCard: Manager = !boss.isWorking && running.length ? { ...boss, isWorking: true } : boss
     const quietCount = running.filter(isQuiet).length
+    // Machine Guard's one line: RAM and the crew while work runs, else what the machine allows.
+    // The guard atom is written only when what it draws changes.
+    const gd = await read($, guard)
+    const guardText = paneLine(gd.short, gd.ramPct, allAgents.filter(a => a.status === 'running').length, gd.max, isWorking)
     // The pane's title says "Agents"; inside, only the flow's own name.
     const title = f && !f.isFinished ? f.title : ''
 
@@ -6163,6 +6206,13 @@ export const register: Register = (on, options) => {
 
       // In Hebrew the column hugs the right edge: section heads and buttons right-aligned.
       const align = isRtl() ? 'flex-end' : undefined
+      const guardRow = gd.isTight ? (
+        <Text key="guard" color={SKIN.colors.alert}>{guardText}</Text>
+      ) : SKIN.dark ? (
+        <Text key="guard" color={SKIN.colors.subtext}>{guardText}</Text>
+      ) : (
+        <Text key="guard" dimColor>{guardText}</Text>
+      )
       const orgPicture = (source: string) => (
         <Svg
           key="org"
@@ -6188,6 +6238,7 @@ export const register: Register = (on, options) => {
           )}
           {picture ? orgPicture(picture) : null}
           <Svg source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} />
+          {guardRow}
           {openSettings}
         </Box>
       )
@@ -6242,6 +6293,9 @@ export const register: Register = (on, options) => {
             <Box key="oneshot" flexDirection="row" gap={2} marginBottom={1}>
               <Svg source={shotChip.svg} alt={`Plan mode: ${oneShotWord(prefs.oneShot)}`} width={shotChip.W} height={24} />
               <Button key="oneshot-open" label="Change ▸" plain onPress={() => void showPane($, SETTINGS_PANE, SETTINGS_TITLE)} />
+            </Box>
+            <Box key="guard" marginBottom={1}>
+              {guardRow}
             </Box>
             {bg.length > 0 && (
               <Box key="background" marginBottom={1}>

@@ -73,18 +73,19 @@ export function cleanRamLimit(v: unknown): RamLimit {
   if (typeof v !== 'string') return 'auto'
   const m = /^(pct|gb):(\d+(?:\.\d+)?)$/.exec(v.trim())
   if (!m) return 'auto'
-  const n = Number(m[2])
+  // Rounded first: a value that rounds to 0 (pct:0.4, gb:0.01) would refuse every agent.
+  const n = m[1] === 'pct' ? Math.round(Number(m[2])) : Math.round(Number(m[2]) * 10) / 10
   if (!(n > 0)) return 'auto'
-  if (m[1] === 'pct') return n <= 100 ? `pct:${Math.round(n)}` : 'auto'
-  return `gb:${Math.round(n * 10) / 10}`
+  if (m[1] === 'pct') return n <= 100 ? `pct:${n}` : 'auto'
+  return `gb:${n}`
 }
 
 /** A typed amount ("12", "12 GB", "12gb") as a RamLimit, or null when it is not a positive number. */
 export function typedRamLimit(typed: string): RamLimit | null {
   const m = /^\s*(\d+(?:\.\d+)?)\s*(?:gb|g|gib)?\s*$/i.exec(typed)
   if (!m) return null
-  const n = Number(m[1])
-  return n > 0 ? cleanRamLimit(`gb:${n}`) : null
+  const v = cleanRamLimit(`gb:${Number(m[1])}`)
+  return v === 'auto' ? null : v
 }
 
 /** What the limit comes to in bytes on this machine; null when the machine is unknown. */
@@ -227,3 +228,15 @@ export function usedPct(g: GuardInput): number | null {
 /** The small line for the band: "RAM 62% · 3/6 agents". `pct` null (no sample yet) shows a "?". */
 export const hudLine = (pct: number | null, running: number, max: number): string => `${pct === null ? 'RAM ?' : `RAM ${pct}%`} · ${running}/${max} agents`
 export const hudText = (g: GuardInput): string => hudLine(usedPct(g), g.running, g.maxAgents)
+/** The machine in two words for the desktop pane: "48 GB Mac"; '' when unknown. */
+export const shortMachine = (m: Machine): string => (m.totalBytes ? `${Math.round(gbOf(m.totalBytes))} GB ${osName(m.os)}` : '')
+/**
+ * The one Machine Guard line of the desktop pane: the band's "RAM 62% · 3/6 agents" while
+ * work runs, else what the machine allows: "48 GB Mac · up to 6 agents".
+ */
+export function paneLine(short: string, ramPct: number, running: number, max: number, isWorking: boolean): string {
+  if (isWorking) return `🛡\uFE0E ${hudLine(ramPct >= 0 ? ramPct : null, running, max)}`
+  return `🛡\uFE0E ${short ? `${short} · ` : ''}up to ${max} agent${max === 1 ? '' : 's'}`
+}
+/** An agent the crew counts: started or about to, and not ended or idle between turns. */
+export const isLiveAgent = (status: string): boolean => status === 'running' || status === 'pending' || status === 'waiting'
