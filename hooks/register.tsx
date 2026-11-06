@@ -1,15 +1,22 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
+import { BLANK_BILLING, KEY_IN_COMMAND, draft, guideText, isApiCredits, isMacOS, keyStatus, keychainHas, looksLikeKey, MAC_ONLY, modeChip, noteApiSpend, readMode, readSaved, removeKey, saveKey, spendLine, terminalAlternative, cleanSpend, SPEND_KEY } from './billing'
 import { CASTS, CAST_CSS, hashOf, spriteMarkup } from './cast'
 import { BREACH_H, BREACH_W, CJK_FONT, EGG_CSS, EGG_TOOLS, EGG_WORDS, GREETING, KATAKANA, breachCard, breachTicker, celebration, heatStars, legendsCard, legendsHeight, psychoChip, radio, relicText, sandevistan, skyline, sysTag } from './eggs'
 import type { Egg, Legend } from './eggs'
+import { canNudge, nudge, pickQuiet, prBadge, quietOf, rememberTask, repoAndBranch, rescueText, retryOnHaiku, whatIf, whatIfText, whatIfTip } from './coach'
 import { BEATS_KEPT, BLANK_CRED, BOOT_H, award, rockerRankOf, bdHeight, bootStrip, braindanceCard, cleanCred, credCard, credHeight, levelOf, rankOf, shiftPick, stepPick } from './extras'
 import type { Beat, Cred } from './extras'
+import { ONESHOT_KEY, ULTRA_KEY, cleanOneShot, cleanUltraRules, isUltraAgent, matchUltra, nextOneShot, oneShotChip, oneShotSaid, oneShotSection, oneShotWord, parseOneShot, resolveEffort, ultraCommand, ultraLine, withUltraBrief } from './crewcontrol'
+import type { OneShot } from './crewcontrol'
 import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, unifiedDiff } from './richtext'
 import { LIVE_N, glide, isNewReading, isSame, liveText, liveWidth, pin, steady, steadyTree, wallMinute } from './smooth'
+import { COLOR_RE, FONT_BAD_RE, ID_RE, TOOL_KEY_RE, skinCheck, skinNew } from './skinkit'
 import { WARM_PROMPT, WARM_TAG, isWarmDue, isWarmed, warmCall, warmLimitHit } from './warm'
-import type { AgentRun, AgentStatus, AllTime, Background, BgCron, BgTask, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Today, Watch } from '../types'
+import { SPEND_KINDS, TODAY_PERIOD, exportSpend, isRescanDue, loadSpend, logSpendDay, monthLabel, monthOf, monthsWithData, parseSpendArgs, pickSpendKind, pickSpendMonth, readSpend, setSpendPeriod, shiftMonth, spendCard, typeSpendDay } from './spend'
+import type { SpendDirs, SpendIo, SpendKind, SpendRecord } from './spend'
+import type { AgentRun, AgentStatus, AllTime, Background, Billing, BillingMode, BgCron, BgTask, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Spend, Today, Watch } from '../types'
 import type { On } from 'claude-code'
 import type { Timekeeper } from '../types'
 
@@ -46,6 +53,9 @@ const BLANK_BG: Background = { tasks: [], crons: [], at: 0 }
 const background = atom({ plugin: 'crab-progress', key: 'background' } as const, BLANK_BG)
 // Today and All-time as this session last read or wrote them in the store.
 const saved = atom({ plugin: 'crab-progress', key: 'saved' } as const, { today: BLANK_TODAY, allTime: { since: '', models: {} } as AllTime })
+// The spend card: today, this week, one month, or a custom range (hooks/spend.ts).
+const BLANK_SPEND: Spend = { period: TODAY_PERIOD, days: {}, status: 'idle', draft: { from: '', to: '' }, error: '' }
+const spend = atom({ plugin: 'crab-progress', key: 'spend' } as const, BLANK_SPEND)
 // Crew mode: a big job is split across sub-agents. On by default; `/autocrew` turns
 // it off or moves the context line. Kept in the store, so it holds across sessions.
 type AutoCrew = { on: boolean; ctxPct: number }
@@ -112,20 +122,63 @@ const dayOf = (at: number): string => {
   const d = new Date(at)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
+// Tab-to-Save: after a main turn, the Token Manager's top tip that has a command goes
+// into the prompt box as its dim suggestion, Tab to take. The same one waits 10 minutes.
+let lastSuggest = { cmd: '', at: 0 }
+async function suggestSaving($: EngineInterface, at: number): Promise<void> {
+  const r = tokenReport(liveEnv(await read($, env), at), await read($, agents), await read($, manager), await read($, watch), at)
+  const tip = r.tips.find(tp => tp.cmd && tp.level >= 1)
+  if (!tip?.cmd || (tip.cmd === lastSuggest.cmd && at - lastSuggest.at < 600_000)) return
+  const shown = await $.prompt.suggest({ text: tip.cmd })
+  if (shown.isShown) lastSuggest = { cmd: tip.cmd, at }
+}
+
+// The daily soft cap (/tokens daily 2): the Token Manager warns at 80% and 100% of
+// today's spend. Today's spend is kept here as the atom changes, for the sync report.
+const DAILY_KEY = 'dailyUsd'
+let dailyCapUsd = 0
+let todayCostUsd = 0
+let capWarned = { date: '', level: 0 }
+// Which provider bills the session: Bedrock or Vertex (and the region) when the env says so.
+let PROVIDER = ''
+async function loadProvider($: EngineInterface): Promise<void> {
+  const bedrock = await $.env.get('CLAUDE_CODE_USE_BEDROCK').catch(() => undefined)
+  const vertex = await $.env.get('CLAUDE_CODE_USE_VERTEX').catch(() => undefined)
+  const on = (v?: string) => Boolean(v) && v !== '0' && v?.toLowerCase() !== 'false'
+  if (on(bedrock)) {
+    const region = (await $.env.get('AWS_REGION').catch(() => undefined)) || (await $.env.get('AWS_DEFAULT_REGION').catch(() => undefined)) || ''
+    PROVIDER = `Bedrock${region ? ` ${region}` : ''}`
+  } else if (on(vertex)) {
+    const region = (await $.env.get('CLOUD_ML_REGION').catch(() => undefined)) || ''
+    PROVIDER = `Vertex${region ? ` ${region}` : ''}`
+  } else PROVIDER = ''
+}
+
 // Today's totals, rolled over at midnight; persisted at each turn's end.
 async function bumpToday($: EngineInterface, change: Partial<Omit<Today, 'date'>>): Promise<void> {
   const at = await $.clock.now()
   const date = dayOf(at)
   await update($, today, prev => {
     const base = prev.date === date ? prev : { ...BLANK_TODAY, date }
-    return {
+    const next = {
       ...base,
       tasks: base.tasks + (change.tasks ?? 0),
       agents: base.agents + (change.agents ?? 0),
       tokens: base.tokens + (change.tokens ?? 0),
       costUsd: base.costUsd + Math.max(0, change.costUsd ?? 0),
     }
+    todayCostUsd = next.costUsd
+    return next
   })
+  if (dailyCapUsd > 0) {
+    const pct = (todayCostUsd / dailyCapUsd) * 100
+    const level = pct >= 100 ? 2 : pct >= 80 ? 1 : 0
+    const was = capWarned.date === date ? capWarned.level : 0
+    if (level > was) {
+      capWarned = { date, level }
+      $.ui.toast(level === 2 ? `‼ Daily cap hit: ≈${fmtCost(todayCostUsd)} of ${fmtCost(dailyCapUsd)} today` : `! ${Math.round(pct)}% of today's ${fmtCost(dailyCapUsd)} cap used`)
+    }
+  }
 }
 
 // What the day's card shows: past midnight with nothing new yet, the new day's empty count.
@@ -155,6 +208,9 @@ async function saveTotalsNow($: EngineInterface): Promise<void> {
     // What came in meanwhile stays on top of the merged count.
     await update($, today, prev => (prev.date !== day.date ? prev : { ...prev, ...Object.fromEntries(keys.map(k => [k, merged[k] + prev[k] - day[k]])) }))
     await update($, saved, prev => ({ ...prev, today: merged }))
+    todayCostUsd = (await read($, today)).costUsd
+    // The spend card's own log: this day's merged count, kept for 13 months.
+    await logSpendDay($, spendIo, day.date, merged.costUsd, merged.tokens, await $.clock.now()).catch(() => undefined)
   }
   const keptAll = (await $.store.get('allTime').catch(() => undefined)) as AllTime | undefined
   const onAll = keptAll && typeof keptAll === 'object' && keptAll.models ? keptAll : { since: '', models: {} }
@@ -556,6 +612,8 @@ async function refreshEnvNow($: EngineInterface, isBaseline: boolean): Promise<v
   // The ledger starts over at /clear: after a drop, the whole new total is new spend.
   const spent = cost >= before ? cost - before : cost
   if (spent > 0) await bumpToday($, { costUsd: spent })
+  // Spend through the Keychain key is also kept on its own: that one is real money.
+  if (spent > 0 && isApiCredits(BILLING)) API_SPEND = await noteApiSpend($, spent, dayOf(await $.clock.now())).catch(() => API_SPEND)
 }
 
 // A window whose reset time has passed reads empty until the next reply says otherwise.
@@ -891,13 +949,12 @@ const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, CYBER_SKIN, ARASAKA_SKI
 
 // Only plain colour and font values reach the drawings: a skin file cannot
 // smuggle markup into an Svg.
-const COLOR_RE = /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\))$/i
 const cleanColor = (v: unknown, fallback: string): string => (typeof v === 'string' && COLOR_RE.test(v.trim()) ? v.trim() : fallback)
 // A JSON file's text, without the byte-order mark Windows editors may write.
 const parseJson = (text: unknown): unknown => JSON.parse(String(text).replace(/^\uFEFF/, ''))
 
 const cleanFont = (v: unknown, fallback: string): string =>
-  typeof v === 'string' && v.trim() && !/["<>&;{}]/.test(v) ? v.trim().slice(0, 200) : fallback
+  typeof v === 'string' && v.trim() && !FONT_BAD_RE.test(v) ? v.trim().slice(0, 200) : fallback
 
 const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
   if (!raw || typeof raw !== 'object') return null
@@ -905,7 +962,7 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
   const base = CRAB_SKIN
   const colors = (r.colors ?? {}) as Record<string, unknown>
   const effects = (r.effects ?? {}) as Record<string, unknown>
-  const id = typeof r.id === 'string' && /^[a-z0-9-]{1,40}$/.test(r.id) ? r.id : fallbackId
+  const id = typeof r.id === 'string' && ID_RE.test(r.id) ? r.id : fallbackId
   const list = (v: unknown, fb: string[], n: number) =>
     Array.isArray(v) && v.length ? v.slice(0, n).map((c, i) => cleanColor(c, fb[i % fb.length] ?? '#888888')) : fb
   return {
@@ -934,7 +991,7 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
     words: Array.isArray(r.words) ? r.words.filter((w): w is string => typeof w === 'string' && w.trim() !== '').map(w => clip(w.trim(), 32)).slice(0, 20) : base.words,
     toolWords: Object.fromEntries(
       Object.entries((r.toolWords ?? {}) as Record<string, unknown>)
-        .filter(([k, v]) => /^[A-Za-z_]{1,40}$/.test(k) && typeof v === 'string' && v.trim())
+        .filter(([k, v]) => TOOL_KEY_RE.test(k) && typeof v === 'string' && v.trim())
         .map(([k, v]) => [k, clip(String(v).trim(), 20)]),
     ),
   }
@@ -942,8 +999,13 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
 
 const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.id)
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
-const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, currency: 'USD', sounds: true })
+const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, dailyUsd: 0 })
 const cred = atom({ plugin: 'crab-progress', key: 'cred' } as const, BLANK_CRED)
+// Billing (hooks/billing.ts): which way Claude Code is paid for, and the Keychain key's
+// status. Never the key: the typed text lives in billing.ts's `draft`, in memory only.
+const billing = atom({ plugin: 'crab-progress', key: 'billing' } as const, BLANK_BILLING as Billing)
+// The mode the Token Manager labels its costs by: API credits when apiKeyHelper is our script.
+let BILLING: BillingMode = 'plan'
 const timeline = atom({ plugin: 'crab-progress', key: 'timeline' } as const, [] as Beat[])
 const bdPick = atom({ plugin: 'crab-progress', key: 'bdPick' } as const, -1)
 const readSettings = async ($: EngineInterface) => {
@@ -956,7 +1018,88 @@ const readSettings = async ($: EngineInterface) => {
     crewMode: (await readAutoCrew($)).on,
     currency: CURRENCY.code,
     sounds: (await $.store.get('sounds').catch(() => undefined)) !== false,
+    // The plain skins draw a 3-row band unless the person asked for the full one.
+    simple: (await $.store.get('simpleBand').catch(() => undefined)) !== false,
+    calm: (await $.store.get('calm').catch(() => undefined)) === true,
+    voice: (await $.store.get('voice').catch(() => undefined)) === true,
+    staffing: (await $.store.get(STAFF_KEY).catch(() => undefined)) === true,
+    oneShot: cleanOneShot(await $.store.get(ONESHOT_KEY).catch(() => undefined)),
+    dailyUsd: Number(await $.store.get(DAILY_KEY).catch(() => 0)) || 0,
   }
+}
+
+// The Money settings: the same switches as /tokens autopilot, warm, daily and budget, as buttons.
+const DAILY_STEPS = [0, 2, 5, 10, 20, 50]
+const BUDGET_STEPS = [0, 0.5, 1, 2, 5]
+const nextStep = (steps: readonly number[], now: number): number => steps.find(v => v > now) ?? 0
+async function setAutopilot($: EngineInterface, isOn: boolean): Promise<void> {
+  await $.store.set('autopilot', isOn).catch(() => undefined)
+  await update($, watch, prev => ({ ...prev, autopilot: isOn }))
+}
+async function setKeepWarm($: EngineInterface, isOn: boolean): Promise<void> {
+  await $.store.set('keepWarm', isOn).catch(() => undefined)
+  await update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), on: isOn, halted: '' } }))
+}
+async function setDailyCap($: EngineInterface, dollars: number): Promise<void> {
+  dailyCapUsd = dollars
+  await $.store.set(DAILY_KEY, dollars).catch(() => undefined)
+  await update($, settings, prev => ({ ...prev, dailyUsd: dollars }))
+}
+async function setBudget($: EngineInterface, dollars: number): Promise<void> {
+  await $.store.set('budgetUsd', dollars).catch(() => undefined)
+  await update($, watch, prev => ({ ...prev, budgetUsd: dollars }))
+}
+
+// One switch of the Settings section: the store keeps it, the atom redraws the pane.
+type Flag = 'simple' | 'calm' | 'voice' | 'staffing'
+const FLAG_KEY: Record<Flag, string> = { simple: 'simpleBand', calm: 'calm', voice: 'voice', staffing: 'smartStaffing' }
+async function setFlag($: EngineInterface, flag: Flag, isOn: boolean): Promise<void> {
+  await $.store.set(FLAG_KEY[flag], isOn).catch(() => undefined)
+  if (flag === 'staffing') smartStaffing = isOn
+  if (flag === 'calm' && !isOn) $.ui.status(undefined)
+  await update($, settings, prev => ({ ...prev, [flag]: isOn }))
+}
+
+// One-shot: what Claude does once a roadmap is approved. Kept in the store, mirrored for the pane.
+async function setOneShot($: EngineInterface, mode: OneShot): Promise<void> {
+  oneShotMode = mode
+  await $.store.set(ONESHOT_KEY, mode).catch(() => undefined)
+  await update($, settings, prev => ({ ...prev, oneShot: mode }))
+}
+
+// The ⚡ button on a running agent's card: max effort from its next request, no prompt change.
+async function toggleUltra($: EngineInterface, id: string): Promise<void> {
+  const run = (await read($, agents)).find(a => a.id === id)
+  if (!run || run.status !== 'running') return
+  const isOn = !run.isUltra
+  if (run.agentId) ultraExplicit.set(run.agentId, isOn)
+  await update($, agents, list => list.map(a => (a.id === id ? { ...a, isUltra: isOn } : a)))
+  $.ui.toast(isOn ? `⚡ Ultra: "${clip(run.description || run.type, 30)}" goes to max effort from its next request` : `Ultra off for "${clip(run.description || run.type, 30)}"`)
+}
+// Billing (see billing.ts): the status the pane shows is read from the Keychain's
+// attributes and the merged apiKeyHelper setting; the key itself is never read.
+let API_SPEND = cleanSpend(undefined)
+async function refreshBilling($: EngineInterface, note?: string): Promise<void> {
+  const isMac = await isMacOS($)
+  BILLING = await readMode($)
+  API_SPEND = cleanSpend(await $.store.get(SPEND_KEY).catch(() => undefined))
+  const saved = await readSaved($)
+  const inKeychain = isMac ? await keychainHas($) : false
+  await update($, billing, prev => ({ ...prev, mode: BILLING, isMac, saved, inKeychain, note: note ?? prev.note }))
+}
+// Save and Remove: the result's message never holds the key. The field is drawn new and empty after.
+async function billingSave($: EngineInterface, raw: string): Promise<void> {
+  const done = await saveKey($, raw)
+  draft.clear()
+  await refreshBilling($, done.message)
+  await update($, billing, prev => ({ ...prev, nonce: prev.nonce + 1 }))
+  $.ui.toast(done.ok ? '🔑 Key saved in your Keychain' : `🔑 ${done.message}`, { timeoutMs: 8000 })
+}
+async function billingRemove($: EngineInterface): Promise<void> {
+  const done = await removeKey($)
+  draft.clear()
+  await refreshBilling($, done.message)
+  await update($, billing, prev => ({ ...prev, nonce: prev.nonce + 1 }))
 }
 
 // The pane's two folds, kept in the store so a reload or a new session opens the
@@ -1171,6 +1314,23 @@ const STRINGS = {
     bgAgo: (min: number): string => (min < 1 ? 'updated just now' : min < 60 ? `updated ${min} min ago` : `updated ${Math.floor(min / 60)} h ago`),
     tier: { light: 'light', medium: 'medium', careful: 'careful', heavy: 'heavy', fable: 'fable', other: 'other' },
     effort: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' },
+    spend: {
+      title: 'Spent',
+      today: 'Today',
+      week: 'This week',
+      month: 'Month',
+      custom: 'Custom',
+      period: 'Period',
+      from: 'From',
+      to: 'To',
+      reading: 'Reading history…',
+      days: 'Days',
+      tasks: 'Tasks',
+      agents: 'Agents run',
+      badDay: (v: string): string => `"${v}" is not a date. Write it as YYYY-MM-DD, e.g. 2026-10-01.`,
+      months: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+      short: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+    },
   },
   ru: {
     pane: 'Центр управления',
@@ -1213,6 +1373,23 @@ const STRINGS = {
     bgAgo: (min: number): string => (min < 1 ? 'обновлено только что' : min < 60 ? `обновлено ${min} мин назад` : `обновлено ${Math.floor(min / 60)} ч назад`),
     tier: { light: 'light', medium: 'medium', careful: 'careful', heavy: 'heavy', fable: 'fable', other: 'other' },
     effort: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' },
+    spend: {
+      title: 'Потрачено',
+      today: 'Сегодня',
+      week: 'Эта неделя',
+      month: 'Месяц',
+      custom: 'Свой период',
+      period: 'Период',
+      from: 'С',
+      to: 'По',
+      reading: 'Читаю историю…',
+      days: 'Дней',
+      tasks: 'Задачи',
+      agents: 'Агенты',
+      badDay: (v: string): string => `«${v}» — не дата. Пишите ГГГГ-ММ-ДД, например 2026-10-01.`,
+      months: ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'],
+      short: ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'],
+    },
   },
   he: {
     pane: 'מרכז בקרה',
@@ -1255,6 +1432,23 @@ const STRINGS = {
     bgAgo: (min: number): string => (min < 1 ? 'עודכן עכשיו' : min < 60 ? `עודכן לפני ${min} דק׳` : `עודכן לפני ${Math.floor(min / 60)} שע׳`),
     tier: { light: 'קל', medium: 'בינוני', careful: 'זהיר', heavy: 'כבד', fable: 'פייבל', other: 'אחר' },
     effort: { low: 'נמוך', medium: 'בינוני', high: 'גבוה', xhigh: 'גבוה מאוד', max: 'מקסימלי' },
+    spend: {
+      title: 'הוצאה',
+      today: 'היום',
+      week: 'השבוע',
+      month: 'חודש',
+      custom: 'טווח אחר',
+      period: 'תקופה',
+      from: 'מ־',
+      to: 'עד',
+      reading: 'קורא היסטוריה…',
+      days: 'ימים',
+      tasks: 'משימות',
+      agents: 'סוכנים',
+      badDay: (v: string): string => `"${v}" אינו תאריך. כתבו YYYY-MM-DD, למשל 2026-10-01.`,
+      months: ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'],
+      short: ['ינו׳', 'פבר׳', 'מרץ', 'אפר׳', 'מאי', 'יוני', 'יולי', 'אוג׳', 'ספט׳', 'אוק׳', 'נוב׳', 'דצמ׳'],
+    },
   },
 } as const
 
@@ -1551,10 +1745,10 @@ const tierModel = (tier: string): string => {
 }
 
 // The effort a run works at: what its requests carried, else its tier's, else the default.
-const runEffort = (a: AgentRun): string => a.effort ?? TIER_MODEL[tierOf(a.type)]?.[1] ?? 'default'
+const runEffort = (a: AgentRun): string => (a.isUltra ? 'max' : a.effort) ?? TIER_MODEL[tierOf(a.type)]?.[1] ?? 'default'
 
 // "Opus 5.5 · effort low" for a run.
-const runModel = (a: AgentRun): string => `${modelName(a.model)} · effort ${effortWord(runEffort(a))}`
+const runModel = (a: AgentRun): string => `${modelName(a.model)} · effort ${a.isUltra ? '⚡ ' : ''}${effortWord(runEffort(a))}`
 
 // USD per million tokens: input, output, cache read, cache write. The first row that
 // matches a model id wins, so a release sits above its family.
@@ -1587,8 +1781,62 @@ type Usage = {
   cache_creation_input_tokens: number
 }
 
+// A model id with no family in it (a Bedrock application inference profile ARN, a
+// gateway's own name) prices as the model it stands for: one the person mapped with
+// `/tokens model`, else the family whose ANTHROPIC_DEFAULT_*_MODEL names it.
+const FAMILY_LATEST: Record<string, string> = { fable: 'claude-fable-5-1', opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' }
+const MODEL_KEY = 'modelAliases'
+let modelAliases: Record<string, string> = {}
+const hasFamily = (id: string): boolean => /fable|mythos|opus|sonnet|haiku/i.test(id)
+const resolveModel = (model: string): string => (hasFamily(model) ? model : (modelAliases[model.toLowerCase()] ?? model))
+
+// The person's own map first; the env's defaults fill in only ids it does not name.
+async function loadModelAliases($: EngineInterface): Promise<void> {
+  const kept = (await $.store.get(MODEL_KEY).catch(() => undefined)) as Record<string, string> | undefined
+  const fromEnv: Record<string, string> = {}
+  const pairs: [string | undefined, string][] = [
+    [await $.env.get('ANTHROPIC_DEFAULT_OPUS_MODEL').catch(() => undefined), 'opus'],
+    [await $.env.get('ANTHROPIC_DEFAULT_SONNET_MODEL').catch(() => undefined), 'sonnet'],
+    [await $.env.get('ANTHROPIC_DEFAULT_HAIKU_MODEL').catch(() => undefined), 'haiku'],
+    [await $.env.get('ANTHROPIC_SMALL_FAST_MODEL').catch(() => undefined), 'haiku'],
+  ]
+  for (const [id, family] of pairs) if (id && !hasFamily(id)) fromEnv[id.toLowerCase()] = FAMILY_LATEST[family] as string
+  modelAliases = { ...fromEnv, ...(kept && typeof kept === 'object' ? kept : {}) }
+}
+
+// Smart staffing: an agent launched with no model chosen gets the cheapest model and
+// effort its job needs. Reading goes to Haiku, routine edits to Sonnet, hard calls keep
+// the session's model at high effort. Off unless `/tokens staffing on`.
+type Staff = { model?: string; effort: 'low' | 'medium' | 'high'; why: string }
+const STAFF_KEY = 'smartStaffing'
+let smartStaffing = false
+const staffEffort = new Map<string, Staff['effort']>()
+// What Smart staffing saved: a staffed agent's requests priced at the model it would have
+// run on (the session's) less the model it ran on. Effort's savings are not counted.
+const STAFF_SAVED_KEY = 'staffSavedUsd'
+const staffBaseline = new Map<string, string>()
+let staffSaved = { session: 0, total: 0 }
+const savedWord = (usd: number): string => (usd >= 0 ? `saved ≈${fmtCost(usd)}` : `cost ≈${fmtCost(-usd)} more`)
+const staffSavedText = (): string =>
+  staffSaved.session === 0 && staffSaved.total === 0 ? '' : ` · ${savedWord(staffSaved.session)} this session, ${savedWord(staffSaved.total).replace(/^(saved|cost) /, '')} in all`
+// First run: the money savers that spend money or move work to other models stay off, so
+// the person is told once that they exist.
+const OFFER_KEY = 'saversOffered'
+// Per-agent Ultra: the role rules (kept in the store) and the mode for a plan's approval.
+let ultraRules: string[] = []
+let oneShotMode: OneShot = 'ask'
+const ultraFlag = new Map<string, boolean>() // matched a rule at spawn
+const ultraExplicit = new Map<string, boolean>() // the card's ⚡ button, which beats the rule
+const staffFor = (type: string, description: string): Staff | null => {
+  const text = `${type} ${description}`.toLowerCase()
+  if (type === 'Explore' || /\b(read|reads|research|explore|search|find|scan|look up|summari[sz]e|inventory|list|lore|survey)\b/.test(text)) return { model: 'haiku', effort: 'low', why: 'reading' }
+  if (/\b(security|architect|architecture|design|plan|planner|review|reviewer|debug|refactor|audit|verify|judge|migrate)\b/.test(text)) return { effort: 'high', why: 'a hard call' }
+  if (/\b(test|tests|tester|write|writer|edit|fix|implement|build|engineer|doc|docs|readme|copy|rename|format)\b/.test(text)) return { model: 'sonnet', effort: 'medium', why: 'routine work' }
+  return null
+}
+
 const priceOf = (model: string, prompt: number): Price => {
-  const id = model.toLowerCase()
+  const id = resolveModel(model).toLowerCase()
   if (prompt > HAIKU_LONG_PROMPT && /haiku-5-5/.test(id)) return HAIKU_LONG
   return PRICES.find(([re]) => re.test(id))?.[1] ?? [4, 20, 0.2, 8]
 }
@@ -1607,6 +1855,22 @@ const costOf = (model: string, u: Usage, isRequest: boolean): number => {
   )
 }
 
+// The spend card reads Claude Code's own transcripts (hooks/spend.ts) and prices each
+// message as the panel prices one request.
+const spendIo: SpendIo = {
+  get: $ => read($, spend),
+  patch: ($, change) => update($, spend, change).then(() => undefined),
+  price: (r: SpendRecord) => costOf(r.model, { input_tokens: r.input, output_tokens: r.output, cache_read_input_tokens: r.cacheRead, cache_creation_input_tokens: r.cacheWrite }, true),
+  badDay: v => tr().spend.badDay(v),
+}
+// Claude Code's configuration folder (CLAUDE_CONFIG_DIR, else ~/.claude) and the home folder.
+async function spendDirs($: EngineInterface): Promise<SpendDirs> {
+  const trim = (v: string | undefined): string => (v ?? '').trim().replace(/[\\/]+$/, '')
+  const custom = trim(await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined))
+  const home = trim((await $.env.get('HOME').catch(() => undefined)) || (await $.env.get('USERPROFILE').catch(() => undefined)))
+  return { config: custom || (home ? `${home}/.claude` : ''), home }
+}
+
 // Haiku 4.5 and the Claude 3 models have a 200K window; the rest, Haiku 5.5 included, 1M.
 const windowOf = (model: string): number => (/haiku-4|claude-3/i.test(model) ? 200_000 : 1_000_000)
 
@@ -1620,7 +1884,8 @@ const tierOf = (type: string): string => {
   return Object.hasOwn(TIER_COLOR, t) && bare.startsWith('mc-') ? t : 'other'
 }
 
-const modelName = (id: string): string => {
+const modelName = (raw: string): string => {
+  const id = resolveModel(raw)
   const m = /(fable|mythos|opus|sonnet|haiku)-(\d+)(?:-(\d{1,2})(?!\d))?/i.exec(id)
   const [, family = '', major = '', minor] = m ?? []
   if (!family) return id.replace(/^claude-/, '').replace(/\[.*\]$/, '') || '—'
@@ -1710,7 +1975,8 @@ const paneCss = (k: Skin): string => {
 ${scheme}
 .live{animation:p 1.6s ease-in-out infinite}@keyframes p{50%{opacity:.3}}
 ${glitch}
-@media (prefers-reduced-motion: reduce){.live,.gl{animation:none}}
+.still{display:none}
+@media (prefers-reduced-motion: reduce){.live,.gl{animation:none}.smil{display:none}.still{display:inline}}
 </style>`
 }
 let PANE_CSS = paneCss(CRAB_SKIN)
@@ -2116,7 +2382,7 @@ const modelColor = (name: string): string => {
 
 const EFFORT_LEVEL: Record<string, number> = { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 }
 const PIP_COLORS = ['#5EC8D8', '#7FB6F0', '#B58BE5', '#E9B44C', '#E5675E']
-const effortStat = (effort: string): Stat => ({ k: 'Effort', v: effortWord(effort), viz: { kind: 'pips', n: EFFORT_LEVEL[effort] ?? 0 } })
+const effortStat = (effort: string, isUltra = false): Stat => ({ k: 'Effort', v: `${isUltra ? '⚡\uFE0E ' : ''}${effortWord(effort)}`, viz: { kind: 'pips', n: EFFORT_LEVEL[effort] ?? 0 } })
 
 const statViz = (st: Stat, x: number, y: number): string => {
   if (st.viz?.kind === 'pips') {
@@ -2175,7 +2441,7 @@ const progressBar = (x: number, y: number, w: number, pct: number | null, color:
   const fill =
     pct === null
       ? isRunning
-        ? `<rect x="${x}" y="${y + 12}" width="${Math.round(barW * 0.28)}" height="6" rx="3" fill="${color}"><animate attributeName="x" values="${x};${x + barW * 0.72};${x}" dur="1.8s" repeatCount="indefinite"/></rect>`
+        ? `<rect x="${x}" y="${y + 12}" width="${Math.round(barW * 0.28)}" height="6" rx="3" fill="${color}" class="smil"><animate attributeName="x" values="${x};${x + barW * 0.72};${x}" dur="1.8s" repeatCount="indefinite"/></rect>`
         : ''
       : live
         ? `<rect x="${x}" y="${y + 12}" width="${live.start}" height="6" rx="3" fill="${color}">${live.animate}</rect>`
@@ -2188,7 +2454,7 @@ ${estimate && pct !== null ? liveText(x + w, y + 19, estimate.at, 12, attrs, t =
 
 const agentStats = (a: AgentRun, at: number): Stat[] => [
   { k: 'Model', v: modelName(a.model), color: modelColor(modelName(a.model)) },
-  effortStat(runEffort(a)),
+  effortStat(runEffort(a), a.isUltra),
   { k: 'Tokens used', v: fmtTokens(a.tokens) },
   { k: 'Context', v: `${ctxOf(a)}%`, viz: { kind: 'ring', pct: ctxOf(a) } },
   { k: 'Cost', v: `≈${fmtCost(a.costUsd)}` },
@@ -2227,11 +2493,11 @@ const agentSvg = (W: number, a: AgentRun, at: number, hasRule = true): string =>
   return svg(
     W,
     H,
-    `${rowCrab(W, 0, 10, costumeFor(a), false, a.status === 'running')}
+    `${rowCrab(W, 0, 10, costumeFor(a), false, a.status === 'running' && !isQuiet(a))}
 <text class="t" x="42" y="18" font-family="${FONT}" font-size="13" font-weight="600">${xml(fitText(a.description || a.type, 13, textW))}</text>
 <text x="42" y="35" font-family="${FONT}" font-size="11"><tspan fill="${color}">${xml(sub[0] ?? '')}</tspan><tspan class="s">${xml(fitText(sub.slice(1).map(x => `  ·  ${x}`).join(''), 11, textW - 60))}</tspan></text>
 ${statGrid(42, 46, W - 42 - 6, agentStats(a, at))}
-${progressBar(42, 46 + statGridHeight(6), W - 42 - 6, agentProgress(a, at), color, a.status === 'running', 'Progress', isEstimated(a), isEstimated(a) ? { at, read: t => estimateOf(a, t) } : undefined)}
+${progressBar(42, 46 + statGridHeight(6), W - 42 - 6, agentProgress(a, at), color, a.status === 'running' && !isQuiet(a), 'Progress', isEstimated(a), isEstimated(a) && !isQuiet(a) ? { at, read: t => estimateOf(a, t) } : undefined)}
 ${statusMark(W - 8, 16, a.status, color)}
 ${hasRule ? `<line class="ln" x1="0" y1="${H - 0.5}" x2="${W}" y2="${H - 0.5}"/>` : ''}`,
   )
@@ -2622,14 +2888,17 @@ const bossFrame = (W: number, H: number, isWorking: boolean): string => {
 ${[0, 0.3, 0.55, 0.8, 1].map((o, i) => `<stop offset="${o}" stop-color="${SKIN.boss[i] ?? SKIN.colors.accent}"/>`).join('')}
 <animateTransform attributeName="gradientTransform" type="rotate" from="0 ${cx} ${cy}" to="360 ${cx} ${cy}" dur="${dur}s" repeatCount="indefinite"/>
 </linearGradient>
+<linearGradient id="bossStill" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${W}" y2="${H}">
+${[0, 0.3, 0.55, 0.8, 1].map((o, i) => `<stop offset="${o}" stop-color="${SKIN.boss[i] ?? SKIN.colors.accent}"/>`).join('')}
+</linearGradient>
 <linearGradient id="bossbg" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="${SKIN.boss[0]}" stop-opacity=".16"/><stop offset=".5" stop-color="${SKIN.boss[2]}" stop-opacity=".06"/><stop offset="1" stop-color="${SKIN.boss[3]}" stop-opacity=".10"/></linearGradient>
 <filter id="glow" x="-10%" y="-30%" width="120%" height="160%"><feGaussianBlur stdDeviation="3.5"/></filter>
 </defs>
 <style>.bossglow{animation:bg ${isWorking ? 1.6 : 3.2}s ease-in-out infinite}@keyframes bg{50%{opacity:.25}}@media (prefers-reduced-motion: reduce){.bossglow{animation:none}}</style>
-${cardShape(4, 4, W - 8, H - 8, `class="bossglow" fill="none" stroke="url(#boss)" stroke-width="5" opacity=".55" filter="url(#glow)"`, 14)}
+<g class="smil">${cardShape(4, 4, W - 8, H - 8, `class="bossglow" fill="none" stroke="url(#boss)" stroke-width="5" opacity=".55" filter="url(#glow)"`, 14)}</g><g class="still">${cardShape(4, 4, W - 8, H - 8, `fill="none" stroke="url(#bossStill)" stroke-width="5" opacity=".4" filter="url(#glow)"`, 14)}</g>
 ${cardShape(4, 4, W - 8, H - 8, `class="tile"`, 14)}
 ${cardShape(4, 4, W - 8, H - 8, `fill="url(#bossbg)"`, 14)}
-${cardShape(4, 4, W - 8, H - 8, `fill="none" stroke="url(#boss)" stroke-width="1.8"`, 14)}`
+<g class="smil">${cardShape(4, 4, W - 8, H - 8, `fill="none" stroke="url(#boss)" stroke-width="1.8"`, 14)}</g><g class="still">${cardShape(4, 4, W - 8, H - 8, `fill="none" stroke="url(#bossStill)" stroke-width="1.8"`, 14)}</g>`
 }
 
 // A pixel crown on the manager crab's head, in the crab's own 30×28 grid.
@@ -2899,7 +3168,7 @@ const managerSvg = (
 ): string => {
   const textW = W - 68 - 18
   const isParty = (m.celebrateUntil ?? 0) > at
-  const status = isParty ? 'Done!' : m.isWorking ? 'Working' : waitingOn ? tr().bgWait : 'Idle'
+  const status = isParty ? 'Done!' : m.isWorking ? 'Working' : waitingOn ? tr().bgWait : outcomeWord(m) || 'Idle'
   // Held open by background work: the bar stops short of whole.
   if (waitingOn && progress !== null) progress = Math.min(0.95, progress)
   const pillW = Math.round(20 + textWidth(status, 11))
@@ -3049,7 +3318,7 @@ const workflowSvg = (W: number, f: Flow | null, steps: WorkStep[], at = 0, foldD
     // An estimate glides and counts inside the image; a reported share glides from the last one.
     const est = st.est && at && counting.has(st.key) ? st.est : undefined
     if (st.state !== 'waiting' && pct === null) {
-      fill = `<rect x="${bx}" y="${y + 10}" width="${Math.round(rowBarW * 0.3)}" height="6" rx="3" fill="${st.color}"><animate attributeName="x" values="${bx};${bx + rowBarW * 0.7};${bx}" dur="1.8s" repeatCount="indefinite"/></rect>`
+      fill = `<rect x="${bx}" y="${y + 10}" width="${Math.round(rowBarW * 0.3)}" height="6" rx="3" fill="${st.color}" class="smil"><animate attributeName="x" values="${bx};${bx + rowBarW * 0.7};${bx}" dur="1.8s" repeatCount="indefinite"/></rect>`
     } else if (pct !== null && est) {
       const live = liveWidth(at, t => widthOf(Math.round(est(t) * 100)))
       fill = `<rect x="${bx}" y="${y + 10}" width="${live.start}" height="6" rx="3" fill="${st.color}">${live.animate}</rect>`
@@ -3084,6 +3353,10 @@ const STEP_GLYPH: Record<StepState, string> = { done: '✓', running: '●', fai
 
 type OrgNode = {
   isStuck?: boolean
+  /** What the agent has cost so far: its price tag in the tree. */
+  costUsd?: number
+  /** Running but silent: drawn still, so the motion never says "working" when the text says "quiet". */
+  isQuiet?: boolean
   party?: boolean
   id: string
   label: string
@@ -3143,7 +3416,8 @@ const visibleCrew = (all: AgentRun[], boss: Manager, at: number): AgentRun[] =>
   isCleared(boss, at) ? all.filter(a => a.status === 'running' || a.startedAt > (boss.doneAt ?? 0)) : crewOf(all, boss)
 const managerView = (boss: Manager, at: number): Manager => (isCleared(boss, at) ? { ...boss, task: '', plan: [], activity: '' } : boss)
 // How a job that ended short reads in place of "Idle" until the next request.
-const outcomeWord = (boss: Manager): string => (boss.outcome === 'error' ? 'Error' : boss.outcome === 'stopped' ? 'Stopped' : '')
+// A small job that ended well keeps a still "Done" until the next prompt: no hop, no confetti.
+const outcomeWord = (boss: Manager): string => (boss.outcome === 'error' ? 'Error' : boss.outcome === 'stopped' ? 'Stopped' : boss.settled ? 'Done' : '')
 
 const orgTree = (all: AgentRun[], boss: Manager, at = 0, mood: 0 | 1 | 2 = 0): OrgNode => {
   const list = currentCrew(all, boss)
@@ -3152,10 +3426,12 @@ const orgTree = (all: AgentRun[], boss: Manager, at = 0, mood: 0 | 1 | 2 = 0): O
   const agentNode = (a: AgentRun, depth: number): OrgNode => ({
     id: a.id,
     // The role is drawn above it: "Designer: palette ideas" reads "palette ideas".
-    label: (a.description || a.type).replace(NAMED_ROLE_PREFIX, ''),
+    label: `${a.isUltra ? '⚡ ' : ''}${(a.description || a.type).replace(NAMED_ROLE_PREFIX, '')}`,
     color: runRoleColor(a),
     costume: costumeFor(a),
     isStuck: isQuiet(a) || isOver(a),
+    isQuiet: isQuiet(a),
+    costUsd: a.costUsd,
     kind: 'agent',
     status: a.status,
     children: depth >= ORG_MAX_DEPTH ? [] : ordered.filter(k => a.agentId && k.parentAgentId === a.agentId).map(k => agentNode(k, depth + 1)),
@@ -3242,8 +3518,18 @@ const orgSvg = (W: number, root: OrgNode, isLight = false): string => {
   const H = orgHeight(root)
   const yOf = (n: OrgNode) => ORG_TOP + (n.depth ? BOSS_EXTRA : 0) + (n.depth ?? 0) * ORG_LEVEL_H
   // The crab's box per kind: the boss is drawn larger.
+  // Price tags: the priciest agent so far is drawn a size larger, its tag in the warn colour.
+  const costs: number[] = []
+  const gather = (n: OrgNode): void => {
+    if (n.kind === 'agent' && (n.costUsd ?? 0) > 0) costs.push(n.costUsd ?? 0)
+    n.children.forEach(gather)
+  }
+  gather(root)
+  const priciest = costs.length > 1 ? Math.max(...costs) : Infinity
+  const isPriciest = (n: OrgNode) => n.kind === 'agent' && (n.costUsd ?? 0) >= priciest && priciest >= 0.01
   const crabSize = (n: OrgNode) => {
-    const sc = n.kind === 'manager' ? BOSS_SCALE : slot < 46 ? 0.8 : CREW_SCALE
+    const base = n.kind === 'manager' ? BOSS_SCALE : slot < 46 ? 0.8 : CREW_SCALE
+    const sc = isPriciest(n) ? base * 1.15 : base
     return { sc, w: r2(CRAB_BOX * sc), h: r2(28 * sc) }
   }
   const bottomOf = (n: OrgNode) => yOf(n) + crabSize(n).h + (n.kind === 'role' || n.kind === 'manager' || n.kind === 'tokens' ? 30 : 22)
@@ -3258,24 +3544,24 @@ const orgSvg = (W: number, root: OrgNode, isLight = false): string => {
       const cy = yOf(c) - 4
       const midY = (y0 + cy) / 2
       const path = `M${x.toFixed(1)} ${y0}C${x.toFixed(1)} ${midY.toFixed(1)} ${cx.toFixed(1)} ${midY.toFixed(1)} ${cx.toFixed(1)} ${cy}`
-      const isLive = c.status === 'running'
+      const isLive = c.status === 'running' && !c.isQuiet
       edges.push(`<path class="${isLive ? 'oe flow' : 'oe'}" d="${path}" stroke="${c.color}"/>`)
       // Work travels down the line: a glowing packet from boss to worker.
       if (isLive && !isLight) {
         const delay = ((packet++ % 4) * 0.3).toFixed(1)
-        edges.push(`<circle r="3.2" fill="${c.color}" filter="url(#pglow)"><animateMotion dur="1.4s" begin="-${delay}s" repeatCount="indefinite" path="${path}"/></circle>`)
+        edges.push(`<circle class="smil" r="3.2" fill="${c.color}" filter="url(#pglow)"><animateMotion dur="1.4s" begin="-${delay}s" repeatCount="indefinite" path="${path}"/></circle>`)
       }
       walk(c)
     }
     const { sc, w, h } = crabSize(n)
     const y = yOf(n)
     const left = r2(x - w / 2)
-    const isWorking = n.status === 'running'
+    const isWorking = n.status === 'running' && !n.isQuiet
 
     if (n.kind === 'manager') {
       // The boss: a pulsing gold aura, a big crab, the crown.
       nodes.push(`<circle class="aura" cx="${x}" cy="${y + h / 2 + 2}" r="${w * 0.78}" fill="url(#aura)"/>
-<circle cx="${x}" cy="${y + h / 2 + 2}" r="${w * 0.62}" fill="none" stroke="url(#ring)" stroke-width="2"><animateTransform attributeName="transform" type="rotate" from="0 ${x} ${y + h / 2 + 2}" to="360 ${x} ${y + h / 2 + 2}" dur="${isWorking ? 3 : 8}s" repeatCount="indefinite"/></circle>
+<circle class="still" cx="${x}" cy="${y + h / 2 + 2}" r="${w * 0.62}" fill="none" stroke="url(#ring)" stroke-width="2"/><circle class="smil" cx="${x}" cy="${y + h / 2 + 2}" r="${w * 0.62}" fill="none" stroke="url(#ring)" stroke-width="2"><animateTransform attributeName="transform" type="rotate" from="0 ${x} ${y + h / 2 + 2}" to="360 ${x} ${y + h / 2 + 2}" dur="${isWorking ? 3 : 8}s" repeatCount="indefinite"/></circle>
 ${(() => {
   const figure = `${crab(left, y, 'boss', false, isWorking, sc)}${crown(left, y, sc)}`
   const egg = eggOf()
@@ -3316,10 +3602,13 @@ ${slot >= 46 ? `<text${isWorking ? ' class="t"' : ' class="s"'} x="${x}" y="${y 
     // A worker (or the token manager): its crab, sparks while it works, a badge once
     // it is done, its task under it.
     const label = fitText(n.label, 11, Math.max(30, slot - 8))
+    const tag = n.kind === 'agent' && (n.costUsd ?? 0) >= 0.005 && slot >= 46
+      ? `<text x="${r2(x + w / 2 + (n.status === 'done' || n.status === 'failed' ? 16 : 2))}" y="${r2(y + 6)}" font-size="9.5" font-weight="${isPriciest(n) ? 800 : 600}" font-variant-numeric="tabular-nums"${isPriciest(n) ? ` fill="${SKIN.colors.warn}"` : ' class="m"'}>≈${fmtCost(n.costUsd ?? 0)}</text>`
+      : ''
     const badge = n.status === 'done' || n.status === 'failed' ? `<use href="#${n.status === 'done' ? 'bok' : 'bno'}" x="${r2(left + w - 2)}" y="${y + 4}"/>` : ''
     nodes.push(`<ellipse cx="${x}" cy="${y + h + 1}" rx="${r2(w * 0.45)}" ry="2.5" fill="#000" fill-opacity=".25"/>
-${dancing(crab(left, y, n.costume ?? 'other', n.status === 'done' && n.kind !== 'tokens', isWorking, sc), isParty)}${n.isStuck ? `<circle class="live" cx="${x}" cy="${y + h / 2}" r="${(w * 0.62).toFixed(1)}" fill="none" stroke="#E5675E" stroke-width="2"/><path d="M${left + 4} ${y + 6}q-2 4 0 5q2 -1 0 -5z" fill="#5EC8D8"/>` : ''}
-${isWorking ? sparks(x + w * 0.25, y + 2, n.color) : ''}${badge}
+${dancing(crab(left, y, n.costume ?? 'other', n.status === 'done' && n.kind !== 'tokens', isWorking, sc), isParty)}${n.isStuck ? `<circle${n.isQuiet ? ' stroke-opacity=".9"' : ' class="live"'} cx="${x}" cy="${y + h / 2}" r="${(w * 0.62).toFixed(1)}" fill="none" stroke="#E5675E" stroke-width="2"/><path d="M${left + 4} ${y + 6}q-2 4 0 5q2 -1 0 -5z" fill="#5EC8D8"/>` : ''}
+${isWorking ? sparks(x + w * 0.25, y + 2, n.color) : ''}${badge}${tag}
 ${slot >= 46 ? `<text${isWorking ? ' class="t"' : ' class="s"'} x="${x}" y="${y + h + 15}" text-anchor="middle" font-size="11" font-weight="${isWorking ? 700 : 500}">${xml(label)}</text>` : ''}`)
   }
   castGrow = CAST_GROW
@@ -3350,11 +3639,33 @@ ${nodes.join('\n')}${SKIN.effects.scanlines && !isLight ? scanlines(W, H) : ''}<
 // --- the token manager: watches the spend and says how to spend less. Pure
 // arithmetic in this module: it costs no tokens of its own.
 
-type Tip = { level: 0 | 1 | 2; text: string }
+// `cmd`: what Tab-to-Save proposes in the prompt box for this tip.
+type Tip = { level: 0 | 1 | 2; text: string; cmd?: string }
 type TokenReport = { mood: 0 | 1 | 2; tips: Tip[]; burnPerMin: number; taskTokens: number; taskCost: number; cachedPct: number | null; budget: number }
 
 const BURN_WINDOW = 600_000
 const sumTokens = (info: Env): number => Object.values(info.modelTokens ?? {}).reduce((a, b) => a + b, 0)
+
+// The coach's what-if over this session's agents (hooks/coach.ts), priced by the table above.
+const coachWhatIf = (info: Env, list: AgentRun[], w: Watch, warm?: { promptTokens: number; model: string }) =>
+  whatIf({
+    agents: list,
+    totalUsd: info.costUsd,
+    todayUsd: todayCostUsd,
+    priceOf: (m, n) => priceOf(m, n),
+    staffFor,
+    flags: { autopilot: w.autopilot, staffing: smartStaffing, warm: (w.warm ?? BLANK_WARM).on },
+    ...(warm ? { warm: { ...warm, contextPct: info.contextPct, call: (price, tokens, pct) => warmCall(price, tokens, false, pct) } } : {}),
+  })
+
+// A quiet agent's rescue buttons: start it again on Haiku, or ask it for a status.
+const rescueRow = ($: EngineInterface, a: AgentRun, { Box, Button }: ReturnType<EngineInterface['ui']['resolve']>) =>
+  isQuiet(a) ? (
+    <Box key={`rescue-${a.id}`} flexDirection="row" gap={2}>
+      <Button key={`retry-${a.id}`} label="↻ Retry on Haiku" plain onPress={async () => $.ui.toast((await retryOnHaiku($, a)).text)} />
+      {canNudge(a) && <Button key={`nudge-${a.id}`} label="✋ Nudge" plain onPress={async () => $.ui.toast(await nudge($, a))} />}
+    </Box>
+  ) : null
 
 const tokenReport = (info: Env, list: AgentRun[], boss: Manager, w: Watch, at: number): TokenReport => {
   const tips: Tip[] = []
@@ -3368,8 +3679,13 @@ const tokenReport = (info: Env, list: AgentRun[], boss: Manager, w: Watch, at: n
     if (pct >= 100) tips.push({ level: 2, text: `Over budget: ≈${fmtCost(taskCost)} of ${fmtCost(w.budgetUsd)} on this task` })
     else if (pct >= 80) tips.push({ level: 1, text: `${Math.round(pct)}% of the ${fmtCost(w.budgetUsd)} budget used on this task` })
   }
-  if (info.contextPct >= 85) tips.push({ level: 2, text: `Context ${info.contextPct}%: /compact now, every request re-reads it` })
-  else if (info.contextPct >= 70) tips.push({ level: 1, text: `Context ${info.contextPct}%: /compact soon to cut each request's cost` })
+  if (dailyCapUsd > 0) {
+    const pct = (todayCostUsd / dailyCapUsd) * 100
+    if (pct >= 100) tips.push({ level: 2, text: `Daily cap hit: ≈${fmtCost(todayCostUsd)} of ${fmtCost(dailyCapUsd)} today` })
+    else if (pct >= 80) tips.push({ level: 1, text: `${Math.round(pct)}% of today's ${fmtCost(dailyCapUsd)} cap used` })
+  }
+  if (info.contextPct >= 85) tips.push({ level: 2, text: `Context ${info.contextPct}%: /compact now, every request re-reads it`, cmd: '/compact' })
+  else if (info.contextPct >= 70) tips.push({ level: 1, text: `Context ${info.contextPct}%: /compact soon to cut each request's cost`, cmd: '/compact' })
   for (const l of info.limits ?? []) {
     const name = limitName(l.kind)
     if (l.percentUsed >= 90) tips.push({ level: 2, text: `${name} at ${Math.round(l.percentUsed)}%` })
@@ -3381,19 +3697,41 @@ const tokenReport = (info: Env, list: AgentRun[], boss: Manager, w: Watch, at: n
     tips.push({
       level: 1,
       text: `"${clip(pricey.description || pricey.type, 26)}" reads on ${modelName(pricey.model)}: Haiku does read-only work ~5× cheaper${w.autopilot ? '' : ' (/tokens autopilot on)'}`,
+      ...(w.autopilot ? {} : { cmd: '/tokens autopilot on' }),
     })
   }
   const heavy = [...list].sort((x, y) => y.tokens - x.tokens)[0]
   if (heavy && heavy.tokens > 400_000) tips.push({ level: 1, text: `"${clip(heavy.description || heavy.type, 28)}" burned ${fmtTokens(heavy.tokens)} tokens` })
   if (burnPerMin > 150_000) tips.push({ level: 1, text: `Burning ${fmtTokens(burnPerMin)} tokens a minute` })
-  if (cachedPct !== null && cachedPct < 50) tips.push({ level: 1, text: `Only ${cachedPct}% cached: long pauses and early edits break the cache` })
+  if (cachedPct !== null && cachedPct < 50) tips.push({ level: 1, text: `Only ${cachedPct}% cached: long pauses and early edits break the cache`, ...((w.warm ?? BLANK_WARM).on ? {} : { cmd: '/tokens warm on' }) })
   if (running.length > 6) tips.push({ level: 0, text: `${running.length} agents at once: each re-reads its own context` })
   if (w.autopilot) tips.push({ level: 0, text: 'Autopilot on: explorers run on Haiku' })
   const kw = w.warm ?? BLANK_WARM
   if (kw.on) tips.push({ level: 0, text: kw.halted ? `Keep-warm paused: ${kw.halted}` : kw.count ? `Keep-warm: ${kw.count} refresh${kw.count === 1 ? '' : 'es'}, saved ≈${fmtCost(Math.max(0, kw.savedUsd))}` : 'Keep-warm on: the cache is refreshed before it lapses' })
+  // The coach's "what if": a cheaper setup that would save over a fifth of the session.
+  const coachTip = whatIfTip(coachWhatIf(info, list, w), fmtCost)
+  if (coachTip) tips.push(coachTip)
+  if (isApiCredits(BILLING)) tips.push({ level: 0, text: spendLine(API_SPEND, dayOf(at), fmtCost) })
   const mood = tips.reduce<0 | 1 | 2>((m, tp) => (tp.level > m ? tp.level : m), 0)
   if (!tips.some(tp => tp.level > 0)) tips.unshift({ level: 0, text: 'Lean and on budget ✓' })
   return { mood, tips: tips.sort((a, b) => b.level - a.level).slice(0, 3), burnPerMin, taskTokens, taskCost, cachedPct, budget: w.budgetUsd }
+}
+
+// The job's receipt, as markdown for a PR or a chat: the task, its time and cost, and
+// one row per agent with its model, effort, tokens and cost. Costs are estimates.
+const receiptText = (boss: Manager, all: AgentRun[], info: Env, at: number): string => {
+  const crew = crewOf(all, boss)
+  const total = Math.max(0, info.costUsd - (boss.costAtStart ?? info.costUsd))
+  const ms = boss.startedAt ? Math.max(0, (boss.doneAt ?? at) - boss.startedAt) : 0
+  const rows = [...crew].sort((x, y) => y.costUsd - x.costUsd).map(a => `| ${(a.description || a.type).replace(/\|/g, '/')} | ${modelName(a.model)} · ${effortWord(runEffort(a))} | ${fmtTokens(a.tokens)} | ≈${fmtCost(a.costUsd)} |`)
+  return [
+    `**Claude Code receipt**${boss.task ? ` · ${clip(boss.task.replace(/\s+/g, ' '), 80)}` : ''}`,
+    '',
+    `Time ${fmtTime(ms)} · ${crew.length} ${crew.length === 1 ? 'agent' : 'agents'} · total ≈${fmtCost(total)}`,
+    ...(rows.length ? ['', '| Agent | Model · effort | Tokens | Cost |', '|---|---|---|---|', ...rows] : []),
+    '',
+    '_Estimated by Mission Control from token counts._',
+  ].join('\n')
 }
 
 let MOOD_COLOR: readonly [string, string, string] = ['#5fbf8f', '#E9B44C', '#E5675E']
@@ -3418,7 +3756,12 @@ async function keepWarm($: EngineInterface): Promise<void> {
     const isLikely = list.some(a => a.status === 'running') || bg.tasks.length + bg.crons.length > 0
     if (warmLimitHit(isLikely, kw.idle, kw.busy)) return void (await halt(isLikely ? 'refresh limit reached' : 'idle limit reached'))
     const call = warmCall(priceOf(st.model, st.promptTokens), st.promptTokens, isLikely, info.contextPct)
-    if (!call.isWarm) return void (await halt(call.reason ?? 'does not pay'))
+    if (!call.isWarm) {
+      await halt(call.reason ?? 'does not pay')
+      // Keep-Warm explains itself: the one time it decides not to, it says why in money.
+      $.ui.toast(`🧊 Keep-warm ${call.reason ?? 'skipped: it would not pay'}`, { timeoutMs: 15000 })
+      return
+    }
     const reply = await $.model.fork({ prompt: WARM_PROMPT }).catch((err: unknown) => (err instanceof Error ? err : new Error(String(err))))
     if (reply instanceof Error) return void (await halt(`refused: ${clip(reply.message, 40)}`))
     if (!reply.isAnswered && reply.reason === 'nothing-to-fork') return void (await halt('nothing to refresh'))
@@ -3480,7 +3823,7 @@ const tokenSvg = (W: number, r: TokenReport, isWatching: boolean): string => {
   const pillW = Math.round(22 + textWidth(word, 11))
   const stats: Stat[] = [
     { k: 'Burn rate', v: `${fmtTokens(r.burnPerMin)}/min`, color: r.burnPerMin > 150_000 ? '#E9B44C' : undefined },
-    { k: r.budget ? `This task · of ${fmtCost(r.budget)}` : 'This task', v: `${fmtTokens(r.taskTokens)} · ≈${fmtCost(r.taskCost)}`, color: r.budget && r.taskCost >= r.budget ? '#E5675E' : undefined },
+    { k: isApiCredits(BILLING) ? (r.budget ? `API credits · of ${fmtCost(r.budget)}` : 'API credits · task') : r.budget ? `This task · of ${fmtCost(r.budget)}` : 'This task', v: `${fmtTokens(r.taskTokens)} · ≈${fmtCost(r.taskCost)}`, color: r.budget && r.taskCost >= r.budget ? '#E5675E' : undefined },
     { k: 'Cached', v: r.cachedPct === null ? '—' : `${r.cachedPct}%`, viz: r.cachedPct === null ? undefined : { kind: 'ring', pct: 100 - r.cachedPct } },
   ]
   const tips = r.tips
@@ -3499,7 +3842,7 @@ ${cardShape(0.5, 0.5, W - 1, H - 1, `fill="none" stroke="${color}" stroke-opacit
 ${crab(10, 4, 'role:banker', false, isWatching, 1.05)}
 <text x="50" y="22" font-family="${FONT}" font-size="13" font-weight="800" fill="${color}" class="gl">Token Manager<tspan class="s" font-weight="400" font-size="11.5">${(() => {
   const room = W - 14 - pillW - 8 - 50 - textWidth('Token Manager', 13) - 12
-  return room >= 60 ? `   ${xml(fitText('watching every token, at no cost', 11.5, room))}` : ''
+  return room >= 60 ? `   ${xml(fitText(isApiCredits(BILLING) ? 'paid with API credits: real money' : 'watching every token, at no cost', 11.5, room))}` : ''
 })()}</tspan></text>
 <rect x="${W - 14 - pillW}" y="10" width="${pillW}" height="18" rx="9" fill="${color}"/>
 <text x="${W - 14 - pillW / 2}" y="22.5" text-anchor="middle" font-family="${FONT}" font-size="11" font-weight="700" fill="${inkOn(color)}">${word}</text>
@@ -3508,22 +3851,35 @@ ${tips}`,
   )
 }
 
-// --- the daily scoreboard: what the crew did for you today --------------------
+// --- the spend card: what the period cost (Today unless another is picked) --------
 
+type SpendView = ReturnType<typeof spendCard> & { isReading: boolean }
 const TODAY_H = 30 + 48
-const todaySvg = (W: number, d: Today): string =>
-  svg(
+const todaySvg = (W: number, d: Today, v: SpendView): string => {
+  const sw = tr().spend
+  // Today keeps its scoreboard; another period shows what it cost, in tokens, over how many days.
+  const right = v.isReading ? sw.reading : v.isToday ? `≈${fmtCost(v.cost)} spent` : ''
+  const stats = v.isToday
+    ? [
+        { k: sw.tasks, v: String(d.tasks) },
+        { k: sw.agents, v: String(d.agents) },
+        { k: tr().tokens, v: fmtTokens(v.tokens) },
+      ]
+    : [
+        { k: tr().cost, v: `≈${fmtCost(v.cost)}` },
+        { k: tr().tokens, v: fmtTokens(v.tokens) },
+        { k: sw.days, v: String(v.days) },
+      ]
+  return svg(
     W,
     TODAY_H,
     `${cardShape(0.5, 0.5, W - 1, TODAY_H - 1, `class="tile"`, 14)}
-<text class="t" x="14" y="22" font-family="${FONT}" font-size="13" font-weight="600">Today</text>
-<text class="m" x="${W - 14}" y="22" text-anchor="end" font-family="${FONT}" font-size="11">≈${fmtCost(d.costUsd)} spent</text>
-${statGrid(14, 30, W - 28, [
-  { k: 'Tasks', v: String(d.tasks) },
-  { k: 'Agents run', v: String(d.agents) },
-  { k: 'Tokens', v: fmtTokens(d.tokens) },
-])}`,
+<text class="t" ${startText(W, 14, 22)} font-family="${FONT}" font-size="13" font-weight="600">${xml(fitText(v.label, 13, W - 28 - (right ? textWidth(right, 11) + 12 : 0)))}</text>${
+      right ? `\n<text class="m" ${endText(W, W - 14, 22, v.isReading)} font-family="${FONT}" font-size="11">${xml(right)}</text>` : ''
+    }
+${statGrid(14, 30, W - 28, stats)}`,
   )
+}
 
 // --- background work: shells, subagents, monitors and workflows left running, and
 // the wake-ups scheduled for later, as the engine last listed them.
@@ -3861,12 +4217,18 @@ type HudData = {
   progressAt?: (t: number) => number
   isWorking: boolean
   isParty: boolean
+  /** When the job finished: the cheer is pinned to it, so a redraw resumes it instead of replaying it. */
+  partyAt?: number
+  /** The plain skins' 3-row band: what is happening, the crew, the cost. */
+  simple?: boolean
+  taskUsd?: number
+  todayUsd?: number
   ctxPct: number
   limitPct: number | null
   burnPerMin: number
   mood: 0 | 1 | 2
   /** Line 3: the crew at work, one small crab each, and a count per role. */
-  crew: { costume: string; color: string; status: AgentStatus }[]
+  crew: { costume: string; color: string; status: AgentStatus; isQuiet?: boolean }[]
   roles: { role: string; color: string; count: number }[]
   /** Line 4: the manager's steps as pips, and the one in hand. */
   steps: StepState[]
@@ -3907,9 +4269,83 @@ const heartbeat = (x: number, y: number, w: number, color: string): string => {
 <path class="ekg" d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="40 ${w * 2}"/>`
 }
 
+// The simple band (default and Crab Classic): three rows a newcomer reads at a glance.
+// 1. What is happening: the boss, the status, the action, the gauge and its percent.
+// 2. Who is on it: the crew's crabs and one plain count.
+// 3. What it costs: this task, today, and how full the context is.
+// The full readouts stay in the pane; Settings brings the full band back.
+const SIMPLE_H = 100
+const SIMPLE_OUT_H = SIMPLE_H + HUD_PAD * 2
+const hudSimpleSvg = (OW: number, d: HudData): string => {
+  const c = SKIN.colors
+  const OH = SIMPLE_OUT_H
+  const W = OW - HUD_PAD * 2
+  const edge = d.isParty ? c.done : d.isWorking ? c.accent : c.line
+  const tone = d.isParty ? c.done : d.isWorking ? c.accent : c.muted
+  const left = 52
+  const titleW = Math.min(180, textWidth(d.title, 13) + 4)
+  const pillW = Math.round(20 + textWidth(d.status, 10.5))
+  const pct = d.progress === null ? null : Math.round(d.progress * 100)
+  const barW = Math.max(40, W - left - 64)
+  const gaugeY = 28
+  const climb = d.progressAt
+  const gauge =
+    pct !== null && climb
+      ? liveSegmentBar(left, gaugeY, barW, d.at, t => Math.round(climb(t) * 100), c.accent)
+      : pct !== null
+      ? segmentBar(left, gaugeY, barW, pct, d.isParty ? c.done : c.accent).replace(/height="8"/g, 'height="7"')
+      : `<rect x="${left}" y="${gaugeY}" width="${barW}" height="7" rx="1" class="k"/>`
+  const pctText =
+    pct !== null && climb
+      ? liveText(left + barW + 10, gaugeY + 7, d.at, 12, `class="t" font-family="${FONT}" font-size="12" font-weight="800" font-variant-numeric="tabular-nums"`, t => `${Math.round(climb(t) * 100)}%`)
+      : `<text class="t" x="${left + barW + 10}" y="${gaugeY + 7}" font-family="${FONT}" font-size="12" font-weight="800" font-variant-numeric="tabular-nums">${pct === null ? (d.isWorking ? '···' : '') : `${pct}%`}</text>`
+  // Row 2: the crew and one count, quiet ones named.
+  const y2 = 46
+  const working = d.crew.filter(m => m.status === 'running' && !m.isQuiet).length
+  const quiet = d.crew.filter(m => m.isQuiet).length
+  const done = d.crew.filter(m => m.status !== 'running').length
+  const count = d.crew.length ? [working ? `${working} working` : '', quiet ? `${quiet} quiet` : '', done ? `${done} done` : ''].filter(Boolean).join(' · ') : 'Just Claude on this one'
+  const countW = textWidth(count, 12) + 8
+  const room = Math.max(0, Math.floor((W - 14 - countW - 16 - left) / 22))
+  const crabs = d.crew.slice(0, room).map((m, i) => {
+    const x = left + i * 22
+    return `${crab(x, y2, m.costume, m.status !== 'running', m.status === 'running' && !m.isQuiet, 0.68)}${m.isQuiet ? `<circle cx="${x + 10}" cy="${y2 + 10}" r="11" fill="none" stroke="${c.alert}" stroke-width="1.5"/>` : ''}`
+  }).join('')
+  const more = d.crew.length > room && room > 0 ? `<text class="m" x="${left + room * 22 + 2}" y="${y2 + 14}" font-family="${FONT}" font-size="11">+${d.crew.length - room}</text>` : ''
+  // Row 3: the money and the context, in words.
+  const y3 = 86
+  const ctxTone = gaugeColor(d.ctxPct)
+  const label = (y: number, text: string) => `<text class="m" x="14" y="${y}" font-family="${FONT}" font-size="10" font-weight="700" letter-spacing=".6">${text}</text>`
+  return svg(
+    OW,
+    OH,
+    `<style>.cur{animation:cur 1.1s steps(1) infinite}@keyframes cur{50%{opacity:0}}@media (prefers-reduced-motion: reduce){.cur{animation:none}}</style>
+${cardShape(0.5, 0.5, OW - 1, OH - 1, `class="tile"`, 10)}
+${cardShape(0.5, 0.5, OW - 1, OH - 1, `fill="none" stroke="${edge}" stroke-opacity=".6" stroke-width="1.2"`, 10)}
+<rect x="0.5" y="12" width="3" height="${OH - 24}" rx="1.5" fill="${edge}"/>
+<g transform="translate(${HUD_PAD} ${HUD_PAD})">
+${dancing(`${crab(10, 6, 'boss', false, d.isWorking, 1.05)}${crown(10, 6, 1.05)}`, d.isParty)}
+<text x="${left}" y="17" font-family="${FONT}" font-size="13" font-weight="800" fill="${c.accent}">${xml(fitText(d.title, 13, titleW))}</text>
+<rect x="${left + titleW + 8}" y="6" width="${pillW}" height="15" rx="7.5" fill="${tone}" fill-opacity="${d.isWorking || d.isParty ? 0.95 : 0.25}"/>
+<text x="${left + titleW + 8 + pillW / 2}" y="17" text-anchor="middle" font-family="${FONT}" font-size="10.5" font-weight="800" fill="${d.isWorking || d.isParty ? inkOn(tone) : c.text}">${xml(d.status)}</text>
+<text class="s" x="${left + titleW + pillW + 18}" y="17" font-family="${FONT}" font-size="11.5">${xml(fitText(d.activity ? `▸ ${d.activity}` : '', 11.5, Math.max(0, W - (left + titleW + pillW + 18) - 14)))}</text>
+${gauge}
+${pctText}
+<line x1="12" y1="${y2 - 6.5}" x2="${W - 12}" y2="${y2 - 6.5}" stroke="${c.line}"/>
+${label(y2 + 14, 'CREW')}
+${crabs}${more}
+<text class="s" x="${W - 14}" y="${y2 + 14}" text-anchor="end" font-family="${FONT}" font-size="12">${xml(count)}</text>
+${label(y3, 'COST')}
+<text class="t" x="${left}" y="${y3}" font-family="${FONT}" font-size="12.5" font-variant-numeric="tabular-nums">This task <tspan font-weight="800">≈${fmtCost(d.taskUsd ?? 0)}</tspan><tspan class="m">   ·   </tspan>Today <tspan font-weight="800">≈${fmtCost(d.todayUsd ?? 0)}</tspan></text>
+<text class="s" x="${W - 14}" y="${y3}" text-anchor="end" font-family="${FONT}" font-size="12">Context <tspan font-weight="800" fill="${ctxTone}">${d.ctxPct}%</tspan></text>
+</g>`,
+  )
+}
+
 const hudBandSvg = (OW: number, d: HudData): string => {
   const c = SKIN.colors
   const egg = eggOf()
+  if (d.simple && !egg) return hudSimpleSvg(OW, d)
   // The frame takes the whole box; the content sits inside it, padded.
   const OH = HUD_OUT_H
   const W = OW - HUD_PAD * 2
@@ -3951,16 +4387,16 @@ ${egg ? heatStars(rx + 178, 43, burnStars(d.burnPerMin), egg) : ''}
       ? liveSegmentBar(left, gaugeY, barW, d.at, t => Math.round(climb(t) * 100), c.accent)
       : pct !== null
       ? `${segmentBar(left, gaugeY, barW, pct, d.isParty ? c.done : c.accent).replace(/height="8"/g, 'height="7"')}`
-      : `<rect x="${left}" y="${gaugeY}" width="${barW}" height="7" rx="1" class="k"/>${d.isWorking ? `<rect class="scan" x="${left}" y="${gaugeY}" width="${Math.round(barW * 0.22)}" height="7" rx="1" fill="${c.accent}"/>` : ''}`
+      : `<rect x="${left}" y="${gaugeY}" width="${barW}" height="7" rx="1" class="k"/>${d.isWorking ? `<rect class="hscan" x="${left}" y="${gaugeY}" width="${Math.round(barW * 0.22)}" height="7" rx="1" fill="${c.accent}"/>` : ''}`
   const css = `<style>
 .ekg{animation:ekg 1.8s linear infinite}@keyframes ekg{from{stroke-dashoffset:${barW * 2}}to{stroke-dashoffset:0}}
-.scan{animation:scan 1.6s ease-in-out infinite alternate}@keyframes scan{to{transform:translateX(${Math.round(barW * 0.78)}px)}}
+.hscan{animation:hscan 1.6s ease-in-out infinite alternate}@keyframes hscan{to{transform:translateX(${Math.round(barW * 0.78)}px)}}
 .hedge{animation:hedge 1.8s ease-in-out infinite}@keyframes hedge{50%{stroke-opacity:.95}}
 .beam{animation:beam ${d.isWorking ? 3.2 : 9}s linear infinite}@keyframes beam{from{transform:translateX(-180px)}to{transform:translateX(${OW + 180}px)}}
 .brk{animation:brk 2.4s ease-in-out infinite}@keyframes brk{50%{opacity:.35}}
 .shine{animation:shine 2.2s ease-in-out infinite}@keyframes shine{from{transform:translateX(-30px);opacity:0}30%{opacity:1}to{transform:translateX(${Math.max(40, Math.round((barW * (pct ?? 0)) / 100))}px);opacity:0}}
 .cur{animation:cur 1.1s steps(1) infinite}@keyframes cur{50%{opacity:0}}
-@media (prefers-reduced-motion: reduce){.ekg,.scan,.hedge,.beam,.brk,.shine,.cur{animation:none}}
+@media (prefers-reduced-motion: reduce){.ekg,.hscan,.hedge,.beam,.brk,.shine,.cur{animation:none}}
 ${egg ? EGG_CSS : ''}
 </style>`
   // A beam of light that crosses the card, clipped to its shape.
@@ -4017,7 +4453,7 @@ ${hudLines(W, d)}
 </g>
 ${hudSpare(W)}
 </g>
-${egg && d.isParty ? celebration(OW, OH, egg, FONT) : ''}`,
+${egg && d.isParty ? celebration(OW, OH, egg, FONT, d.partyAt) : ''}`,
   )
 }
 
@@ -4043,7 +4479,7 @@ const hudHead = (W: number, d: HudData): string => {
   const egg = eggOf()
   const psy = egg ? psychoChip(mx, y, d.ctxPct, FONT) : { svg: '', w: 0 }
   const mx2 = mx + (psy.w ? psy.w + 10 : 0)
-  const model = [d.model, d.effort].filter(Boolean).join(' · ')
+  const model = [PROVIDER, d.model, d.effort].filter(Boolean).join(' · ')
   const clock = d.budget ? `⏱\uFE0E ${budgetLabel(d.budget.usedMs, d.budget.min)}` : d.taskMs > 0 ? `⏱\uFE0E ${fmtTime(d.taskMs)}` : ''
   const parts = [egg ? `♪ ${radio(d.at)}` : '', d.folder ? `▤ ${d.folder}` : '', clock].filter(Boolean)
   const widthOf = (xs: string[]) => (xs.length ? textWidth(xs.join('   '), 11) + 8 : 0)
@@ -4108,10 +4544,13 @@ const hudLines = (W: number, d: HudData): string => {
     d.crew.slice(0, room).forEach((m, i) => {
       if (d.lite) {
         out.push(`<circle cx="${crabX + i * 24 + 10}" cy="${y3 + 10}" r="5" fill="${m.color}" fill-opacity="${m.status === 'running' ? 1 : 0.4}"/>`)
+        // Quiet: a still ring in the skin's alert colour, so the band says it too.
+        if (m.isQuiet) out.push(`<circle cx="${crabX + i * 24 + 10}" cy="${y3 + 10}" r="8" fill="none" stroke="${c.alert}" stroke-width="1.5"/>`)
         return
       }
-      out.push(crab(crabX + i * 24, y3, m.costume, m.status !== 'running', m.status === 'running', 0.72))
-      if (m.status === 'running') out.push(`<circle class="live" cx="${crabX + i * 24 + 21}" cy="${y3 + 2}" r="2.2" fill="${m.color}"/>`)
+      out.push(crab(crabX + i * 24, y3, m.costume, m.status !== 'running', m.status === 'running' && !m.isQuiet, 0.72))
+      if (m.isQuiet) out.push(`<circle cx="${crabX + i * 24 + 10}" cy="${y3 + 10}" r="11" fill="none" stroke="${c.alert}" stroke-width="1.5"/>`)
+      else if (m.status === 'running') out.push(`<circle class="live" cx="${crabX + i * 24 + 21}" cy="${y3 + 2}" r="2.2" fill="${m.color}"/>`)
     })
     if (d.crew.length > room) out.push(`<text class="m" x="${crabX + room * 24 + 2}" y="${y3 + 14}" font-family="${FONT}" font-size="11">+${d.crew.length - room}</text>`)
   }
@@ -4292,7 +4731,7 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
     isMine = false
     if (prev.doneAt || prev.isWorking || prev.task !== boss.task) return prev
     isMine = true
-    return { ...prev, doneAt: at, activity: '', reportDue: undefined, ...(isQuietEnd ? { outcome } : { celebrateUntil: at + CELEBRATE_MS }) }
+    return { ...prev, doneAt: at, activity: '', reportDue: undefined, ...(isQuietEnd ? { outcome } : isWorthACheer ? { celebrateUntil: at + CELEBRATE_MS } : { settled: true }) }
   })
   if (!isMine) return
   // A follow-up Claude started after the job was done ends as quietly as it began.
@@ -4331,6 +4770,11 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
   if (egg && legend.ms >= 180_000) $.ui.toast(egg === 'corpo' ? `▣ Engram filed in Mikoshi: ${clip(legend.task, 40)}` : `🍸 The Afterlife named a drink after you: The ${clip(legend.task, 40)}`)
   $.ui.toast(`🎉 Done: ${clip(job.task, 60)}`)
   void $.ui.notify(`Claude finished: ${clip(job.task, 80)}`).catch(() => undefined)
+  // Spoken status (opt-in): the crew, then what the job cost, after the chime.
+  if ((await read($, settings)).voice) {
+    const who = crew.length ? `${crew.length} ${crew.length === 1 ? 'agent' : 'agents'}, ` : ''
+    void $.audio.speak(`Job done. ${who}about ${fmtCost(legend.costUsd)}.`).catch(() => undefined)
+  }
   // One chime, not two cut short: the level-up's when the job earned one, else the skin's.
   const isCheer = await paid.catch(() => false)
   void play($, !egg ? 'assets/done.wav' : isCheer ? `${ADDON}/assets/levelup.wav` : `${ADDON}/assets/done-${egg}.wav`)
@@ -4393,7 +4837,7 @@ async function mainAtWork($: EngineInterface): Promise<void> {
     ...p,
     isWorking: true,
     reportDue: undefined,
-    ...(p.doneAt ? { doneAt: undefined, celebrateUntil: undefined, isFollowUp: true } : {}),
+    ...(p.doneAt ? { doneAt: undefined, celebrateUntil: undefined, settled: undefined, isFollowUp: true } : {}),
   }))
 }
 
@@ -4488,13 +4932,16 @@ const bandView = (i: BandInput, bandAt: number, isWorkingProp: boolean) => {
     progressAt: !reported && isWorking && !isParty ? managerEstimate(null, list, boss, bandAt) : undefined,
     isWorking,
     isParty,
+    partyAt: isParty ? bandBoss.doneAt : undefined,
+    taskUsd: report.taskCost,
+    todayUsd: todayOn(i.day, bandAt).costUsd,
     ctxPct: info.contextPct,
     limitPct: five ? five.percentUsed : null,
     burnPerMin: report.burnPerMin,
     mood: report.mood,
     crew: list
       .slice(-24)
-      .map(a => ({ costume: costumeFor(a), color: runRoleColor(a), status: a.status })),
+      .map(a => ({ costume: costumeFor(a), color: runRoleColor(a), status: a.status, isQuiet: isQuiet(a) })),
     roles: [...new Set(list.map(runRole))].map(role => {
       const members = list.filter(a => runRole(a) === role)
       return { role, color: members[0] ? runRoleColor(members[0]) : SKIN.colors.accent, count: members.length }
@@ -4670,7 +5117,7 @@ async function registerEntryPoints($: EngineInterface): Promise<void> {
   }).catch(() => undefined)
   await $.command.register({
     name: 'skin',
-    description: 'Skins: /skin to list, /skin <name> to switch, /skin reload after editing a file in Custom Claude Skins',
+    description: 'Skins: /skin to list, /skin <name> to switch, /skin new <idea> to draft one, /skin check <file>, /skin reload after editing a file in Custom Claude Skins',
   }).catch(() => undefined)
   await $.command.register({
     name: 'autocrew',
@@ -4678,7 +5125,7 @@ async function registerEntryPoints($: EngineInterface): Promise<void> {
   }).catch(() => undefined)
   await $.command.register({
     name: 'tokens',
-    description: 'Token Manager: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>',
+    description: 'Token Manager: /tokens for a report, budget <dollars|off>, daily <dollars|off>, autopilot <on|off>, staffing <on|off>, ultra <add|remove|list|off> <role>, warm <on|off>, receipt, pr, whatif, rescue, spend today|week|month|<from> <to>, export [period], model <id> <model>',
   }).catch(() => undefined)
   await $.command.register(TIMEKEEPER_COMMAND).catch(() => undefined)
 }
@@ -4695,6 +5142,10 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await registerEntryPoints($)
+    await loadModelAliases($).catch(() => undefined)
+    await loadProvider($).catch(() => undefined)
+    await refreshBilling($).catch(() => undefined)
+    dailyCapUsd = Number(await $.store.get(DAILY_KEY).catch(() => 0)) || 0
     lang = await detectLang($, options.language)
     // One ticker for every drawing. `now` moves each second only while something on
     // screen moves (work, a crew, the party, the cache's last ten minutes), else once a
@@ -4783,6 +5234,10 @@ export const register: Register = (on, options) => {
     if (greet && !isReload) $.ui.toast(GREETING[greet])
     await startTimekeeper($).catch(() => undefined)
     const autopilot = (await $.store.get('autopilot').catch(() => false)) === true
+    smartStaffing = (await $.store.get(STAFF_KEY).catch(() => false)) === true
+    staffSaved = { session: staffSaved.session, total: Number(await $.store.get(STAFF_SAVED_KEY).catch(() => 0)) || 0 }
+    ultraRules = cleanUltraRules(await $.store.get(ULTRA_KEY).catch(() => undefined))
+    oneShotMode = cleanOneShot(await $.store.get(ONESHOT_KEY).catch(() => undefined))
     const budget = Number(await $.store.get('budgetUsd').catch(() => 0)) || 0
     const keepWarmOn = (await $.store.get('keepWarm').catch(() => false)) === true
     await update($, watch, prev => ({ ...prev, autopilot, budgetUsd: budget, warm: { ...(prev.warm ?? BLANK_WARM), on: keepWarmOn } }))
@@ -4799,16 +5254,32 @@ export const register: Register = (on, options) => {
     // The pane opens with the session unless the person turned that off in Settings.
     const prefs = await readSettings($)
     await update($, settings, () => prefs)
+    todayCostUsd = todayOn(await read($, today), await $.clock.now()).costUsd
     const view = await readPaneView($)
     await update($, panel, prev => ({ ...prev, ...view }))
     const savedCred = cleanCred(await $.store.get('cred').catch(() => undefined))
     await update($, cred, () => savedCred)
     if (prefs.openOnStart && !isReload) void $.ui.open({ id: PANE, title: SKIN.tabs.mission }).catch(() => undefined)
+    // Asked once, ever: a failed read counts as asked, so nobody is nagged.
+    if (!isReload && !autopilot && !keepWarmOn && !smartStaffing && (await $.store.get(OFFER_KEY).catch(() => true)) !== true) {
+      await $.store.set(OFFER_KEY, true).catch(() => undefined)
+      $.ui.toast(
+        '💡 3 money savers are off until you turn them on: /tokens staffing on (the cheapest model that fits each agent), /tokens autopilot on (explorers on Haiku), /tokens warm on (keeps the prompt cache warm). Tab takes the first.',
+        { timeoutMs: 30000 },
+      )
+      void $.prompt.suggest({ text: '/tokens staffing on' }).catch(() => undefined)
+    }
+    // The spend card: the kept pick and ledger now; the transcripts are read in the
+    // background, never holding the start up.
+    await loadSpend($, spendIo).catch(() => undefined)
+    void (async () => readSpend($, spendIo, await spendDirs($), true))().catch(() => undefined)
 
     return started
   })
 
   on('command.run', { command: 'missioncontrol' }, async ($, e) => {
+    // A key pasted after the command is refused before anything echoes it, and never saved.
+    if (looksLikeKey(e.args ?? '')) return { text: KEY_IN_COMMAND }
     // Anything starting with "currency" is a currency request: a bad one gets an error, never "opened".
     const money = /^currency(?:\s+(\S+))?(?:\s+(\S+))?(\s.*)?$/i.exec((e.args ?? '').trim())
     if (money) {
@@ -4822,6 +5293,20 @@ export const register: Register = (on, options) => {
       }
       await setCurrency($, currencyOf(found.code, rate))
       return { text: `Costs now show in ${currencyLabel(CURRENCY)}.` }
+    }
+    // `/missioncontrol oneshot on|off|ask`: what to do once a roadmap is approved.
+    const shot = /^oneshot(?:\s+(\S+))?\s*$/i.exec((e.args ?? '').trim())
+    if (shot) {
+      const mode = parseOneShot(shot[1] ?? '')
+      if (!mode) return { text: `One-shot is ${oneShotWord(cleanOneShot((await read($, settings)).oneShot))}. Use /missioncontrol oneshot on, off or ask.` }
+      await setOneShot($, mode)
+      return { text: oneShotSaid(mode) }
+    }
+    // Billing: how to pay with API credits instead of the plan, in four steps (nothing is edited).
+    if (/^billing$/i.test((e.args ?? '').trim())) {
+      await refreshBilling($).catch(() => undefined)
+      const b = await read($, billing)
+      return { text: [guideText($.plugin.root, b.mode), '', keyStatus(b), 'Typing it in your own terminal instead: ' + terminalAlternative()].join('\n') }
     }
     // `/missioncontrol` and `/missioncontrol open` open the panel, or bring it forward
     // from behind another tab, without toggling it. Anything else gets the usage line.
@@ -4848,7 +5333,7 @@ export const register: Register = (on, options) => {
       ]
       return { text: said.filter(Boolean).join(' ') }
     }
-    if (verb !== '' && verb.toLowerCase() !== 'open') return { text: `Unknown option "${verb}". Use /missioncontrol, /missioncontrol open, /missioncontrol release or /missioncontrol currency <code> [rate per US dollar].` }
+    if (verb !== '' && verb.toLowerCase() !== 'open') return { text: `Unknown option "${verb}". Use /missioncontrol, /missioncontrol open, /missioncontrol release, /missioncontrol oneshot <on|off|ask>, /missioncontrol billing or /missioncontrol currency <code> [rate per US dollar].` }
     const at = await $.clock.now()
     await update($, now, () => at)
     const shown = await showPane($, PANE, SKIN.tabs.mission)
@@ -4940,10 +5425,26 @@ export const register: Register = (on, options) => {
     // Autopilot: read-only explorers go to Haiku, unless a model was chosen for them.
     const w = await read($, watch)
     const isReadOnly = e.subagentType === 'Explore'
-    const routed = w.autopilot && isReadOnly && !e.model ? { ...briefed, model: 'haiku' } : briefed
-    if (routed !== briefed) $.ui.toast(`Token Manager: "${clip(e.description, 30)}" runs on Haiku`)
+    const piloted = w.autopilot && isReadOnly && !e.model ? { ...briefed, model: 'haiku' } : briefed
+    if (piloted !== briefed) $.ui.toast(`Token Manager: "${clip(e.description, 30)}" runs on Haiku`)
+    const staff = smartStaffing && !e.model && !isWorker(e.subagentType) && piloted === briefed ? staffFor(e.subagentType, e.description) : null
+    // Ultra: a role with a rule gets a deep-check brief and max effort from its first request.
+    const ultraRule = matchUltra(ultraRules, e.subagentType, e.description)
+    const routed0 = staff?.model ? { ...piloted, model: staff.model } : piloted
+    const routed = ultraRule ? { ...routed0, prompt: withUltraBrief(routed0.prompt) } : routed0
     const started = await next(routed)
     if (started.deny !== undefined) return started
+    rememberTask(started.agentId, { prompt: e.prompt, description: e.description, subagentType: e.subagentType })
+    if (ultraRule && started.agentId) {
+      ultraFlag.set(started.agentId, true)
+      $.ui.toast(`⚡ Ultra: "${clip(e.description, 30)}" runs at max effort with a deep check`)
+    }
+    if (staff && started.agentId) {
+      staffEffort.set(started.agentId, staff.effort)
+      const base = (await read($, env)).model || (await read($, session)).model
+      if (staff.model && base) staffBaseline.set(started.agentId, base)
+      $.ui.toast(`Staffing: "${clip(e.description, 30)}" is ${staff.why}: ${staff.model ? `${staff.model[0]?.toUpperCase()}${staff.model.slice(1)}` : 'session model'} · ${staff.effort} effort`)
+    }
 
     const at = await $.clock.now()
     const boss = await read($, manager)
@@ -4980,6 +5481,7 @@ export const register: Register = (on, options) => {
         steps: 0,
         round,
         parentAgentId: e.parentAgentId,
+        ...(ultraRule ? { isUltra: true } : {}),
         // Its end queues a report the main loop answers in a turn of its own (one an
         // agent started reports to that agent, a workflow's to its script).
         ...(e.background && !e.workflow && !e.parentAgentId ? { isBackground: true } : {}),
@@ -5023,8 +5525,13 @@ export const register: Register = (on, options) => {
 
   on('turn.step', async function* ($, e, next) {
     if (warmTurns.has(e.turnId)) return yield* next(e)
+    // A staffed agent asks for the effort its job was given (where the model takes one).
+    const staffed = e.agentId ? staffEffort.get(e.agentId) : undefined
+    // Order: the person's ⚡ button > an Ultra rule > Smart staffing > the engine's own.
+    const ultra = e.agentId ? isUltraAgent(ultraExplicit.get(e.agentId), ultraFlag.get(e.agentId) === true) : false
+    const wanted = resolveEffort(e.effort, staffed, ultra)
     // Timed from the response's first chunk, so the wait for the first token is left out.
-    const stream = next(e)
+    const stream = next(wanted !== e.effort ? { ...e, effort: wanted as typeof e.effort } : e)
     let firstAt: number | null = null
     let stampedAt = 0
     let step = await stream.next()
@@ -5070,6 +5577,11 @@ export const register: Register = (on, options) => {
         await update($, env, prev => ({ ...prev, modelTokens: { ...(prev.modelTokens ?? {}), [model]: ((prev.modelTokens ?? {})[model] ?? 0) + burned } }))
         await update($, allTime, prev => ({ since: prev.since || new Date(stepAt).toISOString(), models: { ...prev.models, [model]: (prev.models[model] ?? 0) + burned } }))
       }
+      const base = agentId ? staffBaseline.get(agentId) : undefined
+      if (base && model) {
+        const usd = costOf(base, usage, true) - costOf(model, usage, true)
+        staffSaved = { session: staffSaved.session + usd, total: staffSaved.total + usd }
+      }
     }
     if (!agentId) {
       if (usage) {
@@ -5110,7 +5622,7 @@ export const register: Register = (on, options) => {
           : {
               ...a,
               model,
-              effort: typeof e.effort === 'string' ? e.effort : a.effort,
+              effort: typeof wanted === 'string' ? wanted : a.effort,
               status: 'running',
               endedAt: undefined,
               contextTokens:
@@ -5141,6 +5653,7 @@ export const register: Register = (on, options) => {
     if (!agentId) {
       const doneAt = await $.clock.now()
       await update($, session, prev => ({ ...prev, cacheUntil: doneAt + CACHE_TTL_MS, cacheLeft: CACHE_TTL_MS / 1000, isBusy: false, warned: 0 }))
+      void suggestSaving($, doneAt).catch(() => undefined)
     }
     if (agentId) {
       const at = await $.clock.now()
@@ -5172,6 +5685,7 @@ export const register: Register = (on, options) => {
           }
         }),
       )
+      if (staffBaseline.delete(agentId)) await $.store.set(STAFF_SAVED_KEY, staffSaved.total).catch(() => undefined)
       // A background agent's report now waits on the main loop: not done until answered.
       if (reported && (await read($, manager)).task) await update($, manager, prev => (prev.doneAt ? prev : { ...prev, reportDue: at }))
       await update($, now, () => at)
@@ -5186,6 +5700,8 @@ export const register: Register = (on, options) => {
     // Saved at every end, a sub-agent's too: its tokens are no less spent.
     await saveTotals($)
     await finishIfIdle($).catch(() => undefined)
+    // The session's own transcript grew: the spend ledger catches up, once a minute at most.
+    if (!agentId && isRescanDue(await $.clock.now().catch(() => 0))) void (async () => readSpend($, spendIo, await spendDirs($), false))().catch(() => undefined)
     return done
   })
 
@@ -5281,8 +5797,13 @@ export const register: Register = (on, options) => {
     const tw = await read($, watch)
     const every = await read($, allTime)
     const day = todayOn(await read($, today), clockNow)
+    const sp = await read($, spend)
+    const spent: SpendView = { ...spendCard(sp, { date: day.date, cost: day.costUsd, tokens: day.tokens }, clockNow, s.spend), isReading: sp.status === 'reading' }
     const legends = cleanLegends(await $.store.get('legends').catch(() => []))
     const prefs = await read($, settings)
+    const money = await read($, watch)
+    const shotMode = cleanOneShot(prefs.oneShot)
+    const shotChip = oneShotChip(shotMode, shotMode === 'on' ? SKIN.colors.done : shotMode === 'off' ? SKIN.colors.accent2 : SKIN.colors.warn, FONT, SKIN.colors.text, textWidth)
     const tkNow = await read($, timekeeper)
     // Only the cyberpunk skins draw these: elsewhere each tool call's replay beat
     // would draw the pane again for nothing.
@@ -5313,6 +5834,55 @@ export const register: Register = (on, options) => {
         onPress={() => setPaneView($, prev => ({ isCompact: !prev.isCompact }))}
       />
     )
+    // The spend card's period: a list (and, for a custom range, two date fields) where the
+    // surface draws them, else buttons. Without the fields a custom range is `/tokens spend <from> <to>`.
+    const spendControls = (() => {
+      const sw = s.spend
+      const row = isRtl() ? 'row-reverse' : 'row'
+      const thisMonth = monthOf(clockNow)
+      const month = sp.period.kind === 'month' ? sp.period.month || thisMonth : ''
+      if ('Select' in ui && 'Input' in ui) {
+        const { Select, Input } = ui
+        return (
+          <Box key="spend-controls" flexDirection="column">
+            <Box flexDirection={row} gap={2}>
+              <Select
+                key="spend-period"
+                label={sw.period}
+                value={sp.period.kind}
+                options={SPEND_KINDS.map(k => ({ value: k, label: sw[k] }))}
+                onSelect={v => void pickSpendKind($, spendIo, (SPEND_KINDS as readonly string[]).includes(v) ? (v as SpendKind) : 'today')}
+              />
+              {month ? (
+                <Select
+                  key="spend-month"
+                  label={sw.month}
+                  value={month}
+                  options={[...new Set([month, ...monthsWithData(sp.days, clockNow).slice(0, 14)])].sort().reverse().map(m => ({ value: m, label: monthLabel(m, sw) }))}
+                  onSelect={v => void pickSpendMonth($, spendIo, v)}
+                />
+              ) : null}
+            </Box>
+            {sp.period.kind === 'custom' ? (
+              <Box flexDirection={row} gap={2}>
+                <Input key="spend-from" label={sw.from} placeholder="YYYY-MM-DD" value={sp.draft.from || sp.period.from} onSubmit={v => void typeSpendDay($, spendIo, 'from', v)} />
+                <Input key="spend-to" label={sw.to} placeholder="YYYY-MM-DD" value={sp.draft.to || sp.period.to} onSubmit={v => void typeSpendDay($, spendIo, 'to', v)} />
+              </Box>
+            ) : null}
+            {sp.error ? <Text color="#E5675E">{sp.error}</Text> : null}
+          </Box>
+        )
+      }
+      return (
+        <Box key="spend-controls" flexDirection={row} gap={2}>
+          {SPEND_KINDS.filter(k => k !== 'custom').map(k => (
+            <Button key={`spend-${k}`} label={`${k === sp.period.kind ? '● ' : ''}${sw[k]}`} plain onPress={() => pickSpendKind($, spendIo, k)} />
+          ))}
+          {month ? <Button key="spend-prev" label={'◀︎'} plain onPress={() => pickSpendMonth($, spendIo, shiftMonth(month, -1))} /> : null}
+          {month && month < thisMonth ? <Button key="spend-next" label={'▶︎'} plain onPress={() => pickSpendMonth($, spendIo, shiftMonth(month, 1))} /> : null}
+        </Box>
+      )
+    })()
     const toggleDone = (
       <Button
         key="done"
@@ -5321,6 +5891,47 @@ export const register: Register = (on, options) => {
         onPress={() => setPaneView($, prev => ({ isDoneCollapsed: !prev.isDoneCollapsed }))}
       />
     )
+    // Billing: a status chip, the key box, Save / Clear / Remove, the four steps. Never the key:
+    // the box's text lives in billing.ts's `draft` (memory only) until a Save sends it to the Keychain.
+    const bill = await read($, billing)
+    const Field = 'Input' in ui ? ui.Input : null
+    const typed = draft.get(clockNow)
+    const billingBlock = (
+      <Box key="billing" flexDirection="column">
+        <Text bold color={isApiCredits(bill.mode) ? ACCENT : undefined}>{modeChip(bill.mode)}</Text>
+        <Text>{bill.isMac ? keyStatus(bill) : MAC_ONLY}</Text>
+        {bill.note ? <Text dimColor wrap="wrap">{bill.note}</Text> : null}
+        {bill.isMac && Field ? (
+          <Box key="bill-form" flexDirection="column">
+            <Text dimColor wrap="wrap">The box shows your key while you type: it cannot hide it. Paste, press Enter, and the box clears. To type it hidden, run this in your own terminal: {terminalAlternative()}</Text>
+            <Field
+              key={`bill-key-${bill.nonce}`}
+              label="Claude API key"
+              placeholder="sk-ant-…"
+              value={typed}
+              submitLabel="save"
+              onInput={async (v: string) => draft.set(v, await $.clock.now())}
+              onSubmit={(v: string) => billingSave($, v)}
+            />
+            <Box flexDirection="row" gap={2}>
+              <Button key="bill-save" label="🔑 Save to Keychain" plain onPress={async () => billingSave($, draft.get(await $.clock.now()))} />
+              <Button key="bill-clear" label="✕ Clear box" plain onPress={async () => { draft.clear(); await update($, billing, prev => ({ ...prev, nonce: prev.nonce + 1 })) }} />
+              {bill.saved || bill.inKeychain ? <Button key="bill-remove" label="🗑 Remove key" plain onPress={() => billingRemove($)} /> : null}
+            </Box>
+          </Box>
+        ) : null}
+        <Button
+          key="bill-guide"
+          label={`${bill.isGuideOpen ? '▾' : '▸'} Use it for Claude Code: 4 steps`}
+          plain
+          onPress={async () => {
+            await refreshBilling($).catch(() => undefined)
+            await update($, billing, prev => ({ ...prev, isGuideOpen: !prev.isGuideOpen }))
+          }}
+        />
+        {bill.isGuideOpen ? <Text wrap="wrap">{guideText($.plugin.root, bill.mode)}</Text> : null}
+      </Box>
+    )
     const isEmpty = list.length === 0 && planned.length === 0
     const summary = `≈${fmtCost(t.cost)}, ${fmtTokens(t.tokens)} ${s.tokensWord}, ${fmtTime(t.time)}`
 
@@ -5328,7 +5939,9 @@ export const register: Register = (on, options) => {
       const { Svg } = ui
       // Each card keeps its source while it reads the same: no new image, no restart.
       const keep = <T,>(tree: T): T => steadyTree(tree, `pane:${e.surface}`, clockNow)
-      const W = Math.max(240, Math.min(900, (e.props.bodyColumns || 40) * 8 - 8))
+      // Drawn wider than the pane's columns suggest, then shrunk to the pane by the app:
+      // the cards fill it edge to edge instead of leaving a dark strip at the right.
+      const W = Math.max(240, Math.min(1100, Math.round((e.props.bodyColumns || 40) * 10) - 8))
       // Section labels in the skin's colours; the classic skins keep the app's dim grey.
       const section = (key: string, text: string) =>
         SKIN.dark ? (
@@ -5350,15 +5963,13 @@ export const register: Register = (on, options) => {
           key="org"
           source={source}
           alt={`Hierarchy: Manager, then ${org.children.map(r => `${r.label} (${r.children.length})`).join(', ') || 'no roles yet'}`}
-          width={W}
-          height={orgHeight(org)}
         />
       )
       // The short view. Forced when the full one is too big for the app to draw: it
       // keeps the crew's picture and offers the ways back to the full view.
       const compactView = (picture?: string) => (
         <Box flexDirection="column" gap={1} alignItems={align} {...(SKIN.backdrop.fill ? { backgroundColor: SKIN.backdrop.fill } : {})}>
-          <Svg source={compactSvg(W, list, planned, t, clockNow)} alt={`${list.length} ${s.agentsCount}${quietCount ? `, ⚠ ${quietCount} quiet` : ''}, ${summary}`} width={W} height={32} />
+          <Svg source={compactSvg(W, list, planned, t, clockNow)} alt={`${list.length} ${s.agentsCount}${quietCount ? `, ⚠ ${quietCount} quiet` : ''}, ${summary}`} />
           {picture === undefined ? (
             toggleCompact
           ) : (
@@ -5371,7 +5982,7 @@ export const register: Register = (on, options) => {
             </Box>
           )}
           {picture ? orgPicture(picture) : null}
-          <Svg source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} width={W} height={sessionHeight(W, info, rules)} />
+          <Svg source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} />
         </Box>
       )
       if (p.isCompact) return keep(compactView())
@@ -5382,7 +5993,7 @@ export const register: Register = (on, options) => {
       const drawings = new Map<string, string>()
       const drawn = (key: string, draw: () => string): string => drawings.get(key) ?? drawings.set(key, draw()).get(key) ?? ''
       const moreRow = (some: AgentRun[], isLive: boolean) =>
-        some.length > 0 && <Svg key={isLive ? 'more-working' : 'more-done'} source={moreSvg(W, some, isLive)} alt={moreAlt(some, isLive)} width={W} height={FOLD_H} />
+        some.length > 0 && <Svg key={isLive ? 'more-working' : 'more-done'} source={moreSvg(W, some, isLive)} alt={moreAlt(some, isLive)} />
       // The cards stack in plain flow: the desktop pane draws nothing for a tree that
       // lays them over a full-height grid with an absolute Box.
       const full = (picture: string, shown: TreeRow[], done: AgentRun[], lite = false) => (
@@ -5393,8 +6004,6 @@ export const register: Register = (on, options) => {
                 <Svg
                   source={bootStrip(W, SKIN.colors, FONT, 'JACKING IN…', egg === 'corpo' ? 'ARASAKA NETWORK › IDENTITY VERIFIED › ACCESS GRANTED' : egg === 'samurai' ? 'WAKE UP, SAMURAI › AMPS ON › LIVE AT THE ATLANTIS' : egg === 'netrun' ? 'JACKED IN › DIVING THE NET › ICE BYPASSED' : 'LINK ESTABLISHED › NEURAL HANDSHAKE OK › ICE BYPASSED')}
                   alt="Mission Control online"
-                  width={W}
-                  height={BOOT_H}
                 />
               </Box>
             ) : null}
@@ -5402,20 +6011,20 @@ export const register: Register = (on, options) => {
               <Svg
                 source={usageSvg(W, info, clockNow, every)}
                 alt={usageAlt(info)}
-                width={W}
-                height={usageHeight(info, every)}
               />
             </Box>
-            <Box key="today" marginBottom={1}>
-              <Svg source={todaySvg(W, day)} alt={`Today: ${day.tasks} tasks, ${day.agents} agents, ${fmtTokens(day.tokens)} tokens, ≈${fmtCost(day.costUsd)}`} width={W} height={TODAY_H} />
+            <Box key="today" flexDirection="column" marginBottom={1}>
+              <Svg
+                source={todaySvg(W, day, spent)}
+                alt={`${spent.isToday ? `Today: ${day.tasks} tasks, ${day.agents} agents, ${fmtTokens(day.tokens)} tokens, ≈${fmtCost(day.costUsd)}` : `${spent.label}: ≈${fmtCost(spent.cost)}, ${fmtTokens(spent.tokens)} ${s.tokensWord}, ${spent.days} ${s.spend.days.toLowerCase()}`}${spent.isReading ? `. ${s.spend.reading}` : ''}`}
+              />
+              {spendControls}
             </Box>
             {egg ? (
               <Box key="cred" marginBottom={1}>
                 <Svg
                   source={credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
                   alt={`Level ${levelOf(streetCred.xp)} ${(egg === 'samurai' ? rockerRankOf : rankOf)(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
-                  width={W}
-                  height={credHeight(W)}
                 />
               </Box>
             ) : null}
@@ -5423,13 +6032,15 @@ export const register: Register = (on, options) => {
               <Svg
                 source={workflowSvg(W, f, steps, clockNow, p.isDoneCollapsed)}
                 alt={`Workflow: ${steps.map(st => `${st.title} ${st.state}`).join(', ') || 'nothing running'}`}
-                width={W}
-                height={workflowHeight(steps, p.isDoneCollapsed)}
               />
+            </Box>
+            <Box key="oneshot" flexDirection="row" gap={2} marginBottom={1}>
+              <Svg source={shotChip.svg} alt={`Plan mode: ${oneShotWord(prefs.oneShot)}`} width={shotChip.W} height={24} />
+              <Button key="oneshot-cycle" label="Change ▸" plain onPress={async () => setOneShot($, nextOneShot(cleanOneShot((await read($, settings)).oneShot)))} />
             </Box>
             {bg.length > 0 && (
               <Box key="background" marginBottom={1}>
-                <Svg source={bgSvg(W, bg, ago)} alt={bgAlt(bg, ago)} width={W} height={bgHeight(bg.length)} />
+                <Svg source={bgSvg(W, bg, ago)} alt={bgAlt(bg, ago)} />
               </Box>
             )}
             {egg ? (
@@ -5437,8 +6048,6 @@ export const register: Register = (on, options) => {
                 <Svg
                   source={breachCard(W, steps.filter(st => st.state === 'done').length, steps.length, boss.isWorking, egg, FONT, cardShape)}
                   alt={`Breach Protocol: ${steps.filter(st => st.state === 'done').length} of ${steps.length} steps`}
-                  width={W}
-                  height={BREACH_H}
                 />
               </Box>
             ) : null}
@@ -5447,8 +6056,6 @@ export const register: Register = (on, options) => {
                 <Svg
                   source={legendsCard(W, legends, egg, FONT, fmtCost, cardShape)}
                   alt={`${egg === 'corpo' ? 'Mikoshi engrams' : 'Afterlife drinks'}: ${legends.map(l => l.task).join(', ') || 'none yet'}`}
-                  width={W}
-                  height={legendsHeight(legends.length)}
                 />
               </Box>
             ) : null}
@@ -5457,8 +6064,6 @@ export const register: Register = (on, options) => {
                 <Svg
                   source={braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
                   alt={braindanceAlt(beats, pick)}
-                  width={W}
-                  height={bdHeight(beats)}
                 />
                 <Box flexDirection="row" gap={2}>
                   <Button key="bd-first" label={'⏮\uFE0E First'} plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, () => (n ? 0 : -1)) }} />
@@ -5472,39 +6077,47 @@ export const register: Register = (on, options) => {
               key="manager"
               source={managerSvg(W, bossCard, info, title, t, list.length, clockNow, managerProgress(f, list, boss, clockNow), waitingOn, managerEstimate(f, list, boss, clockNow))}
               alt={`Manager: ${boss.task || 'idle'}${bossCard.isWorking ? ', working' : waitingOn ? `, ${s.bgWaiting(waitingOn)}` : outcomeWord(boss) ? `, ${outcomeWord(boss).toLowerCase()}` : ''}. ${summary}`}
-              width={W}
-              height={managerHeight(info)}
             />
             <Box key="tokens" marginTop={1} marginBottom={1}>
               <Svg
                 source={tokenSvg(W, report, boss.isWorking)}
                 alt={`Token Manager: ${MOOD_WORD[report.mood]}. ${report.tips.map(tp => tp.text).join('. ')}`}
-                width={W}
-                height={tokenHeight(report)}
               />
             </Box>
+            {boss.task ? (
+              <Box key="receipt" flexDirection="row" gap={2} marginBottom={1}>
+                <Button
+                  key="copy-receipt"
+                  label="🧾 Copy receipt"
+                  plain
+                  onPress={async (press: { surface?: 'terminal' | 'desktop' | 'vscode' | 'mobile' }) => {
+                    const text = receiptText(await read($, manager), await read($, agents), await read($, env), await $.clock.now())
+                    const done = await $.ui.copy({ text, surface: press?.surface }).catch(() => ({ isCopied: false }))
+                    $.ui.toast(done.isCopied ? '🧾 Receipt copied: paste it into a PR or a chat' : '🧾 Could not copy here: run /tokens receipt')
+                  }}
+                />
+              </Box>
+            ) : null}
             <Box key="toggles" flexDirection="row" gap={2} marginBottom={1}>
               {finished.length > 0 && toggleDone}
               {toggleCompact}
             </Box>
             {shown.map(r =>
               r.kind === 'role' ? (
-                <Svg key={r.key} source={treeRowSvg(W, r, drawn(r.key, () => roleSvg(rowInnerW(W, r), r)))} alt={`${r.role}: ${r.count} agents, ${r.running} working`} width={W} height={ROLE_H} />
+                <Svg key={r.key} source={treeRowSvg(W, r, drawn(r.key, () => roleSvg(rowInnerW(W, r), r)))} alt={`${r.role}: ${r.count} agents, ${r.running} working`} />
               ) : r.slim ? (
-                <Svg
-                  key={r.key}
-                  source={treeRowSvg(W, r, drawn(`${lite ? 'lite' : 'slim'}:${r.key}`, () => liveRowSvg(rowInnerW(W, r), r.a, at, lite)), lite)}
-                  alt={`${r.a.description}: ${modelName(r.a.model)}, ${s.isRunning}${isQuiet(r.a) ? ', quiet' : ''}${isOver(r.a) ? `, ${tkStr().overWord}` : ''}`}
-                  width={W}
-                  height={FOLD_H}
-                />
+                <Box key={r.key} flexDirection="column">
+                  <Svg
+                    source={treeRowSvg(W, r, drawn(`${lite ? 'lite' : 'slim'}:${r.key}`, () => liveRowSvg(rowInnerW(W, r), r.a, at, lite)), lite)}
+                    alt={`${r.a.description}: ${modelName(r.a.model)}, ${s.isRunning}${isQuiet(r.a) ? ', quiet' : ''}${isOver(r.a) ? `, ${tkStr().overWord}` : ''}`}
+                  />
+                  {rescueRow($, r.a, ui)}
+                </Box>
               ) : r.folded ? (
                 <Box key={r.key} flexDirection="row" alignItems="center">
                   <Svg
                     source={treeRowSvg(W - OPEN_W, r, drawn(`${lite ? 'lite-fold' : 'fold'}:${r.key}`, () => foldedSvg(rowInnerW(W - OPEN_W, r), r.a, at, lite)), lite)}
                     alt={`${r.a.description}: ${r.a.status === 'failed' ? s.failed : r.a.status === 'stopped' ? s.stopped : s.isFinished}, ${fmtTokens(r.a.tokens)} tokens`}
-                    width={W - OPEN_W}
-                    height={FOLD_H}
                   />
                   <Button key={`open-${r.key}`} label="Open ▸" plain onPress={() => toggleOpen(r.a.id)} />
                 </Box>
@@ -5513,10 +6126,10 @@ export const register: Register = (on, options) => {
                   <Svg
                     source={treeRowSvg(W, r, drawn(r.key, () => agentSvg(rowInnerW(W, r), r.a, at, !isBoxed(r))))}
                     alt={`${r.a.description}: ${modelName(r.a.model)}, ${r.a.status === 'running' ? s.isRunning : r.a.status === 'failed' ? s.failed : r.a.status === 'stopped' ? s.stopped : s.isFinished}${isOver(r.a) ? `, ${tkStr().overWord}` : ''}`}
-                    width={W}
-                    height={AGENT_H}
                   />
                   {r.a.status !== 'running' && <Button key={`close-${r.key}`} label="▴ Collapse" plain onPress={() => toggleOpen(r.a.id)} />}
+                  {rescueRow($, r.a, ui)}
+                  {r.a.status === 'running' && <Button key={`ultra-${r.key}`} label={r.a.isUltra ? '⚡ Ultra on · tap to turn off' : '⚡ Ultra'} plain onPress={() => toggleUltra($, r.a.id)} />}
                 </Box>
               ),
             )}
@@ -5525,7 +6138,9 @@ export const register: Register = (on, options) => {
             {section('h-org', 'Hierarchy')}
             {orgPicture(picture)}
             {section('h-session', 'Memory')}
-            <Svg key="session" source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} width={W} height={sessionHeight(W, info, rules)} />
+            <Svg key="session" source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} />
+            {section('h-billing', 'Billing')}
+            {billingBlock}
             {section('h-settings', 'Settings')}
             <Box key="settings" flexDirection="column">
               <Button
@@ -5569,6 +6184,13 @@ export const register: Register = (on, options) => {
                   await update($, settings, prev => ({ ...prev, sounds: isOn }))
                 }}
               />
+              {SKIN.cast ? null : (
+                <Button key="set-simple" label={`${prefs.simple ? '☑\uFE0E' : '☐'} Simple band: 3 rows (what's happening, the crew, the cost)`} plain onPress={async () => setFlag($, 'simple', !(await read($, settings)).simple)} />
+              )}
+              <Button key="set-calm" label={`${prefs.calm ? '☑\uFE0E' : '☐'} Calm mode: one status line instead of the band`} plain onPress={async () => setFlag($, 'calm', !(await read($, settings)).calm)} />
+              <Button key="set-voice" label={`${prefs.voice ? '☑\uFE0E' : '☐'} Spoken status: say when a job is done and what it cost`} plain onPress={async () => setFlag($, 'voice', !(await read($, settings)).voice)} />
+              <Button key="set-staffing" label={`${prefs.staffing ? '☑\uFE0E' : '☐'} Smart staffing: each agent gets the model and effort its job needs`} plain onPress={async () => setFlag($, 'staffing', !(await read($, settings)).staffing)} />
+              <Button key="set-oneshot" label={`⏩\uFE0E One-shot plans: ${prefs.oneShot === 'on' ? 'on, does the whole plan then reports' : prefs.oneShot === 'off' ? 'off, one part at a time' : 'asks you each time'} ▸`} plain onPress={async () => setOneShot($, nextOneShot(cleanOneShot((await read($, settings)).oneShot)))} />
               <Button
                 key="set-timekeeper"
                 label={`${tkNow.on ? '☑\uFE0E' : '☐'} ${tkStr().setting(tkNow.jobMin, tkNow.agentMin)}`}
@@ -5578,6 +6200,23 @@ export const register: Register = (on, options) => {
                 }}
               />
               <Button key="set-skin" label="Change skin ▸" plain onPress={() => void showPane($, SKINS_PANE, SKIN.tabs.skins)} />
+              <Text key="set-money-h" bold>
+                {'\n'}Money
+              </Text>
+              <Button key="set-autopilot" label={`${money.autopilot ? '☑\uFE0E' : '☐'} Autopilot: read-only explorers run on Haiku`} plain onPress={async () => setAutopilot($, !(await read($, watch)).autopilot)} />
+              <Button key="set-warm" label={`${(money.warm ?? BLANK_WARM).on ? '☑\uFE0E' : '☐'} Keep-Warm: refresh the prompt cache when that saves more than it costs`} plain onPress={async () => setKeepWarm($, !((await read($, watch)).warm ?? BLANK_WARM).on)} />
+              <Button key="set-daily" label={`💵\uFE0E Daily cap: ${prefs.dailyUsd ? `${fmtCost(prefs.dailyUsd)} a day` : 'off'} ▸`} plain onPress={async () => setDailyCap($, nextStep(DAILY_STEPS, (await read($, settings)).dailyUsd))} />
+              <Button key="set-budget" label={`🎯\uFE0E Budget per task: ${money.budgetUsd ? fmtCost(money.budgetUsd) : 'off'} ▸`} plain onPress={async () => setBudget($, nextStep(BUDGET_STEPS, (await read($, watch)).budgetUsd))} />
+              <Button
+                key="set-export"
+                label="📤\uFE0E Export the spend card's period as a CSV (to Downloads)"
+                plain
+                onPress={async () => {
+                  const at = await $.clock.now()
+                  const r = await exportSpend($, spendIo, await spendDirs($), (await read($, spend)).period, at)
+                  $.ui.toast(r.error ? `Export failed: ${r.error}` : `Saved ${r.from} to ${r.to}, ≈$${r.cost.toFixed(2)}: ${r.path}`, { timeoutMs: 15000 })
+                }}
+              />
             </Box>
           </Box>
         </Box>
@@ -5660,6 +6299,7 @@ export const register: Register = (on, options) => {
               {steps}{s.ctx} {ctx}% · {fmtTokens(a.contextTokens)} ≈{fmtCost(a.costUsd)} {fmtTime(elapsed(a, at))}
             </Text>
           </Text>
+          {a.status === 'running' && <Button key={`ultra-${a.id}`} label={a.isUltra ? '  ⚡ Ultra on · turn off' : '  ⚡ Ultra'} plain onPress={() => toggleUltra($, a.id)} />}
         </Box>
       )
     }
@@ -5708,7 +6348,16 @@ export const register: Register = (on, options) => {
             <Text dimColor>
               Today {day.tasks} tasks · {day.agents} agents · {fmtTokens(day.tokens)} tokens · ≈{fmtCost(day.costUsd)}
             </Text>
+            {spent.isToday ? null : (
+              <Text wrap="truncate-end">
+                {spent.label} <Text bold>≈{fmtCost(spent.cost)}</Text>
+                <Text dimColor> · {fmtTokens(spent.tokens)} {s.tokensWord}</Text>
+              </Text>
+            )}
+            {spent.isReading ? <Text dimColor>{s.spend.reading}</Text> : null}
+            {spendControls}
             <Text bold>Workflow{f && !f.isFinished ? ` ${f.title}` : ''}</Text>
+            <Text dimColor>{'  '}⏩ {oneShotWord(shotMode)}</Text>
             {steps.length === 0 && <Text dimColor>  nothing running</Text>}
             {foldSteps(steps, p.isDoneCollapsed).map(st => (
               <Text key={`wf-${st.key}`} wrap="truncate-end">
@@ -5813,6 +6462,10 @@ export const register: Register = (on, options) => {
           </Box>
         )}
         <Box flexDirection="column" marginTop={1}>
+          <Text dimColor>Billing</Text>
+          {billingBlock}
+        </Box>
+        <Box flexDirection="column" marginTop={1}>
           <Text dimColor>Memory</Text>
           {rules.map((r, i) => (
             <Text key={`rule-${i}`} wrap="truncate-end">
@@ -5837,7 +6490,7 @@ export const register: Register = (on, options) => {
     const isNote = e.origin?.kind === 'task-notification'
     if (isNote) await dropNotified($, e.text ?? '').catch(() => undefined)
     const asked = e.isMeta || e.command || !isPersons ? '' : e.text.trim()
-    if (!e.isMeta) pendingCommand = isPersons && e.command ? `/${e.command.name}${e.command.args ? ` ${e.command.args}` : ''}` : ''
+    if (!e.isMeta) pendingCommand = isPersons && e.command ? `/${e.command.name}${e.command.args && !looksLikeKey(e.command.args) ? ` ${e.command.args}` : ''}` : '' // a pasted key never becomes a job's name
     if (asked) await startJob($, asked)
     // A turn Claude starts on its own (a report to answer, a schedule, a peer) is work
     // in hand; a report read inside the running turn is answered there.
@@ -5894,6 +6547,10 @@ export const register: Register = (on, options) => {
       }
       if (reason) sections.push({ id: 'crab-progress:crew', text: crewText(reason), scope: 'session' as const })
     }
+    // One-shot, added last: what to do once a roadmap is approved. Main session only.
+    if (e.tools.includes('Agent') && e.tools.length >= mostTools * 0.9) {
+      sections.push(oneShotSection(cleanOneShot((await read($, settings)).oneShot ?? oneShotMode)))
+    }
     return sections.length === composed.sections.length ? composed : { ...composed, sections }
   })
 
@@ -5915,14 +6572,16 @@ export const register: Register = (on, options) => {
     const skins = [...SKINS.values()].filter(k => canWear(k) && (!k.hidden || k.id === active.id))
     if (e.surface === 'desktop' && 'Svg' in ui) {
       const { Svg } = ui
-      const W = Math.max(240, Math.min(900, (e.props.bodyColumns || 40) * 8 - 8))
+      // Drawn wider than the pane's columns suggest, then shrunk to the pane by the app:
+      // the cards fill it edge to edge instead of leaving a dark strip at the right.
+      const W = Math.max(240, Math.min(1100, Math.round((e.props.bodyColumns || 40) * 10) - 8))
       return (
         <Box flexDirection="column" gap={1}>
           <Text dimColor>Pick a look for Mission Control and the band. Your own skins go in the Custom Claude Skins folder.</Text>
           {HAS_CYBER ? null : <Text dimColor>{ADDON_PITCH}</Text>}
           {skins.map(k => (
             <Box key={`skin-${k.id}`} flexDirection="column">
-              <Svg source={previewSvg(W, k, k.id === active.id)} alt={`${k.name}: ${k.description}`} width={W} height={PREVIEW_H} />
+              <Svg source={previewSvg(W, k, k.id === active.id)} alt={`${k.name}: ${k.description}`} />
               {k.id === active.id ? (
                 <Text dimColor>✓ On now</Text>
               ) : (
@@ -5964,6 +6623,16 @@ export const register: Register = (on, options) => {
       applySkin(current)
       await update($, skin, () => `${current.id}`)
       return { text: folder ? `Reloaded ${loaded} skin file(s) from ${folder}.${skipped.length ? `\nSkipped: ${skipped.join('; ')}` : ''}\n${listing()}` : `No "${SKINS_FOLDER}" folder found.\n${listing()}` }
+    }
+    const word = /^(new|check)(?:\s+([\s\S]*))?$/i.exec((e.args ?? '').trim())
+    if (word) {
+      const reload = async () => {
+        await loadSkins($)
+        const found = SKINS.get(SKIN.id)
+        if (found) applySkin(found)
+      }
+      const deps = { folderName: SKINS_FOLDER, taken: () => new Set(SKINS.keys()), reload }
+      return { text: word[1]!.toLowerCase() === 'new' ? await skinNew($, word[2] ?? '', deps) : await skinCheck($, word[2] ?? '', deps) }
     }
     if (arg === 'folder') {
       const folder = await $.store.get('skinsFolder').catch(() => undefined)
@@ -6012,40 +6681,132 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'tokens' }, async ($, e) => {
-    const [verb = '', arg = ''] = (e.args ?? '').trim().split(/\s+/)
+    const [verb = '', arg = '', target = ''] = (e.args ?? '').trim().split(/\s+/)
+    // `/tokens model <id> <model|off>`: price an id with no model name in it (a Bedrock
+    // application inference profile ARN) as the model it stands for.
+    if (verb === 'model') {
+      if (!arg) {
+        const rows = Object.entries(modelAliases)
+        return { text: rows.length ? `Model map:\n${rows.map(([id, to]) => `${id} → ${modelName(to)}`).join('\n')}` : 'No mapped models. Usage: /tokens model <id or ARN> <opus|sonnet|haiku|fable or a full model id>' }
+      }
+      const kept = ((await $.store.get(MODEL_KEY).catch(() => undefined)) ?? {}) as Record<string, string>
+      const id = arg.toLowerCase()
+      if (target === 'off') {
+        const { [id]: _gone, ...rest } = kept
+        await $.store.set(MODEL_KEY, rest)
+        await loadModelAliases($)
+        return { text: `Unmapped ${arg}.` }
+      }
+      const to = FAMILY_LATEST[target.toLowerCase()] ?? (hasFamily(target) ? target : '')
+      if (!to) return { text: 'Usage: /tokens model <id or ARN> <opus|sonnet|haiku|fable or a full model id like claude-sonnet-5-5>, or /tokens model <id> off' }
+      await $.store.set(MODEL_KEY, { ...kept, [id]: to })
+      await loadModelAliases($)
+      return { text: `${arg} now prices as ${modelName(to)}.` }
+    }
+    // `/tokens spend <period>`: the card follows the pick, and the answer says the sums.
+    // `/tokens export [period]`: the same period as a FOCUS-style CSV in Downloads.
+    if (verb === 'spend' || verb === 'export') {
+      const got = parseSpendArgs((e.args ?? '').trim().split(/\s+/).slice(1))
+      if (got.error) return { text: got.error }
+      const at = await $.clock.now()
+      if (verb === 'export') {
+        const r = await exportSpend($, spendIo, await spendDirs($), got.period ?? (await read($, spend)).period, at)
+        if (r.error) return { text: r.error }
+        return { text: `Saved ${r.lines} line${r.lines === 1 ? '' : 's'} · ${r.from} to ${r.to} · ${fmtTokens(r.tokens)} tokens · ≈$${r.cost.toFixed(2)} USD${r.note ? ` (${r.note})` : ''}\n${r.path}` }
+      }
+      if (got.period) await setSpendPeriod($, spendIo, got.period)
+      const sp = await read($, spend)
+      const day = todayOn(await read($, today), at)
+      const v = spendCard(sp, { date: day.date, cost: day.costUsd, tokens: day.tokens }, at, tr().spend)
+      const note = sp.status === 'reading' ? tr().spend.reading : sp.status === 'off' ? 'no transcripts to read: the log only' : ''
+      return { text: `${v.label}: ≈${fmtCost(v.cost)} · ${fmtTokens(v.tokens)} ${tr().tokensWord}${note ? ` (${note})` : ''}` }
+    }
     // Anything but a report, a budget or autopilot on|off gets the usage line.
-    if ((verb && verb !== 'autopilot' && verb !== 'budget' && verb !== 'warm') || ((verb === 'autopilot' || verb === 'warm') && arg && arg !== 'on' && arg !== 'off')) {
-      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>' }
+    if ((verb && verb !== 'autopilot' && verb !== 'budget' && verb !== 'warm' && verb !== 'staffing' && verb !== 'ultra' && verb !== 'daily' && verb !== 'receipt' && verb !== 'rescue' && verb !== 'whatif' && verb !== 'pr') || ((verb === 'autopilot' || verb === 'warm') && arg && arg !== 'on' && arg !== 'off')) {
+      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>, /tokens staffing <on|off>, /tokens ultra <add|remove|list|off> [role], /tokens daily <dollars|off>, /tokens receipt, /tokens pr, /tokens whatif, /tokens rescue, /tokens spend today|week|month [YYYY-MM]|<from YYYY-MM-DD> <to YYYY-MM-DD>, /tokens export [period], /tokens model <id> <model|off>' }
     }
     if (verb === 'warm') {
       const isOn = arg !== 'off'
-      await $.store.set('keepWarm', isOn)
-      await update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), on: isOn, halted: '' } }))
+      await setKeepWarm($, isOn)
       return {
         text: isOn
           ? 'Keep-warm on: a small side request refreshes the prompt cache before it lapses, only when it should save more than it costs. It never enters the chat. On a Pro or Max plan it uses a little quota instead of money.'
           : 'Keep-warm off.',
       }
     }
+    if (verb === 'receipt') {
+      const text = receiptText(await read($, manager), await read($, agents), await read($, env), await $.clock.now())
+      const copied = await $.ui.copy({ text }).catch(() => ({ isCopied: false }))
+      return { text: `${text}\n\n${copied.isCopied ? '(Copied: paste it into a PR or a chat.)' : '(Select and copy it from here.)'}` }
+    }
+    if (verb === 'rescue') {
+      const at = await $.clock.now()
+      const quiet = quietOf(await read($, agents))
+      const [act = '', pick = ''] = arg.split(/\s+/)
+      if (act !== 'retry' && act !== 'nudge') return { text: rescueText(quiet, at, fmtTime) }
+      const chosen = pickQuiet(quiet, pick)
+      if (!chosen.length) return { text: quiet.length ? `Which one? /tokens rescue ${act} <1-${quiet.length}|all>` : rescueText(quiet, at, fmtTime) }
+      const lines: string[] = []
+      for (const a of chosen) lines.push(act === 'retry' ? (await retryOnHaiku($, a)).text : await nudge($, a))
+      return { text: lines.join('\n') }
+    }
+    if (verb === 'whatif') {
+      const st = await read($, session)
+      const w = await read($, watch)
+      const info = await read($, env)
+      const out = coachWhatIf(info, await read($, agents), w, st.promptTokens && st.model ? { promptTokens: st.promptTokens, model: st.model } : undefined)
+      return { text: whatIfText(out, fmtCost) }
+    }
+    if (verb === 'pr') {
+      const crew = crewOf(await read($, agents), await read($, manager))
+      const boss = await read($, manager)
+      const info = await read($, env)
+      const where = await repoAndBranch($)
+      const badge = prBadge({ costUsd: Math.max(0, info.costUsd - (boss.costAtStart ?? info.costUsd)), agents: crew.length, tokens: crew.reduce((n, a) => n + a.tokens, 0), ...where }, fmtCost, fmtTokens)
+      const copied = await $.ui.copy({ text: badge.text }).catch(() => ({ isCopied: false }))
+      return { text: `${badge.text}\n\n${copied.isCopied ? '(Copied: paste it into the PR description.)' : '(Select and copy it from here.)'}` }
+    }
+    if (verb === 'daily') {
+      const dollars = arg === 'off' ? 0 : Number(arg.replace(/^\$/, ''))
+      if (!arg || !Number.isFinite(dollars) || dollars < 0) return { text: `Usage: /tokens daily 2  (dollars a day), or /tokens daily off${dailyCapUsd ? `. Now: ${fmtCost(dailyCapUsd)} a day, ≈${fmtCost(todayCostUsd)} spent today` : ''}` }
+      await setDailyCap($, dollars)
+      return { text: dollars ? `Daily cap set: ${fmtCost(dollars)} a day (≈${fmtCost(todayCostUsd)} so far today). The Token Manager warns at 80% and 100%.` : 'Daily cap off.' }
+    }
+    if (verb === 'ultra') {
+      const running = (await read($, agents)).filter(a => a.status === 'running' && a.isUltra).length
+      const done = ultraCommand(ultraRules, (e.args ?? '').trim().slice('ultra'.length), running)
+      ultraRules = done.rules
+      await $.store.set(ULTRA_KEY, ultraRules).catch(() => undefined)
+      return { text: done.text }
+    }
+    if (verb === 'staffing') {
+      if (arg && arg !== 'on' && arg !== 'off') return { text: 'Usage: /tokens staffing <on|off>' }
+      await setFlag($, 'staffing', arg !== 'off')
+      return { text: smartStaffing ? 'Smart staffing on: agents launched without a model get one by job. Reading: Haiku, low effort. Routine edits: Sonnet, medium. Design, review, security and debugging: the session model, high.' : 'Smart staffing off.' }
+    }
     if (verb === 'autopilot') {
       const isOn = arg !== 'off'
-      await $.store.set('autopilot', isOn)
-      await update($, watch, prev => ({ ...prev, autopilot: isOn }))
+      await setAutopilot($, isOn)
       return { text: isOn ? 'Autopilot on: read-only explorers run on Haiku unless you pick a model.' : 'Autopilot off.' }
     }
     if (verb === 'budget') {
       const dollars = arg === 'off' ? 0 : Number(arg.replace(/^\$/, ''))
       if (!Number.isFinite(dollars) || dollars < 0) return { text: 'Usage: /tokens budget 2  (dollars per task), or /tokens budget off' }
-      await $.store.set('budgetUsd', dollars)
-      await update($, watch, prev => ({ ...prev, budgetUsd: dollars }))
+      await setBudget($, dollars)
       return { text: dollars ? `Budget set: ${fmtCost(dollars)} per task. The Token Manager warns at 80% and 100%.` : 'Budget off.' }
     }
     const at = await $.clock.now()
     const watched = await read($, watch)
     const r = tokenReport(liveEnv(await read($, env), at), await read($, agents), await read($, manager), watched, at)
+    const current = (await read($, env)).model ?? ''
+    const unpriced = current && !hasFamily(resolveModel(current)) ? [`! ${current} has no model name in it, so costs assume Opus 5.5 prices. Fix: /tokens model ${current} sonnet (or opus, haiku)`] : []
     return {
       text: [
         `Token Manager: ${MOOD_WORD[r.mood]}`,
+        ...unpriced,
+        `Smart staffing ${smartStaffing ? `on${staffSavedText()}` : `off (/tokens staffing on)${staffSavedText()}`} · autopilot ${watched.autopilot ? 'on' : 'off'}`,
+        ultraLine((await read($, agents)).filter(a => a.status === 'running' && a.isUltra).length, ultraRules.length),
+        ...(isApiCredits(BILLING) ? [`${modeChip(BILLING)} · ${spendLine(API_SPEND, dayOf(at), fmtCost)}`] : []),
         `Burn ${fmtTokens(r.burnPerMin)}/min · this task ${fmtTokens(r.taskTokens)} (≈${fmtCost(r.taskCost)})${r.cachedPct === null ? '' : ` · ${r.cachedPct}% cached`}`,
         ...(() => {
           const kw = (watched.warm ?? BLANK_WARM)
@@ -6259,12 +7020,22 @@ export const register: Register = (on, options) => {
     const isDesktop = e.surface !== 'terminal' && 'Svg' in ui
     const band = bandView(await bandInput($, isDesktop), bandAt, e.props.isWorking)
     const { list, info, crew, isWorking, bgCount, waitingOn, idleText, tkBand } = band
+    // Calm mode: the band steps aside for one line under the prompt.
+    if ((await read($, settings)).calm) {
+      const working = list.filter(a => a.status === 'running').length
+      const quiet = list.filter(isQuiet).length
+      const hud = band.hud
+      const pct = hud?.progress === null || hud?.progress === undefined ? '' : ` · ${Math.round(hud.progress * 100)}%`
+      $.ui.status(`🦀 ${hud?.status ?? (isWorking ? 'Working' : 'Idle')}${pct}${working ? ` · ${working} working` : ''}${quiet ? ` · ⚠ ${quiet} quiet` : ''} · ≈${fmtCost(info.costUsd)} · ctx ${info.contextPct}%`)
+      // Other mods' rows still show; this one's band steps aside.
+      return <Box flexDirection="column">{below}</Box>
+    }
     const text = idleText ?? label(f)
     // The desktop draws a Button's label, not its children, in a slot about 96px wide
     // beside the band: a long label spilled out of it. Keep both labels short.
     const crewButton = (
-      <Button key="crab-agents" label={`◈ ${crew}`} plain onPress={() => void togglePane($)}>
-        {`◈ ${crew}`}
+      <Button key="crab-agents" label={crew ? `◈ ${crew}` : '◈'} plain onPress={() => void togglePane($)}>
+        {crew ? `◈ ${crew}` : '◈'}
       </Button>
     )
     const percent = idleText ? '' : `${Math.round(ratio(f) * 100)}%`
@@ -6278,22 +7049,26 @@ export const register: Register = (on, options) => {
     // The terminal's element table is completed with an `Svg` that draws nothing: test the surface too.
     if (isDesktop && 'Svg' in ui && band.hud) {
       const { Svg } = ui
-      const hud = band.hud
+      const hud = { ...band.hud, simple: !SKIN.cast && (await read($, settings)).simple }
+      const outH = hud.simple ? SIMPLE_OUT_H : HUD_OUT_H
       // About 8 CSS px per reported column; the rest is the count, the dismiss
       // and their gaps. No floor above the slot: a row wider than it would wrap.
-      const width = Math.max(180, Math.min(1600, (e.props.bodyColumns || 100) * 8 - 96))
+      // The desktop reports cells, not pixels, and its cells are not a fixed width: draw a
+      // little wider than the columns suggest and let the image shrink to the slot it gets,
+      // so it neither leaves the row half empty nor runs past the edge.
+      const width = Math.max(180, Math.min(1600, Math.round((e.props.bodyColumns || 100) * 9.5) - 48))
       // Drawn larger to read at a glance, but never taller than the slot the app
       // gives the band (about 18 px a row): past that it would scroll.
       const room = e.props.maxRows > 0 ? e.props.maxRows * 18 - 6 : Infinity
-      const bandScale = Math.max(0.8, Math.min(HUD_SCALE, room / HUD_OUT_H))
-      const bandH = Math.round(HUD_OUT_H * bandScale)
+      const bandScale = Math.max(0.8, Math.min(HUD_SCALE, room / outH))
+      const bandH = Math.round(outH * bandScale)
       return (
         <Box flexDirection="column">
           <Box flexDirection={isRtl() ? 'row-reverse' : 'row'} alignItems="center" gap={1}>
             <Svg source={steady(`band:${e.surface}`, (() => {
               const full = hudBandSvg(Math.round(width / bandScale), hud)
               return full.length < 120_000 ? full : hudBandSvg(Math.round(width / bandScale), { ...hud, lite: true })
-            })().replace(/^<svg([^>]*?) width="[^"]*" height="[^"]*"/, `<svg$1 width="${width}" height="${bandH}"`), bandAt)} alt={`${hud.title}: ${hud.status}${hud.activity ? `, ${hud.activity}` : ''}${hud.progress === null ? '' : `, ${Math.round(hud.progress * 100)}%`}, context ${info.contextPct}%${bgCount ? `, ${bgCount} ${tr().bgBand}` : ''}`} width={width} height={bandH} />
+            })().replace(/^<svg([^>]*?) width="[^"]*" height="[^"]*"/, `<svg$1 width="${width}" height="${bandH}"`), bandAt)} alt={`${hud.title}: ${hud.status}${hud.activity ? `, ${hud.activity}` : ''}${hud.progress === null ? '' : `, ${Math.round(hud.progress * 100)}%`}, context ${info.contextPct}%${bgCount ? `, ${bgCount} ${tr().bgBand}` : ''}`} />
             <Box flexDirection="column" gap={1} alignItems="center">
               {/* The app draws a Button's children as-is: keep them to a glyph and the count. */}
               {crewButton}

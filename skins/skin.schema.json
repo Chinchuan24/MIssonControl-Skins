@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Chinchuan24/MIssonControl-Skins/main/skins/skin.schema.json",
+  "title": "Mission Control custom skin",
+  "description": "A custom skin file for the Mission Control mod. Nothing is required (the loader fills gaps from Crab Classic), but a good skin sets id, name and every color. Mirrors readSkin() in hooks/register.tsx and validateSkin() in hooks/skinkit.ts.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Lets editors validate this file."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]{1,40}$",
+      "description": "Lowercase letters, digits and dashes. Used by /skin <id>. If missing or invalid, the file name is used."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "description": "Shown in /skin and the picker."
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 120,
+      "description": "One line under the name."
+    },
+    "font": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[^\"<>&;{}]+$",
+      "description": "CSS font list, first installed wins. No double quotes, <, >, &, ; { }. Use single quotes around names with spaces."
+    },
+    "corners": {
+      "enum": [
+        "round",
+        "chamfer"
+      ],
+      "default": "round"
+    },
+    "dark": {
+      "type": "boolean",
+      "default": false,
+      "description": "true paints its own dark colors whatever the system theme."
+    },
+    "colors": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accent": {
+          "$ref": "#/$defs/color",
+          "description": "Main neon"
+        },
+        "accent2": {
+          "$ref": "#/$defs/color",
+          "description": "Second neon"
+        },
+        "done": {
+          "$ref": "#/$defs/color",
+          "description": "Done / green state"
+        },
+        "warn": {
+          "$ref": "#/$defs/color",
+          "description": "Amber state"
+        },
+        "alert": {
+          "$ref": "#/$defs/color",
+          "description": "Red state"
+        },
+        "meter": {
+          "$ref": "#/$defs/color",
+          "description": "Usage bars"
+        },
+        "text": {
+          "$ref": "#/$defs/color",
+          "description": "Bright text"
+        },
+        "subtext": {
+          "$ref": "#/$defs/color",
+          "description": "Quieter text"
+        },
+        "muted": {
+          "$ref": "#/$defs/color",
+          "description": "Quietest text"
+        },
+        "tile": {
+          "$ref": "#/$defs/color",
+          "description": "Card fill"
+        },
+        "track": {
+          "$ref": "#/$defs/color",
+          "description": "Bar tracks"
+        },
+        "line": {
+          "$ref": "#/$defs/color",
+          "description": "Hairlines"
+        },
+        "grid": {
+          "$ref": "#/$defs/color",
+          "description": "Dotted backdrop"
+        }
+      },
+      "description": "Any color left out falls back to Crab Classic."
+    },
+    "boss": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "$ref": "#/$defs/color"
+      },
+      "description": "Five colors for the Manager's spinning ring."
+    },
+    "roles": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "items": {
+        "$ref": "#/$defs/color"
+      },
+      "description": "Colors handed to named roles (\"Designer: ...\")."
+    },
+    "effects": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scanlines": {
+          "type": "boolean",
+          "default": false
+        },
+        "glitch": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "backdrop": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fill": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/color"
+            },
+            {
+              "const": ""
+            }
+          ],
+          "description": "Panel background color; empty means see-through."
+        },
+        "pattern": {
+          "enum": [
+            "dots",
+            "lines",
+            "stars",
+            "none"
+          ],
+          "default": "dots"
+        },
+        "ink": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/color"
+            },
+            {
+              "const": ""
+            }
+          ],
+          "description": "Pattern color; empty uses the grid color."
+        }
+      }
+    },
+    "chat": {
+      "type": "boolean",
+      "default": true,
+      "description": "true restyles the chat's tool rows and spinner."
+    },
+    "words": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "string",
+        "pattern": "\\S",
+        "maxLength": 32
+      },
+      "description": "Spinner words while Claude thinks."
+    },
+    "toolWords": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z_]{1,40}$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "\\S",
+        "maxLength": 20
+      },
+      "description": "A verb per tool row, e.g. {\"Read\": \"Scan\"}."
+    },
+    "tabs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mission": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "skins": {
+          "type": "string",
+          "maxLength": 40
+        }
+      },
+      "description": "Tab titles."
+    },
+    "cast": {
+      "enum": [
+        "runners",
+        "netrun",
+        "samurai",
+        "corpo"
+      ],
+      "description": "Characters in place of the crabs. These belong to the Cyberpunk Skins add-on; leave out of your own skins."
+    }
+  },
+  "$defs": {
+    "color": {
+      "type": "string",
+      "pattern": "^\\s*(#[0-9a-fA-F]{3,8}|rgba?\\([0-9\\s.,%]+\\))\\s*$",
+      "description": "Hex like #FCEE0A, or rgb()/rgba()."
+    }
+  }
+}

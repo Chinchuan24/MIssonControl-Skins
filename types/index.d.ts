@@ -61,6 +61,8 @@ export type AgentRun = {
   isBackground?: boolean
   /** Its tool calls still in flight: a long build or a permission prompt is no silence. */
   toolsInFlight?: number
+  /** Runs at max effort with a deep-check brief: an Ultra rule matched, or the person pressed ⚡. */
+  isUltra?: boolean
 }
 
 export type Panel = {
@@ -113,6 +115,8 @@ export type Manager = {
   budgetMin?: number
   /** How the job ended short: Esc (`stopped`) or an API error or refusal (`error`). Never cheered. */
   outcome?: 'stopped' | 'error'
+  /** A small job that ended well without a cheer (solo and under 20 s): it shows a still "Done". */
+  settled?: boolean
   /** When a background agent of the job ended: its report waits on a main turn to answer it. */
   reportDue?: number
   /** An earlier job still held open by its background work when this prompt came: the one that finishes. */
@@ -190,6 +194,21 @@ export type Today = {
   costUsd: number
 }
 
+/**
+ * The spend card's period and what it shows: `days` is the per-day ledger (estimated
+ * US dollars and tokens per local day) read from the store, `status` whether Claude
+ * Code's transcripts are being read ('reading'), were read ('done'), or cannot be on
+ * this system ('off': the ledger alone). `draft` holds the custom range's days as
+ * typed, `error` the last date that was not one.
+ */
+export type Spend = {
+  period: { kind: 'today' | 'week' | 'month' | 'custom'; month: string; from: string; to: string }
+  days: Record<string, [number, number]>
+  status: 'idle' | 'reading' | 'done' | 'off'
+  draft: { from: string; to: string }
+  error: string
+}
+
 /** One piece of background work, as the last Stop or SubagentStop hook listed it. */
 export type BgTask = {
   id: string
@@ -220,6 +239,24 @@ export type BgCron = { id: string; schedule: string; recurring: boolean; prompt:
 /** Claude's background work. The engine lists it only as a turn or a subagent stops: `at` says when. */
 export type Background = { tasks: BgTask[]; crons: BgCron[]; at: number }
 
+/** How Claude Code is paid for: no apiKeyHelper (plan), ours (keychain), ours under another path (moved), someone else's (other). */
+export type BillingMode = 'plan' | 'keychain' | 'moved' | 'other'
+
+/** What the pane's Billing section draws. Never the key: only its last 4 characters and when it was saved. */
+export type Billing = {
+  mode: BillingMode
+  /** The Keychain has the item (found by its attributes; the secret is never read). */
+  inKeychain: boolean
+  saved: { last4: string; savedAt: number } | null
+  isMac: boolean
+  /** One plain line for the last Save or Remove. Never holds any part of a key. */
+  note: string
+  /** Bumped after a Save, so the key box is drawn new and empty. */
+  nonce: number
+  /** The four steps are open in the pane. */
+  isGuideOpen: boolean
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'crab-progress': {
@@ -241,7 +278,9 @@ declare module 'claude-code' {
       /** The id of the skin Mission Control and the band are drawn in. */
       skin: string
       /** Mission Control's settings, mirrored from `$.store` so the pane redraws. */
-      settings: { openOnStart: boolean; crewMode: boolean; currency: string; sounds: boolean }
+      settings: { openOnStart: boolean; crewMode: boolean; currency: string; sounds: boolean; simple: boolean; calm: boolean; voice: boolean; staffing: boolean; oneShot: 'ask' | 'on' | 'off'; dailyUsd: number }
+      /** Billing: the Keychain key's status and the apiKeyHelper mode. See hooks/billing.ts. */
+      billing: Billing
       /** Street Cred: XP, the counts badges are earned on, the badges. Mirrored from `$.store`. */
       cred: { xp: number; jobs: number; longJobs: number; agents: number; crewJobs: number; nightJobs: number; chromed: boolean; samurai: boolean; badges: string[] }
       /** The session's tool calls, for the Braindance replay. */
@@ -255,6 +294,8 @@ declare module 'claude-code' {
       background: Background
       /** Today and All-time as this session last read or wrote them: a save adds only its own share. */
       saved: { today: Today; allTime: AllTime }
+      /** The spend card: its period, the per-day ledger, and whether history is being read. */
+      spend: Spend
     }
   }
 }

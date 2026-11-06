@@ -81,6 +81,7 @@ Claude works in steps, calls tools and spins up sub-agents. Mission Control show
 - 👥 **Crew** and 🪜 **Steps**: every sub-agent by role, the plan as pips
 - 💸 **Token Manager**: cost per task, cache hits, budget warnings; optional **Haiku autopilot** for read-only explorers
 - 🧊 **Smart Keep-Warm**: refreshes the prompt cache just before it expires, only when that saves more than it costs (`/tokens warm on`)
+- 🗓️ **Spend card**: what Today, this week (Mon–Sun), one calendar month or your own date range cost, read from Claude Code's own history (`/tokens spend week`, `/tokens spend month 2026-06`, `/tokens spend 2026-10-01 2026-10-15`); `/tokens export` saves the period as a FinOps-style CSV in Downloads ([Athena sample](docs/athena.sql))
 - 🚀 **Crew mode**: big jobs get split across sub-agents automatically
 - 🚨 **Stuck alarm** (2 min quiet) and 🔔 **done chime** (toast, notification, sound)
 - 🧾 **Rich replies**: diffs, code, tables, math and mermaid as cards
@@ -210,11 +211,42 @@ Skins are small `.json` files; see [`skins/README.md`](skins/README.md) for ever
 
 Copy an example, give it a new `id`, edit it, then run `/skin reload` and `/skin <id>`.
 
+Or skip the editing: `/skin new ocean sunset` drafts one for you, and `/skin check <file>` checks one. See [`docs/SKINS.md`](docs/SKINS.md) for the guide, the schema and how to share a skin (Skin jam).
+
 </details>
 
 ---
 
+## 🔒 Privacy: nothing leaves your machine
+
+- **No network calls of its own.** Costs, the spend history and the crew view are all worked out locally, from Claude Code's own logs.
+- **Model features are opt-in.** Keep-Warm, `/skin new` and the stuck-agent buttons use Claude Code's own connection, only when you turn them on or click them.
+- **Your API key stays in the macOS Keychain.** The mod never stores it in its own files.
+- **Check it yourself:** `scripts/check-privacy.sh` fails if network code ever appears.
+
+Details: [docs/PRIVACY.md](docs/PRIVACY.md)
+
+---
+
 ## ⚡ Install
+
+### Fastest: one line
+
+At the prompt of a terminal session:
+
+```
+/plugin install crab-progress --marketplace Chinchuan24/MIssonControl-Skins
+```
+
+Or from a shell:
+
+```
+claude plugin install crab-progress --marketplace Chinchuan24/MIssonControl-Skins
+```
+
+Answer `y` to add the marketplace, then pick a scope (user is first). In the desktop app, where `/plugin` does not run: click **+** next to the prompt box, then **Plugins**, **Add marketplace** with `Chinchuan24/MIssonControl-Skins`, then **Add plugin**. This installs the full mod, Cyberpunk add-on included. Then run `/missioncontrol`.
+
+### By hand, from a zip or a clone
 
 **1. Get it** (one of):
 
@@ -275,11 +307,12 @@ Expand-Archive -Force "$env:USERPROFILE\Downloads\cyberpunk-skins-addon.zip" -De
 | Command | What it does |
 |---|---|
 | `/missioncontrol` | Open Mission Control (Settings at the bottom) |
+| `/missioncontrol billing` | Pay with your own Claude API credits instead of the plan: 4 steps, key kept in the macOS Keychain ([security notes](docs/SECURITY-billing.md)) |
 | `/missioncontrol currency <code> [rate]` | Costs in `USD` (the default), `AUTO` (eddies on the cyberpunk skins), `EDDIES`, `EUR`, `GBP`, `JPY`, `MYR` or `SGD`; optional rate per US dollar |
 | `/skins` | The skin picker, every skin as a live preview |
 | `/skin` | `/skin` to list, `/skin <id>` to switch, `/skin off`, `/skin reload` |
 | `/autocrew` | Crew mode: state, `on`, `off`, or `<context %>` to call the crew |
-| `/tokens` | Token Manager report, `budget <dollars\|off>`, `autopilot <on\|off>`, `warm <on\|off>` (Smart Keep-Warm) |
+| `/tokens` | Token Manager report, `budget <dollars\|off>`, `autopilot <on\|off>`, `warm <on\|off>` (Smart Keep-Warm), `spend today\|week\|month [YYYY-MM]\|<from> <to>`, `export [period]` (CSV in Downloads) |
 | `/prefs` | How Claude should answer you, in every session: `add <rule>`, `remove <n>`, `clear` |
 
 ---
@@ -293,6 +326,8 @@ Expand-Archive -Force "$env:USERPROFILE\Downloads\cyberpunk-skins-addon.zip" -De
 - `hooks/eggs.ts`: the easter eggs
 - `hooks/richtext.ts`: diffs, tables, math and mermaid in replies
 - `hooks/warm.ts`: Smart Keep-Warm's arithmetic (when a refresh pays)
+- `hooks/billing.ts` and `scripts/anthropic-key-helper.sh`: the API key in the macOS Keychain and the `apiKeyHelper` link ([docs/SECURITY-billing.md](docs/SECURITY-billing.md))
+- `hooks/spend.ts`: the spend card's periods, the transcript reader and per-day ledger, the CSV export
 - Tests: `claude plugin test /path/to/MIssonControl-Skins` (and `claude plugin validate …`)
 - `.claude-plugin/types/` is generated on each machine by the CLI and is git-ignored.
 
