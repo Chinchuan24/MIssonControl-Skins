@@ -217,6 +217,17 @@ Or skip the editing: `/skin new ocean sunset` drafts one for you, and `/skin che
 
 ---
 
+## 🔒 Privacy: nothing leaves your machine
+
+- **No network calls of its own.** Costs, the spend history and the crew view are all worked out locally, from Claude Code's own logs.
+- **Model features are opt-in.** Keep-Warm, `/skin new` and the stuck-agent buttons use Claude Code's own connection, only when you turn them on or click them.
+- **Your API key stays in the macOS Keychain.** The mod never stores it in its own files.
+- **Check it yourself:** `scripts/check-privacy.sh` fails if network code ever appears.
+
+Details: [docs/PRIVACY.md](docs/PRIVACY.md)
+
+---
+
 ## ⚡ Install
 
 ### Fastest: one line
