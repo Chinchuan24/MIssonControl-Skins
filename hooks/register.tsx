@@ -999,7 +999,7 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
 
 const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.id)
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
-const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot })
+const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, dailyUsd: 0 })
 const cred = atom({ plugin: 'crab-progress', key: 'cred' } as const, BLANK_CRED)
 // Billing (hooks/billing.ts): which way Claude Code is paid for, and the Keychain key's
 // status. Never the key: the typed text lives in billing.ts's `draft`, in memory only.
@@ -1024,7 +1024,30 @@ const readSettings = async ($: EngineInterface) => {
     voice: (await $.store.get('voice').catch(() => undefined)) === true,
     staffing: (await $.store.get(STAFF_KEY).catch(() => undefined)) === true,
     oneShot: cleanOneShot(await $.store.get(ONESHOT_KEY).catch(() => undefined)),
+    dailyUsd: Number(await $.store.get(DAILY_KEY).catch(() => 0)) || 0,
   }
+}
+
+// The Money settings: the same switches as /tokens autopilot, warm, daily and budget, as buttons.
+const DAILY_STEPS = [0, 2, 5, 10, 20, 50]
+const BUDGET_STEPS = [0, 0.5, 1, 2, 5]
+const nextStep = (steps: readonly number[], now: number): number => steps.find(v => v > now) ?? 0
+async function setAutopilot($: EngineInterface, isOn: boolean): Promise<void> {
+  await $.store.set('autopilot', isOn).catch(() => undefined)
+  await update($, watch, prev => ({ ...prev, autopilot: isOn }))
+}
+async function setKeepWarm($: EngineInterface, isOn: boolean): Promise<void> {
+  await $.store.set('keepWarm', isOn).catch(() => undefined)
+  await update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), on: isOn, halted: '' } }))
+}
+async function setDailyCap($: EngineInterface, dollars: number): Promise<void> {
+  dailyCapUsd = dollars
+  await $.store.set(DAILY_KEY, dollars).catch(() => undefined)
+  await update($, settings, prev => ({ ...prev, dailyUsd: dollars }))
+}
+async function setBudget($: EngineInterface, dollars: number): Promise<void> {
+  await $.store.set('budgetUsd', dollars).catch(() => undefined)
+  await update($, watch, prev => ({ ...prev, budgetUsd: dollars }))
 }
 
 // One switch of the Settings section: the store keeps it, the atom redraws the pane.
@@ -5778,6 +5801,7 @@ export const register: Register = (on, options) => {
     const spent: SpendView = { ...spendCard(sp, { date: day.date, cost: day.costUsd, tokens: day.tokens }, clockNow, s.spend), isReading: sp.status === 'reading' }
     const legends = cleanLegends(await $.store.get('legends').catch(() => []))
     const prefs = await read($, settings)
+    const money = await read($, watch)
     const shotMode = cleanOneShot(prefs.oneShot)
     const shotChip = oneShotChip(shotMode, shotMode === 'on' ? SKIN.colors.done : shotMode === 'off' ? SKIN.colors.accent2 : SKIN.colors.warn, FONT, SKIN.colors.text, textWidth)
     const tkNow = await read($, timekeeper)
@@ -6176,6 +6200,23 @@ export const register: Register = (on, options) => {
                 }}
               />
               <Button key="set-skin" label="Change skin ▸" plain onPress={() => void showPane($, SKINS_PANE, SKIN.tabs.skins)} />
+              <Text key="set-money-h" bold>
+                {'\n'}Money
+              </Text>
+              <Button key="set-autopilot" label={`${money.autopilot ? '☑\uFE0E' : '☐'} Autopilot: read-only explorers run on Haiku`} plain onPress={async () => setAutopilot($, !(await read($, watch)).autopilot)} />
+              <Button key="set-warm" label={`${(money.warm ?? BLANK_WARM).on ? '☑\uFE0E' : '☐'} Keep-Warm: refresh the prompt cache when that saves more than it costs`} plain onPress={async () => setKeepWarm($, !((await read($, watch)).warm ?? BLANK_WARM).on)} />
+              <Button key="set-daily" label={`💵\uFE0E Daily cap: ${prefs.dailyUsd ? `${fmtCost(prefs.dailyUsd)} a day` : 'off'} ▸`} plain onPress={async () => setDailyCap($, nextStep(DAILY_STEPS, (await read($, settings)).dailyUsd))} />
+              <Button key="set-budget" label={`🎯\uFE0E Budget per task: ${money.budgetUsd ? fmtCost(money.budgetUsd) : 'off'} ▸`} plain onPress={async () => setBudget($, nextStep(BUDGET_STEPS, (await read($, watch)).budgetUsd))} />
+              <Button
+                key="set-export"
+                label="📤\uFE0E Export the spend card's period as a CSV (to Downloads)"
+                plain
+                onPress={async () => {
+                  const at = await $.clock.now()
+                  const r = await exportSpend($, spendIo, await spendDirs($), (await read($, spend)).period, at)
+                  $.ui.toast(r.error ? `Export failed: ${r.error}` : `Saved ${r.from} to ${r.to}, ≈$${r.cost.toFixed(2)}: ${r.path}`, { timeoutMs: 15000 })
+                }}
+              />
             </Box>
           </Box>
         </Box>
@@ -6686,8 +6727,7 @@ export const register: Register = (on, options) => {
     }
     if (verb === 'warm') {
       const isOn = arg !== 'off'
-      await $.store.set('keepWarm', isOn)
-      await update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), on: isOn, halted: '' } }))
+      await setKeepWarm($, isOn)
       return {
         text: isOn
           ? 'Keep-warm on: a small side request refreshes the prompt cache before it lapses, only when it should save more than it costs. It never enters the chat. On a Pro or Max plan it uses a little quota instead of money.'
@@ -6729,8 +6769,7 @@ export const register: Register = (on, options) => {
     if (verb === 'daily') {
       const dollars = arg === 'off' ? 0 : Number(arg.replace(/^\$/, ''))
       if (!arg || !Number.isFinite(dollars) || dollars < 0) return { text: `Usage: /tokens daily 2  (dollars a day), or /tokens daily off${dailyCapUsd ? `. Now: ${fmtCost(dailyCapUsd)} a day, ≈${fmtCost(todayCostUsd)} spent today` : ''}` }
-      dailyCapUsd = dollars
-      await $.store.set(DAILY_KEY, dollars)
+      await setDailyCap($, dollars)
       return { text: dollars ? `Daily cap set: ${fmtCost(dollars)} a day (≈${fmtCost(todayCostUsd)} so far today). The Token Manager warns at 80% and 100%.` : 'Daily cap off.' }
     }
     if (verb === 'ultra') {
@@ -6747,15 +6786,13 @@ export const register: Register = (on, options) => {
     }
     if (verb === 'autopilot') {
       const isOn = arg !== 'off'
-      await $.store.set('autopilot', isOn)
-      await update($, watch, prev => ({ ...prev, autopilot: isOn }))
+      await setAutopilot($, isOn)
       return { text: isOn ? 'Autopilot on: read-only explorers run on Haiku unless you pick a model.' : 'Autopilot off.' }
     }
     if (verb === 'budget') {
       const dollars = arg === 'off' ? 0 : Number(arg.replace(/^\$/, ''))
       if (!Number.isFinite(dollars) || dollars < 0) return { text: 'Usage: /tokens budget 2  (dollars per task), or /tokens budget off' }
-      await $.store.set('budgetUsd', dollars)
-      await update($, watch, prev => ({ ...prev, budgetUsd: dollars }))
+      await setBudget($, dollars)
       return { text: dollars ? `Budget set: ${fmtCost(dollars)} per task. The Token Manager warns at 80% and 100%.` : 'Budget off.' }
     }
     const at = await $.clock.now()
