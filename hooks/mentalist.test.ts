@@ -279,3 +279,42 @@ test('context chip: teacup at 85%, red smiley at 95%, nothing below', () => {
   expect(red.svg).toContain('RED JOHN IS WATCHING')
   expect(red.svg).toContain(RED)
 })
+
+test('slim band: the task title is plain text on The Mentalist and Red John (no smile glitch hides it)', async ($, on) => {
+  base(on)
+  for (const skin of ['mentalist', 'red-john']) {
+    await start($, skin)
+    await $.prompt.submit({ text: 'Fix the login bug', cursor: 0 } as never)
+    await $.tool.call({ tool: 'mcp__crab-progress__progress', title: 'Ship the login fix', total: 4, done: 1, phase: 'delegate' } as never)
+    const bandSvg = (await svgs($, 'AbovePrompt')).join('')
+    expect(bandSvg).toMatch(/viewBox="0 0 \d+ 132"/)
+    expect(bandSvg).toMatch(/<text x="64" y="54"[^>]*>Ship the login fix<\/text>/)
+    for (const cls of ['mx-ttl', 'mx-ghost', 'mx-smile']) expect(bandSvg).not.toContain(`class="${cls}"`)
+  }
+})
+
+test('red-john: the unlock is saved, so a reload still wears it (and lists it)', async ($, on) => {
+  base(on)
+  await start($, 'mentalist')
+  await $.prompt.submit({ text: 'tyger tyger', cursor: 0 } as never)
+  expect(await skinList($)).toContain('▸ red-john')
+  await start($, '') // a reload: session.start again, the store kept
+  expect(await skinList($)).toContain('▸ red-john')
+  expect((await svgs($, 'AbovePrompt')).join('')).toMatch(/viewBox="0 0 \d+ 132"/)
+})
+
+test('mentalist: the red-smiley heat on the Token Manager card shows when wide, and stays off the title when narrow', async ($, on) => {
+  base(on, 900_000)
+  await start($, 'mentalist')
+  await $.prompt.submit({ text: 'Fix it', cursor: 0 } as never)
+  const at = async (bodyColumns: number) => {
+    const ui = await $.ui.mount({ plugin: 'crab-progress', surface: 'desktop', component: 'Pane', requestId: 'crab-agents', props: { ...pane, bodyColumns } })
+    const card = (await ui.findAll({ type: 'Svg' })).map(el => String(el.props.source)).find(s => s.includes('Token Manager')) ?? ''
+    await ui.unmount()
+    return card
+  }
+  expect(await at(80)).toContain('scale(.89)')
+  const narrow = await at(24)
+  expect(narrow).toContain('Token Manager')
+  expect(narrow).not.toContain('scale(.89)')
+})

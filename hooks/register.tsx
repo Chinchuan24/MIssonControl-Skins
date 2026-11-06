@@ -4699,7 +4699,8 @@ const tokenSvg = (W: number, r: TokenReport, isWatching: boolean): string => {
   const pillW = Math.round(22 + textWidth(word, 11))
   // A themed skin shows its heat (the Mentalist's red smileys) when the spend runs high.
   const th = themeOf()
-  const heatOn = Boolean(th?.pane) && r.mood > 0
+  // ...and only where it clears the "Token Manager" title: a narrow pane drew it over the title.
+  const heatOn = Boolean(th?.pane) && r.mood > 0 && W - 14 - pillW - (th?.pane?.heatW ?? 0) - 8 >= 50 + textWidth('Token Manager', 13)
   const stats: Stat[] = [
     { k: 'Burn rate', v: `${fmtTokens(r.burnPerMin)}/min`, color: r.burnPerMin > 150_000 ? '#E9B44C' : undefined },
     { k: isApiCredits(BILLING) ? (r.budget ? `API credits · of ${fmtCost(r.budget)}` : 'API credits · task') : r.budget ? `This task · of ${fmtCost(r.budget)}` : 'This task', v: `${fmtTokens(r.taskTokens)} · ≈${fmtCost(r.taskCost)}`, color: r.budget && r.taskCost >= r.budget ? '#E5675E' : undefined },
@@ -5306,7 +5307,8 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   const titleW = Math.min(300, Math.ceil(sw(d.title, 15) * 1.04) + 4)
   const hasReadouts = W >= tx + titleW + pillW + 80 + rw * 3 + 40
   const r0 = hasReadouts ? W - 20 - rw * 3 : W - 14
-  s.push(th.glitch ? th.glitch(tx, 54, fitText(d.title, 15, titleW), `font-family="${FONT}" font-size="15" font-weight="700" fill="${c.accent}"`, titleW) : `<text x="${tx}" y="54" font-family="${FONT}" font-size="15" font-weight="700" fill="${c.accent}">${xml(fitText(d.title, 15, titleW))}</text>`)
+  // The plain title: the smile glitch hid it on the band (a ☺ stayed and the title never came back).
+  s.push(`<text x="${tx}" y="54" font-family="${FONT}" font-size="15" font-weight="700" fill="${c.accent}">${xml(fitText(d.title, 15, titleW))}</text>`)
   const px = tx + titleW + 12
   const statusOn = d.isWorking || d.isParty
   const pillFill = d.isParty ? c.done : d.isWorking ? c.accent : c.muted
