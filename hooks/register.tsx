@@ -1134,6 +1134,19 @@ async function setDailyCap($: EngineInterface, dollars: number): Promise<void> {
   await $.store.set(DAILY_KEY, dollars).catch(() => undefined)
   await update($, settings, prev => ({ ...prev, dailyUsd: dollars }))
 }
+// A typed amount for the daily cap or the budget per task: in the currency the pane shows,
+// turned back into dollars. 0 turns it off; anything else that is not a number is refused.
+async function typeMoney($: EngineInterface, what: 'daily' | 'budget', typed: string): Promise<void> {
+  const n = Number(typed.trim().replace(/[^0-9.]/g, ''))
+  if (!typed.trim() || !Number.isFinite(n) || n < 0) {
+    $.ui.toast('Type an amount like 3 or 2.50, or 0 to turn it off')
+    return
+  }
+  const dollars = Math.round((n / (CURRENCY.rate || 1)) * 100) / 100
+  if (what === 'daily') await setDailyCap($, dollars)
+  else await setBudget($, dollars)
+  $.ui.toast(`${what === 'daily' ? 'Daily cap' : 'Budget per task'}: ${dollars ? fmtCost(dollars) : 'off'}`)
+}
 async function setBudget($: EngineInterface, dollars: number): Promise<void> {
   await $.store.set('budgetUsd', dollars).catch(() => undefined)
   await update($, watch, prev => ({ ...prev, budgetUsd: dollars }))
@@ -6771,11 +6784,17 @@ export const register: Register = (on, options) => {
           ) : (
             <Button key="set-daily" label={`💵\uFE0E Daily cap: ${prefs.dailyUsd ? `${fmtCost(prefs.dailyUsd)} a day` : 'off'} ▸`} plain onPress={async () => setDailyCap($, nextStep(DAILY_STEPS, (await read($, settings)).dailyUsd))} />
           )}
+          {Field ? (
+            <Field key="set-daily-type" label="   …or type a daily cap" placeholder={`${CURRENCY.symbol || '$'} amount, 0 = off`} value="" submitLabel="set" onSubmit={(v: string) => void typeMoney($, 'daily', v)} />
+          ) : null}
           {Pick ? (
             <Pick key="set-budget-pick" label="🎯\uFE0E Budget per task" value={String(prefs.budgetUsd)} options={stepOptions(BUDGET_STEPS, prefs.budgetUsd, v => fmtCost(v))} onSelect={v => void setBudget($, Number(v) || 0)} />
           ) : (
             <Button key="set-budget" label={`🎯\uFE0E Budget per task: ${prefs.budgetUsd ? fmtCost(prefs.budgetUsd) : 'off'} ▸`} plain onPress={async () => setBudget($, nextStep(BUDGET_STEPS, (await read($, settings)).budgetUsd))} />
           )}
+          {Field ? (
+            <Field key="set-budget-type" label="   …or type a budget" placeholder={`${CURRENCY.symbol || '$'} amount, 0 = off`} value="" submitLabel="set" onSubmit={(v: string) => void typeMoney($, 'budget', v)} />
+          ) : null}
         </Box>
 
         {head('h-spend', 'Spend card period')}
