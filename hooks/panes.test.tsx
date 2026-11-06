@@ -187,3 +187,73 @@ test('a bad option gets a usage line, and changes nothing', async ($, on) => {
   expect(await run($, 'tokens', 'autopilot maybe')).toStartWith('Usage: /tokens')
   expect(await run($, 'tokens', '')).toStartWith('Token Manager:')
 })
+
+test('settings: every dropdown holds strings, sits on one of its options, and each choice is saved and drawn back after a restart', async ($, on) => {
+  base(on)
+  await start($)
+  const mount = () => $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', requestId: 'crab-settings', props: pane } as never)
+  let ui = await mount()
+  const picks = (await ui.findAll({ type: 'Select' })).map(p => String(p.props.key))
+  for (const key of ['set-daily-pick', 'set-budget-pick', 'set-ram-pick', 'set-agents-pick', 'set-kill-pick', 'set-crew-pick', 'set-oneshot-pick', 'set-currency-pick']) expect(picks).toContain(key)
+  const optionsOf = async (key: string) => ((await ui.find({ key }))?.props.options ?? []) as { value: unknown; label: unknown }[]
+  const valueOf = async (key: string) => (await ui.find({ key }))?.props.value
+  const last: Record<string, string> = {}
+  for (const key of picks.filter(k => !k.startsWith('spend-'))) {
+    const options = await optionsOf(key)
+    expect(options.length).toBeGreaterThan(1)
+    for (const o of options) {
+      expect(typeof o.value).toBe('string')
+      expect(typeof o.label).toBe('string')
+    }
+    expect(typeof (await valueOf(key))).toBe('string')
+    expect(options.map(o => o.value)).toContain(await valueOf(key))
+    // Every option, picked, is the value drawn next.
+    for (const o of options) {
+      await ui.select({ key, value: String(o.value) })
+      await ui.drawn()
+      expect([key, await valueOf(key)]).toEqual([key, String(o.value)])
+      expect((await optionsOf(key)).map(x => x.value)).toContain(await valueOf(key))
+    }
+    // Leave each on its second option, so the restart below shows what was saved, not a default.
+    const second = String(options[1]?.value)
+    await ui.select({ key, value: second })
+    await ui.drawn()
+    last[key] = second
+  }
+  // The switches: each press flips its box, and the store keeps it.
+  const switches = ['set-autopilot', 'set-warm', 'set-staffing', 'set-timekeeper', 'set-simple', 'set-calm', 'set-sounds', 'set-voice', 'set-open']
+  const boxOf = async (key: string) => String((await ui.find({ key }))?.props.label ?? '').slice(0, 2)
+  const was: Record<string, string> = {}
+  for (const key of switches) {
+    was[key] = await boxOf(key)
+    await ui.press({ key })
+    await ui.drawn()
+    expect([key, await boxOf(key)]).not.toEqual([key, was[key]])
+  }
+  await ui.unmount()
+  // A new session reads every choice back from the store.
+  await start($)
+  ui = await mount()
+  for (const [key, value] of Object.entries(last)) expect([key, await valueOf(key)]).toEqual([key, value])
+  for (const key of switches) expect([key, await boxOf(key)]).not.toEqual([key, was[key]])
+  expect((await ui.findAll({ type: 'Text' })).map(t => String(t.text ?? '')).join('\n')).not.toContain('could not draw')
+  await ui.unmount()
+})
+
+test('the plan-mode chip reads One-shot, Ask each time or Step by step beside the Machine Guard chip, with no Change button', async ($, on) => {
+  base(on)
+  await start($)
+  const words: string[] = []
+  for (const mode of ['on', 'ask', 'off']) {
+    await run($, 'missioncontrol', `oneshot ${mode}`)
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', requestId: 'crab-agents', props: pane } as never)
+    const alts = (await ui.findAll({ type: 'Svg' })).map(el => String(el.props.alt))
+    const i = alts.findIndex(a => a.startsWith('Plan mode: '))
+    words.push(alts[i] ?? '')
+    expect(alts[i + 1]).toMatch(/GB|agents/)
+    const labels = (await ui.findAll({ type: 'Button' })).map(b => String(b.props.label))
+    expect(labels.filter(l => /^Change\b/.test(l))).toEqual([])
+    await ui.unmount()
+  }
+  expect(words.map(w => w.replace(/︎/g, ''))).toEqual(['Plan mode: ⏩ One-shot', 'Plan mode: ❓ Ask each time', 'Plan mode: ▶ Step by step'])
+})

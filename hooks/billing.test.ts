@@ -15,6 +15,9 @@ import {
   cleanSpend,
   draft,
   guideText,
+  KEY_DOT,
+  maskKey,
+  unmaskKey,
   helperPath,
   isApiCredits,
   keyStatus,
@@ -79,9 +82,29 @@ test('billing: the key being typed is kept in memory only, and dropped after ten
   draft.set(FAKE, 1_000)
   expect(draft.get(1_000 + 60_000)).toBe(FAKE)
   expect(draft.get(1_000 + 10 * 60_000 + 1)).toBe('')
+  // Once expired it is gone from memory, not only hidden: an earlier time does not bring it back.
+  expect(draft.get(1_000 + 60_000)).toBe('')
   draft.set(FAKE, 1_000)
   draft.clear()
   expect(draft.get(1_001)).toBe('')
+})
+
+test('billing: the key box shows only dots, and an edit anywhere (typed or pasted) turns back into the real text', () => {
+  const box = (real: string, edit: (shown: string) => string) => unmaskKey(edit(maskKey(real)), real)
+  expect(maskKey(FAKE)).toBe(KEY_DOT.repeat(FAKE.length))
+  expect(maskKey(FAKE)).not.toMatch(/[A-Za-z0-9]/)
+  let typed = ''
+  for (const ch of FAKE) typed = box(typed, s => s + ch)
+  expect(typed).toBe(FAKE) // one key at a time
+  expect(box('', () => FAKE)).toBe(FAKE) // a paste into the empty box
+  expect(box('sk-ant-OLD-text', () => FAKE)).toBe(FAKE) // select all, paste over
+  expect(box('sk-ant-', s => s + 'TEST-not-a-real-key')).toBe(FAKE) // a paste at the end
+  expect(box('sk-ant-not-a-real-key', s => s.slice(0, 7) + 'TEST-' + s.slice(7))).toBe(FAKE) // in the middle
+  expect(box('ant-TEST-not-a-real-key', s => 'sk-' + s)).toBe(FAKE) // at the start
+  expect(box(FAKE, s => s.slice(0, -1))).toBe(FAKE.slice(0, -1)) // backspace
+  expect(box(FAKE, () => '')).toBe('')
+  // An expired draft has no real text behind the dots: they are not turned into anything.
+  expect(unmaskKey(maskKey(FAKE), '')).toBe('')
 })
 
 // --- the Keychain command: the key rides stdin, never argv ------------------------------
@@ -343,6 +366,10 @@ test('billing pane: typing a key and pressing Save puts it in the Keychain, show
   expect(await everyText(ui)).toContain('Billing: Plan')
   expect(await everyText(ui)).toContain('No key saved')
   await ui.input({ key: 'bill-key-0', text: FAKE, kind: 'change' })
+  // Drawn again as dots, one a character: the box never holds the key.
+  const typing = (await ui.findAll({ type: 'Input' })).find(f => String(f.props.key).startsWith('bill-key-'))
+  expect(String(typing?.props.value ?? '')).toBe(KEY_DOT.repeat(FAKE.length))
+  expect(JSON.stringify((await ui.findAll({})).map(el => el.props))).not.toContain(FAKE)
   await ui.press({ key: 'bill-save' })
   const after = await everyText(ui)
   expect(after).toContain('Key saved ••••-key')
@@ -385,12 +412,13 @@ test('billing pane: Remove takes the key out and the status goes back to "No key
   await ui.unmount()
 })
 
-test('billing pane: the box says it cannot hide the key and offers the hidden terminal way', async ($, on) => {
+test('billing pane: the box shows dots, says a paste can flash, and offers the hidden terminal way', async ($, on) => {
   base(on)
   await start($)
   const ui = await mountSettings($)
   const text = await everyText(ui)
-  expect(text).toContain('cannot hide it')
+  expect(text).toContain('a dot for each character')
+  expect(text).toContain('for a moment')
   expect(text).toContain(`security add-generic-password -U -a "$(id -un)" -s ${KEYCHAIN_SERVICE} -w`)
   await ui.unmount()
 })

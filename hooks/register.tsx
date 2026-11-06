@@ -97,10 +97,15 @@ const SHOT_OPTIONS = [
 // A cap's dropdown: the usual steps, plus the value in force if it is not one of them.
 const stepOptions = (steps: readonly number[], now: number, word: (v: number) => string) =>
   [...new Set([...steps, now])].sort((a, b) => a - b).map(v => ({ value: String(v), label: v ? word(v) : 'Off' }))
+// Every-job mode set back to big jobs: its reason leaves the band now, not at the next prompt.
+async function dropEveryJob($: EngineInterface): Promise<void> {
+  if ((await read($, session)).crewMode === EVERY_JOB) await update($, session, prev => ({ ...prev, crewMode: '' }))
+}
 async function setCrewChoice($: EngineInterface, choice: CrewChoice): Promise<void> {
   const auto = await readAutoCrew($)
   await $.store.set('autoCrew', { ...auto, on: choice !== 'off', always: choice === 'every' }).catch(() => undefined)
   if (choice === 'off') await update($, session, prev => ({ ...prev, crewMode: '' }))
+  if (choice === 'big') await dropEveryJob($)
   await update($, settings, prev => ({ ...prev, crewMode: choice !== 'off', crewAlways: choice === 'every' }))
 }
 
@@ -172,10 +177,12 @@ const dayOf = (at: number): string => {
 }
 // Tab-to-Save: after a main turn, the Token Manager's top tip that has a command goes
 // into the prompt box as its dim suggestion, Tab to take. The same one waits 10 minutes.
+// The tips come sorted by level, so a warning's command goes first; the what-if coach's
+// tip (level 0, over a fifth saved) is the only quiet tip with a command.
 let lastSuggest = { cmd: '', at: 0 }
 async function suggestSaving($: EngineInterface, at: number): Promise<void> {
   const r = tokenReport(liveEnv(await read($, env), at), await read($, agents), await read($, manager), await read($, watch), at)
-  const tip = r.tips.find(tp => tp.cmd && tp.level >= 1)
+  const tip = r.tips.find(tp => tp.cmd)
   if (!tip?.cmd || (tip.cmd === lastSuggest.cmd && at - lastSuggest.at < 600_000)) return
   const shown = await $.prompt.suggest({ text: tip.cmd })
   if (shown.isShown) lastSuggest = { cmd: tip.cmd, at }
@@ -188,6 +195,8 @@ let progressSamples: ProgressSample[] = []
 let stopNow: StopSignal | null = null
 // The plan's progress when the person was last warned, or null when not warned.
 let stopWarnedAt: number | null = null
+// The plan the samples and the warning belong to: a new plan may warn again.
+let stopPlan = ''
 async function watchStop($: EngineInterface, at: number, list: AgentRun[], boss: Manager): Promise<void> {
   const f = await read($, flow)
   const isFlow = Boolean(f && !f.isFinished && f.tasks.length)
@@ -200,22 +209,30 @@ async function watchStop($: EngineInterface, at: number, list: AgentRun[], boss:
     progressSamples = []
     stopNow = null
     stopWarnedAt = null
+    stopPlan = ''
     return
   }
   const isWorking = boss.isWorking || list.some(a => a.status === 'running')
   if (!isWorking) {
+    // History counts working time only: a pause is not ten minutes of a stalled plan.
+    progressSamples = []
     stopNow = null
     return
   }
   const plan = isFlow && f ? `flow:${f.title}:${f.tasks.map(t => t.title).join('|')}` : `plan:${(boss.plan ?? []).map(st => st.content).join('|')}`
-  const before = progressSamples[0]?.plan
+  if (plan !== stopPlan) {
+    stopPlan = plan
+    stopWarnedAt = null
+  }
   progressSamples = noteSample(progressSamples, { at, costUsd: liveEnv(await read($, env), at).costUsd, progress, plan, steps: steps.length })
-  if (progressSamples[0]?.plan !== before) stopWarnedAt = null
+  // The newest sample, not the live value: the signal is judged on the samples, so a move
+  // seen between two samples must not re-arm the warning before a sample records it.
+  const sampled = progressSamples[progressSamples.length - 1]?.progress ?? progress
   // Warned already: wait for the plan to move before warning again.
-  if (stopWarnedAt !== null && progress >= stopWarnedAt + minMove(steps.length)) stopWarnedAt = null
+  if (stopWarnedAt !== null && sampled >= stopWarnedAt + minMove(steps.length)) stopWarnedAt = null
   stopNow = stopSignal(progressSamples, at)
   if (!stopNow || stopWarnedAt !== null) return
-  stopWarnedAt = progress
+  stopWarnedAt = sampled
   const text = stopText(stopNow, fmtCost)
   $.ui.toast(`🛑 ${text}`, { timeoutMs: 60000 })
   void $.ui.notify(`Mission Control: ${text}`).catch(() => undefined)
@@ -329,6 +346,8 @@ async function syncGuard($: EngineInterface, running: number): Promise<void> {
   }
   const was = await read($, guard)
   if (JSON.stringify(was) !== JSON.stringify(next)) await update($, guard, () => next)
+  const shown = { line: next.line, autoLabel: next.autoLabel, perAgent: next.perAgent }
+  if (JSON.stringify(await read($, guardSettings)) !== JSON.stringify(shown)) await update($, guardSettings, () => shown)
 }
 // Session start and every reload: what the person set, what was found last time, then a fresh look.
 async function loadGuard($: EngineInterface): Promise<void> {
@@ -1810,6 +1829,10 @@ const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.i
 const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, crewAlways: false, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, dailyUsd: 0, autopilot: false, keepWarm: false, budgetUsd: 0, tkOn: true, tkJobMin: 60, tkAgentMin: 20, ramLimit: 'auto', maxAgents: 0, killSwitch: 'on' })
 // Machine Guard (hooks/machineguard.ts): what the Settings pane and the band draw. Written only when it changes.
 const guard = atom({ plugin: 'crab-progress', key: 'guard' } as const, { line: 'unknown machine', usedGb: -1, limitGb: 0, max: 4, calibrated: 4, autoLabel: 'Auto · 4 (machine unknown)', perAgent: '≈0.5 GB per agent (default)', isTight: false, others: 0, sessions: 1 })
+// The part of it the Settings pane shows. The RAM in use, the crew and the other sessions
+// change at each look while Claude works; this changes only with the machine, the limit or
+// the learned figure, so an open dropdown in Settings is not closed by a redraw.
+const guardSettings = atom({ plugin: 'crab-progress', key: 'guardSettings' } as const, { line: 'unknown machine', autoLabel: 'Auto · 4 (machine unknown)', perAgent: '≈0.5 GB per agent (default)' })
 const cred = atom({ plugin: 'crab-progress', key: 'cred' } as const, BLANK_CRED)
 // Billing (hooks/billing.ts): which way Claude Code is paid for, and the Keychain key's
 // status. Never the key: the typed text lives in billing.ts's `draft`, in memory only.
@@ -1863,7 +1886,21 @@ async function setKeepWarm($: EngineInterface, isOn: boolean): Promise<void> {
   await update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), on: isOn, halted: '' } }))
   await update($, settings, prev => ({ ...prev, keepWarm: isOn }))
 }
+// A typed amount as a number: a currency sign, spaces and thousands commas allowed, a
+// decimal comma too ("2,50"); "off" is 0. Anything else (letters, a minus, "1e3") is null.
+const typedAmount = (typed: string): number | null => {
+  let s = typed.trim().toLowerCase()
+  if (s === 'off') return 0
+  s = s.replace(/^(?:rm|s\$|€\$|us\$|\$|€|£|¥)/, '').replace(/(?:rm|s\$|€\$|\$|€|£|¥|usd|eur|gbp|jpy|myr|sgd)$/, '').replace(/\s/g, '')
+  if (!s.includes('.') && /^\d+,\d{1,2}$/.test(s)) s = s.replace(',', '.')
+  else if (/^\d{1,3}(,\d{3})+(\.\d*)?$/.test(s)) s = s.replace(/,/g, '')
+  if (!/^(\d+\.?\d*|\.\d+)$/.test(s)) return null
+  const n = Number(s)
+  return Number.isFinite(n) ? n : null
+}
 async function setDailyCap($: EngineInterface, dollars: number): Promise<void> {
+  // A new cap warns afresh: the 80% and 100% marks are of this cap, not the last one.
+  if (dollars !== dailyCapUsd) capWarned = { date: '', level: 0 }
   dailyCapUsd = dollars
   await $.store.set(DAILY_KEY, dollars).catch(() => undefined)
   await update($, settings, prev => ({ ...prev, dailyUsd: dollars }))
@@ -1871,12 +1908,13 @@ async function setDailyCap($: EngineInterface, dollars: number): Promise<void> {
 // A typed amount for the daily cap or the budget per task: in the currency the pane shows,
 // turned back into dollars. 0 turns it off; anything else that is not a number is refused.
 async function typeMoney($: EngineInterface, what: 'daily' | 'budget', typed: string): Promise<void> {
-  const n = Number(typed.trim().replace(/[^0-9.]/g, ''))
-  if (!typed.trim() || !Number.isFinite(n) || n < 0) {
+  const n = typedAmount(typed)
+  if (n === null) {
     $.ui.toast('Type an amount like 3 or 2.50, or 0 to turn it off')
     return
   }
-  const dollars = Math.round((n / (CURRENCY.rate || 1)) * 100) / 100
+  // Kept to a hundredth of a cent, so the amount shows back as typed (RM3, not RM2.99).
+  const dollars = Math.round((n / (CURRENCY.rate || 1)) * 10_000) / 10_000
   if (what === 'daily') await setDailyCap($, dollars)
   else await setBudget($, dollars)
   $.ui.toast(`${what === 'daily' ? 'Daily cap' : 'Budget per task'}: ${dollars ? fmtCost(dollars) : 'off'}`)
@@ -2627,14 +2665,18 @@ const tierModel = (tier: string): string => {
   return m ? `${m[0]} · ${effortWord(m[1])}` : ''
 }
 
-// The effort a run works at: what its requests carried, else its tier's, else the default.
-const runEffort = (a: AgentRun): string => (a.isUltra ? 'max' : a.effort) ?? TIER_MODEL[tierOf(a.type)]?.[1] ?? 'default'
+// The effort a run works at: what its requests carried, else (an Ultra agent before its
+// first request) the max it will ask for, else its tier's, else the default.
+const runEffort = (a: AgentRun): string => a.effort ?? (a.isUltra ? 'max' : TIER_MODEL[tierOf(a.type)]?.[1]) ?? 'default'
+// The effort as read: "high", or "max + Ultra" for an Ultra agent.
+const effortLabel = (effort: string, isUltra = false): string => `${effortWord(effort)}${isUltra ? ' + Ultra' : ''}`
 
-// "Opus 5.5 · effort low" for a run.
-const runModel = (a: AgentRun): string => `${modelName(a.model)} · effort ${a.isUltra ? '⚡ ' : ''}${effortWord(runEffort(a))}`
+// "Opus 5.5 · effort low" for a run; "· effort max + Ultra" for an Ultra one.
+const runModel = (a: AgentRun): string => `${modelName(a.model)} · effort ${effortLabel(runEffort(a), a.isUltra)}`
 
 // USD per million tokens: input, output, cache read, cache write. The first row that
-// matches a model id wins, so a release sits above its family.
+// matches a model id wins, so a release sits above its family. Anthropic's list prices
+// as of 2026-10-06; Bedrock and Vertex bill their own rates, so there it is a guide.
 // The engine reports tokens, not money, so the panel's cost is an estimate. It reports
 // one cache-write count with no split by lifetime; writes are priced at the 1-hour
 // rate (2x input), which is what Claude Code writes on a subscription.
@@ -2645,7 +2687,7 @@ const PRICES: [RegExp, Price][] = [
   [/fable|mythos/, [10, 50, 1, 20]],
   [/opus-5-5/, [4, 20, 0.2, 8]],
   [/opus/, [5, 25, 0.5, 10]],
-  [/sonnet-5-5/, [2, 10, 0.1, 4]],
+  [/sonnet-5-5/, [2, 10, 0.2, 4]],
   [/sonnet-5/, [2, 10, 0.2, 4]],
   [/sonnet/, [3, 15, 0.3, 6]],
   [/haiku-5-5/, [0.1, 0.5, 0.01, 0.2]],
@@ -3255,6 +3297,8 @@ type Stat = {
   viz?: { kind: 'pips'; n: number } | { kind: 'ring'; pct: number }
   /** A value that moves each second (a clock): drawn as a strip that steps itself. */
   live?: { at: number; read: (t: number) => string }
+  /** A value too long for its tile shrinks (to 11), then leaves its picture out, before it is cut. */
+  shrink?: boolean
 }
 const STAT_COLS = 3
 const STAT_H = 40
@@ -3276,7 +3320,9 @@ const modelColor = (name: string): string => {
 
 const EFFORT_LEVEL: Record<string, number> = { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 }
 const PIP_COLORS = ['#5EC8D8', '#7FB6F0', '#B58BE5', '#E9B44C', '#E5675E']
-const effortStat = (effort: string, isUltra = false): Stat => ({ k: 'Effort', v: `${isUltra ? '⚡\uFE0E ' : ''}${effortWord(effort)}`, viz: { kind: 'pips', n: EFFORT_LEVEL[effort] ?? 0 } })
+// Ultra rides on the effort ("high + Ultra"). On a narrow card the value shrinks to its
+// tile ("medium" was cut to "medi…"), then leaves the bars out, before it is cut.
+const effortStat = (effort: string, isUltra = false): Stat => ({ k: 'Effort', v: effortLabel(effort, isUltra), viz: { kind: 'pips', n: EFFORT_LEVEL[effort] ?? 0 }, shrink: true })
 
 const statViz = (st: Stat, x: number, y: number): string => {
   if (st.viz?.kind === 'pips') {
@@ -3309,15 +3355,20 @@ const statGrid = (x: number, y: number, w: number, stats: Stat[]): string => {
     if (col > 0) out.push(`<line x1="${cx.toFixed(1)}" y1="${cy + 4}" x2="${cx.toFixed(1)}" y2="${cy + STAT_H - 4}" stroke="#8a8a86" stroke-opacity=".3"/>`)
     const vx = cx + pad
     const vizW = st.viz ? (st.viz.kind === 'pips' ? 36 : 18) : 0
-    const valueW = cw - pad - 10 - (vizW ? vizW + 8 : 0)
-    const value = fitText(st.v, 15.5, valueW)
+    const room = (hasViz: boolean) => cw - pad - 10 - (hasViz && vizW ? vizW + 8 : 0)
+    // A shrinking value: the largest size that fits beside its picture, else without it.
+    const sized = st.shrink
+      ? ([true, false].flatMap(hasViz => [15.5, 14, 12.5, 11].map(size => ({ hasViz, size }))).find(f => textWidth(st.v, f.size) <= room(f.hasViz)) ?? { hasViz: false, size: 11 })
+      : { hasViz: true, size: 15.5 }
+    const fs = sized.size
+    const value = fitText(st.v, fs, room(sized.hasViz))
     const head = `<text class="s" x="${vx.toFixed(1)}" y="${cy + 13}" font-family="${FONT}" font-size="11" letter-spacing=".2">${xml(st.k)}</text>`
     // A clock ticks inside the image: the card is drawn again once a minute, not each second.
     out.push(st.live
       ? `${head}\n${liveText(vx, cy + 33, st.live.at, 15.5, `font-family="${FONT}" font-size="15.5" font-weight="700" font-variant-numeric="tabular-nums"${st.color ? '' : ' class="t"'}`, st.live.read, st.color)}`
       : `${head}
-<text x="${vx.toFixed(1)}" y="${cy + 33}" font-family="${FONT}" font-size="15.5" font-weight="700" font-variant-numeric="tabular-nums"${st.color ? ` fill="${st.color}"` : ' class="t"'}>${xml(value)}</text>`)
-    if (st.viz) out.push(statViz(st, vx + textWidth(value, 15.5) + 9, cy + 23))
+<text x="${vx.toFixed(1)}" y="${cy + 33}" font-family="${FONT}" font-size="${fs}" font-weight="700" font-variant-numeric="tabular-nums"${st.color ? ` fill="${st.color}"` : ' class="t"'}>${xml(value)}</text>`)
+    if (st.viz && sized.hasViz) out.push(statViz(st, vx + textWidth(value, fs) + 9, cy + 23))
   })
   return out.join('\n')
 }
@@ -4108,7 +4159,7 @@ const managerEstimate = (f: Flow | null, list: AgentRun[], m: Manager, at = 0): 
 
 // Terminal: the tree as text, `├─` and `└─` like a file listing.
 const treePrefix = (r: TreeRow): string =>
-  r.lines.slice(0, r.depth - 1).map(on => (on ? '│ ' : '  ')).join('') + (r.isLast ? '└─ ' : '├─ ')
+  r.lines.slice(0, r.depth - 1).map(isOn => (isOn ? '│ ' : '  ')).join('') + (r.isLast ? '└─ ' : '├─ ')
 
 // --- the workflow card: each step of the work in hand, with its own bar. The
 // plan's tasks when a flow is reported, else the sub-agents at work, else the
@@ -4323,7 +4374,7 @@ const orgTree = (all: AgentRun[], boss: Manager, at = 0, mood: 0 | 1 | 2 = 0): O
   const agentNode = (a: AgentRun, depth: number): OrgNode => ({
     id: a.id,
     // The role is drawn above it: "Designer: palette ideas" reads "palette ideas".
-    label: `${a.isUltra ? '⚡ ' : ''}${(a.description || a.type).replace(NAMED_ROLE_PREFIX, '')}`,
+    label: (a.description || a.type).replace(NAMED_ROLE_PREFIX, ''),
     color: runRoleColor(a),
     costume: costumeFor(a),
     isStuck: isQuiet(a) || isOver(a),
@@ -4623,7 +4674,7 @@ const receiptText = (boss: Manager, all: AgentRun[], info: Env, at: number): str
   const crew = crewOf(all, boss)
   const total = Math.max(0, info.costUsd - (boss.costAtStart ?? info.costUsd))
   const ms = boss.startedAt ? Math.max(0, (boss.doneAt ?? at) - boss.startedAt) : 0
-  const rows = [...crew].sort((x, y) => y.costUsd - x.costUsd).map(a => `| ${(a.description || a.type).replace(/\|/g, '/')} | ${modelName(a.model)} · ${effortWord(runEffort(a))} | ${fmtTokens(a.tokens)} | ≈${fmtCost(a.costUsd)} |`)
+  const rows = [...crew].sort((x, y) => y.costUsd - x.costUsd).map(a => `| ${(a.description || a.type).replace(/\|/g, '/')} | ${modelName(a.model)} · ${effortLabel(runEffort(a), a.isUltra)} | ${fmtTokens(a.tokens)} | ≈${fmtCost(a.costUsd)} |`)
   return [
     `**Claude Code receipt**${boss.task ? ` · ${clip(boss.task.replace(/\s+/g, ' '), 80)}` : ''}`,
     '',
@@ -4643,11 +4694,15 @@ const MOOD_WORD = ['Healthy', 'Watch it', 'Act now'] as const
 // refresh pauses it until the next prompt.
 const warmTurns = new Set<string>()
 let isRefreshing = false
+// What the next prompt saves when it finds the cache warm: a lapsed cache's rewrite.
+// Counted as saved once, when that prompt comes, however many refreshes kept it warm.
+let warmPendingUsd = 0
 
 async function keepWarm($: EngineInterface): Promise<void> {
   if (isRefreshing) return
   isRefreshing = true
-  const halt = (why: string, spent = 0) => update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), halted: why, spentUsd: (prev.warm ?? BLANK_WARM).spentUsd + spent } }))
+  // `savedUsd` is net: every refresh's cost comes off it, a wasted one's too.
+  const halt = (why: string, spent = 0) => update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), halted: why, spentUsd: (prev.warm ?? BLANK_WARM).spentUsd + spent, savedUsd: (prev.warm ?? BLANK_WARM).savedUsd - spent } }))
   try {
     const [st, w, list, bg, info] = await Promise.all([read($, session), read($, watch), read($, agents), read($, background), read($, env)])
     const kw = w.warm ?? BLANK_WARM
@@ -4655,7 +4710,7 @@ async function keepWarm($: EngineInterface): Promise<void> {
     // Work still running is a sure return; its own requests do not warm the main cache.
     const isLikely = list.some(a => a.status === 'running') || bg.tasks.length + bg.crons.length > 0
     if (warmLimitHit(isLikely, kw.idle, kw.busy)) return void (await halt(isLikely ? 'refresh limit reached' : 'idle limit reached'))
-    const call = warmCall(priceOf(st.model, st.promptTokens), st.promptTokens, isLikely, info.contextPct)
+    const call = warmCall(priceOf(st.model, st.promptTokens), st.promptTokens, isLikely, info.contextPct, undefined, fmtCost)
     if (!call.isWarm) {
       await halt(call.reason ?? 'does not pay')
       // Keep-Warm explains itself: the one time it decides not to, it says why in money.
@@ -4669,6 +4724,8 @@ async function keepWarm($: EngineInterface): Promise<void> {
     const cost = costOf(st.model, usage, true)
     const at = await $.clock.now()
     if (!isWarmed(usage.cache_read_input_tokens || 0, st.promptTokens)) {
+      // The cache went before its hour: the earlier refreshes kept nothing for the next prompt.
+      warmPendingUsd = 0
       await halt(reply.isAnswered ? 'the cache had already lapsed' : `refresh failed (${reply.reason})`, cost)
       $.ui.toast(`🧊 Keep-warm: the cache had lapsed · ${fmtCost(cost)}`, { timeoutMs: 15000 })
       return
@@ -4677,8 +4734,9 @@ async function keepWarm($: EngineInterface): Promise<void> {
     await update($, session, prev => ({ ...prev, cacheUntil: at + CACHE_TTL_MS, cacheLeft: CACHE_TTL_MS / 1000, warned: 0 }))
     await update($, watch, prev => {
       const p = prev.warm ?? BLANK_WARM
-      return { ...prev, warm: { ...p, idle: p.idle + (isLikely ? 0 : 1), busy: p.busy + (isLikely ? 1 : 0), count: p.count + 1, spentUsd: p.spentUsd + cost, savedUsd: p.savedUsd + saved } }
+      return { ...prev, warm: { ...p, idle: p.idle + (isLikely ? 0 : 1), busy: p.busy + (isLikely ? 1 : 0), count: p.count + 1, spentUsd: p.spentUsd + cost, savedUsd: p.savedUsd - cost } }
     })
+    warmPendingUsd = call.missUsd
     $.ui.toast(`🧊 Cache kept warm · ${fmtCost(cost)} · saves ≈${fmtCost(Math.max(0, saved))} on your next prompt`, { timeoutMs: 15000 })
   } finally {
     isRefreshing = false
@@ -4723,7 +4781,8 @@ const tokenSvg = (W: number, r: TokenReport, isWatching: boolean): string => {
   const pillW = Math.round(22 + textWidth(word, 11))
   // A themed skin shows its heat (the Mentalist's red smileys) when the spend runs high.
   const th = themeOf()
-  const heatOn = Boolean(th?.pane) && r.mood > 0
+  // ...and only where it clears the "Token Manager" title: a narrow pane drew it over the title.
+  const heatOn = Boolean(th?.pane) && r.mood > 0 && W - 14 - pillW - (th?.pane?.heatW ?? 0) - 8 >= 50 + textWidth('Token Manager', 13)
   const stats: Stat[] = [
     { k: 'Burn rate', v: `${fmtTokens(r.burnPerMin)}/min`, color: r.burnPerMin > 150_000 ? '#E9B44C' : undefined },
     { k: isApiCredits(BILLING) ? (r.budget ? `API credits · of ${fmtCost(r.budget)}` : 'API credits · task') : r.budget ? `This task · of ${fmtCost(r.budget)}` : 'This task', v: `${fmtTokens(r.taskTokens)} · ≈${fmtCost(r.taskCost)}`, color: r.budget && r.taskCost >= r.budget ? '#E5675E' : undefined },
@@ -5223,6 +5282,9 @@ const hudSimpleSvg = (OW: number, d: HudData): string => {
   // Row 3: the money and the context, in words.
   const y3 = 86
   const ctxTone = gaugeColor(d.ctxPct)
+  // Today's spend in the warn colour from 80% of the daily cap, the alert colour from 100%.
+  const capPct = dailyCapUsd > 0 ? ((d.todayUsd ?? 0) / dailyCapUsd) * 100 : 0
+  const todayFill = capPct >= 100 ? ` fill="${c.alert}"` : capPct >= 80 ? ` fill="${c.warn}"` : ''
   const label = (y: number, text: string) => `<text class="m" x="14" y="${y}" font-family="${FONT}" font-size="10" font-weight="700" letter-spacing=".6">${text}</text>`
   return svg(
     OW,
@@ -5244,7 +5306,7 @@ ${label(y2 + 14, 'CREW')}
 ${crabs}${more}
 <text class="s" x="${W - 14}" y="${y2 + 14}" text-anchor="end" font-family="${FONT}" font-size="12">${xml(count)}</text>
 ${label(y3, 'COST')}
-<text class="t" x="${left}" y="${y3}" font-family="${FONT}" font-size="12.5" font-variant-numeric="tabular-nums">This task <tspan font-weight="800">≈${fmtCost(d.taskUsd ?? 0)}</tspan><tspan class="m">   ·   </tspan>Today <tspan font-weight="800">≈${fmtCost(d.todayUsd ?? 0)}</tspan></text>
+<text class="t" x="${left}" y="${y3}" font-family="${FONT}" font-size="12.5" font-variant-numeric="tabular-nums">This task <tspan font-weight="800">≈${fmtCost(d.taskUsd ?? 0)}</tspan><tspan class="m">   ·   </tspan>Today <tspan font-weight="800"${todayFill}>≈${fmtCost(d.todayUsd ?? 0)}</tspan></text>
 <text class="s" x="${W - 14}" y="${y3}" text-anchor="end" font-family="${FONT}" font-size="12">Context <tspan font-weight="800" fill="${ctxTone}">${d.ctxPct}%</tspan></text>
 </g>`,
   )
@@ -6737,8 +6799,13 @@ export const register: Register = (on, options) => {
       return next(e)
     }
     if (!e.agentId) {
-      // A prompt: the refreshes count again from zero.
-      await update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), idle: 0, busy: 0, halted: '' } }))
+      // A prompt: the refreshes count again from zero. One that finds the cache the
+      // refreshes kept warm is what they saved.
+      const promptAt = await $.clock.now()
+      const cacheUntil = (await read($, session)).cacheUntil
+      const gain = warmPendingUsd > 0 && cacheUntil !== null && promptAt < cacheUntil ? warmPendingUsd : 0
+      warmPendingUsd = 0
+      await update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), idle: 0, busy: 0, halted: '', savedUsd: (prev.warm ?? BLANK_WARM).savedUsd + gain } }))
       const total = (await $.session.usage().catch(() => null))?.cost?.usd ?? (await read($, env)).costUsd
       await update($, session, prev => ({ ...prev, turn: prev.turn + 1, costAtStart: total, isBusy: true }))
       // A slash command's turn is its job; any other main turn is the manager at work.
@@ -7298,7 +7365,7 @@ export const register: Register = (on, options) => {
                   />
                   {r.a.status !== 'running' && <Button key={`close-${r.key}`} label="▴ Collapse" plain onPress={() => toggleOpen(r.a.id)} />}
                   {rescueRow($, r.a, ui)}
-                  {r.a.status === 'running' && <Button key={`ultra-${r.key}`} label={r.a.isUltra ? '⚡ Ultra on · tap to turn off' : '⚡ Ultra'} plain onPress={() => toggleUltra($, r.a.id)} />}
+                  {r.a.status === 'running' && <Button key={`ultra-${r.key}`} label={r.a.isUltra ? '⚡ Turn Ultra off' : '⚡ Turn Ultra on'} plain onPress={() => toggleUltra($, r.a.id)} />}
                 </Box>
               ),
             )}
@@ -7390,7 +7457,7 @@ export const register: Register = (on, options) => {
               {steps}{s.ctx} {ctx}% · {fmtTokens(a.contextTokens)} ≈{fmtCost(a.costUsd)} {fmtTime(elapsed(a, at))}
             </Text>
           </Text>
-          {a.status === 'running' && <Button key={`ultra-${a.id}`} label={a.isUltra ? '  ⚡ Ultra on · turn off' : '  ⚡ Ultra'} plain onPress={() => toggleUltra($, a.id)} />}
+          {a.status === 'running' && <Button key={`ultra-${a.id}`} label={a.isUltra ? '  ⚡ Turn Ultra off' : '  ⚡ Turn Ultra on'} plain onPress={() => toggleUltra($, a.id)} />}
         </Box>
       )
     }
@@ -7660,8 +7727,11 @@ export const register: Register = (on, options) => {
     if (e.tools.includes('Agent') && e.tools.length >= mostTools * 0.9) {
       const auto = await readAutoCrew($)
       let reason = auto.on ? (await read($, session)).crewMode ?? '' : ''
-      // Every-job mode turned off mid-job: its reason no longer holds.
-      if (reason === EVERY_JOB && !auto.always) reason = ''
+      // Every-job mode turned off mid-job: its reason no longer holds, in the band either.
+      if (reason === EVERY_JOB && !auto.always) {
+        reason = ''
+        await dropEveryJob($)
+      }
       if (auto.on && !reason) {
         // A plan that grew long, or a context that filled, calls the crew mid-task.
         const boss = await read($, manager)
@@ -7746,7 +7816,7 @@ export const register: Register = (on, options) => {
 
   // Settings and billing, in a pane of their own. The main pane redraws in bursts while a
   // turn runs, which would close an open dropdown; this one reads only atoms that change
-  // when the person acts: skin, settings, timekeeper, billing and spendPick. (The spend
+  // when the person acts: skin, settings, guardSettings, billing and spendPick. (The spend
   // atom itself is also written at each sub-agent's end, when the day's cost grew, so this
   // pane reads spendPick, the period and typed days only, and takes the month list from the
   // store, which does not subscribe.) It reads no watch, agents, manager, env, today,
@@ -7759,7 +7829,7 @@ export const register: Register = (on, options) => {
     const { Box, Text, Button } = ui
     const clockNow = await $.clock.now().catch(() => 0)
     const prefs = await read($, settings)
-    const gd = await read($, guard)
+    const gd = await read($, guardSettings)
     const tkNow = { on: prefs.tkOn, jobMin: prefs.tkJobMin, agentMin: prefs.tkAgentMin }
     const sp = await read($, spendPick)
     const spendLedger = combineDays(cleanDays(await $.store.get('spendDays').catch(() => undefined)), cleanDays(await $.store.get('spendLog').catch(() => undefined)))
@@ -7777,7 +7847,7 @@ export const register: Register = (on, options) => {
         {bill.note ? <Text dimColor wrap="wrap">{bill.note}</Text> : null}
         {bill.isMac && Field ? (
           <Box key="bill-form" flexDirection="column">
-            <Text dimColor wrap="wrap">The box shows your key while you type: it cannot hide it. Paste, press Enter, and the box clears. To type it hidden, run this in your own terminal: {terminalAlternative()}</Text>
+            <Text dimColor wrap="wrap">The box shows a dot for each character, never the key (a paste can show for a moment before it turns to dots). Paste, press Enter, and the box clears. To type it fully hidden, run this in your own terminal: {terminalAlternative()}</Text>
             <Field
               key={`bill-key-${bill.nonce}`}
               label="Claude API key"
@@ -8159,6 +8229,7 @@ export const register: Register = (on, options) => {
     if (next !== auto) await $.store.set('autoCrew', next).catch(() => undefined)
     await update($, settings, prev => ({ ...prev, crewMode: next.on, crewAlways: next.always === true }))
     if (!next.on) await update($, session, prev => ({ ...prev, crewMode: '' }))
+    else if (!next.always) await dropEveryJob($)
     return {
       text: next.always
         ? 'Crew mode on for every job: small ones go to a sub-agent too. /autocrew on goes back to big jobs only.'
@@ -8230,7 +8301,9 @@ export const register: Register = (on, options) => {
     if (verb === 'rescue') {
       const at = await $.clock.now()
       const quiet = quietOf(await read($, agents))
-      const [act = '', pick = ''] = arg.split(/\s+/)
+      // `/tokens rescue retry 2`: the action is the second word, the pick the third.
+      const act = arg
+      const pick = target
       if (act !== 'retry' && act !== 'nudge') return { text: rescueText(quiet, at, fmtTime) }
       const chosen = pickQuiet(quiet, pick)
       if (!chosen.length) return { text: quiet.length ? `Which one? /tokens rescue ${act} <1-${quiet.length}|all>` : rescueText(quiet, at, fmtTime) }
@@ -8243,14 +8316,18 @@ export const register: Register = (on, options) => {
       const w = await read($, watch)
       const info = await read($, env)
       const out = coachWhatIf(info, await read($, agents), w, st.promptTokens && st.model ? { promptTokens: st.promptTokens, model: st.model } : undefined)
-      return { text: whatIfText(out, fmtCost) }
+      // One tap to turn it on: the best scenario's command waits in the prompt box, Tab to take.
+      const shown = out.best ? await $.prompt.suggest({ text: out.best.cmd }).catch(() => ({ isShown: false })) : { isShown: false }
+      return { text: `${whatIfText(out, fmtCost)}${shown.isShown ? '\n(Tab puts it in the prompt box.)' : ''}` }
     }
     if (verb === 'pr') {
       const crew = crewOf(await read($, agents), await read($, manager))
       const boss = await read($, manager)
       const info = await read($, env)
       const where = await repoAndBranch($)
-      const badge = prBadge({ costUsd: Math.max(0, info.costUsd - (boss.costAtStart ?? info.costUsd)), agents: crew.length, tokens: crew.reduce((n, a) => n + a.tokens, 0), ...where }, fmtCost, fmtTokens)
+      // The tokens are the task's, the main loop's with the crew's, like its cost.
+      const tokens = Math.max(crew.reduce((n, a) => n + a.tokens, 0), sumTokens(info) - (boss.tokensAtStart ?? sumTokens(info)))
+      const badge = prBadge({ costUsd: Math.max(0, info.costUsd - (boss.costAtStart ?? info.costUsd)), agents: crew.length, tokens, ...where }, fmtCost, fmtTokens)
       const copied = await $.ui.copy({ text: badge.text }).catch(() => ({ isCopied: false }))
       return { text: `${badge.text}\n\n${copied.isCopied ? '(Copied: paste it into the PR description.)' : '(Select and copy it from here.)'}` }
     }
@@ -8279,7 +8356,11 @@ export const register: Register = (on, options) => {
     }
     if (verb === 'budget') {
       const dollars = arg === 'off' ? 0 : Number(arg.replace(/^\$/, ''))
-      if (!Number.isFinite(dollars) || dollars < 0) return { text: 'Usage: /tokens budget 2  (dollars per task), or /tokens budget off' }
+      // No amount is a question, not "off": it says the budget and leaves it be.
+      if (!arg || !Number.isFinite(dollars) || dollars < 0) {
+        const now = Number(await $.store.get('budgetUsd').catch(() => 0)) || 0
+        return { text: `Usage: /tokens budget 2  (dollars per task), or /tokens budget off${now ? `. Now: ${fmtCost(now)} per task` : ''}` }
+      }
       await setBudget($, dollars)
       return { text: dollars ? `Budget set: ${fmtCost(dollars)} per task. The Token Manager warns at 80% and 100%.` : 'Budget off.' }
     }
