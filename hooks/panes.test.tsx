@@ -6,10 +6,10 @@ const PLUGIN = 'crab-progress'
 const pane = { title: '', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} } as const
 
 // Every pane reads as open but behind another tab; `calls` records closes and opens in order.
-const base = (on: On, calls: string[] = []) => {
+const base = (on: On, calls: string[] = [], store: Record<string, unknown> = {}) => {
   mock.clock(on, { now: Date.parse('2026-10-19T10:00:00Z') })
   mock.env(on, { LANG: 'en_US.UTF-8' })
-  mock.store(on)
+  mock.store(on, store)
   on('settings.read', async () => ({ value: {} }) as never)
   on('tool.register', async () => ({ value: undefined }) as never)
   on('command.register', async () => ({ value: undefined }) as never)
@@ -98,6 +98,58 @@ test('"🎨 Change skin ▸" sits under the settings button and opens the skin p
   const term = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: 'crab-agents', props: pane } as never)
   await press(term)
   await term.unmount()
+})
+
+test('settings: five sections in order, every control kept, each with a hint, and dropdowns always on one of their options', async ($, on) => {
+  base(on)
+  await start($)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', requestId: 'crab-settings', props: pane } as never)
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => String(t.text ?? ''))
+  const heads = ['💰 Money', '🛡︎ Machine Guard', '🦀︎ Crew', '🎨 Look and feel', '💳 Billing']
+  expect(heads.map(h => texts.indexOf(h))).toEqual([...heads.map(h => texts.indexOf(h))].sort((a, b) => a - b))
+  for (const h of heads) expect(texts).toContain(h)
+  const keys = [
+    'set-autopilot', 'set-warm', 'set-daily-pick', 'set-daily-type', 'set-budget-pick', 'set-budget-type', 'spend-period',
+    'set-ram-pick', 'set-ram-type', 'set-agents-pick', 'set-agents-type', 'set-agent-ram-reset',
+    'set-crew-pick', 'set-oneshot-pick', 'set-staffing', 'set-timekeeper',
+    'set-skin', 'set-currency-pick', 'set-simple', 'set-calm', 'set-sounds', 'set-voice', 'set-open',
+    'bill-guide',
+  ]
+  const missing: string[] = []
+  for (const key of keys) if (!(await ui.find({ key }))) missing.push(key)
+  expect(missing).toEqual([])
+  // One short hint line under each option, saying what it does.
+  for (const hint of ['Read-only explorer agents run on Haiku', 'How much memory Claude and all its agents may use together', 'Learned by watching agents run', 'Splits work across helper agents', 'Now: ', 'Opens Mission Control each time Claude starts.'])
+    expect(texts.some(t => t.startsWith(hint))).toBe(true)
+  expect(texts.some(t => t.startsWith('🖥︎ '))).toBe(true)
+  expect(texts.some(t => t.includes('GB per agent'))).toBe(true)
+  for (const pick of await ui.findAll({ type: 'Select' })) {
+    const options = (pick.props.options as { value: string }[]).map(o => o.value)
+    expect(options).toContain(String(pick.props.value))
+  }
+  await ui.unmount()
+})
+
+test('settings: the terminal draws the same five cards, with buttons where it has no dropdowns', async ($, on) => {
+  base(on)
+  await start($)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: 'crab-settings', props: pane } as never)
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => String(t.text ?? ''))
+  await ui.unmount()
+  expect(texts.join('\n')).not.toContain('could not draw')
+  for (const h of ['💰 Money', '🛡︎ Machine Guard', '🦀︎ Crew', '🎨 Look and feel', '💳 Billing']) expect(texts).toContain(h)
+})
+
+test('settings: "Reset learned RAM per agent" forgets the learned figure, back to the 0.5 GB default', async ($, on) => {
+  base(on, [], { agentRam: 2 * 1024 ** 3 })
+  await start($)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', requestId: 'crab-settings', props: pane } as never)
+  const line = async () => (await ui.findAll({ type: 'Text' })).map(t => String(t.text ?? '')).find(t => t.includes('GB per agent')) ?? ''
+  expect(await line()).toContain('2 GB per agent (learned)')
+  await ui.press({ key: 'set-agent-ram-reset' })
+  await ui.drawn()
+  expect(await line()).toContain('≈0.5 GB per agent (default)')
+  await ui.unmount()
 })
 
 test("only the person's own prompts count as tasks, not a notification or a plugin's", async ($, on) => {

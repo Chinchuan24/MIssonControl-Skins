@@ -48,6 +48,7 @@ RAM per agent starts at **0.5 GB** and is learned on your machine:
 - With N agents running, one sample = (Claude's tree - baseline) ÷ N.
 - Samples are smoothed (EMA, weight 0.2), kept between 0.2 and 4 GB, and saved, so the figure carries across sessions.
 - Ignored: failed process reads, reads while a heavy command ran, and the subtrees of `tsc` / test runners themselves.
+- **↺ Reset learned RAM per agent** (Settings, Machine Guard card) forgets the learned figure: back to 0.5 GB until it learns again.
 
 At 0.5 GB per agent:
 
@@ -64,13 +65,13 @@ Unknown machine with a % limit: **4**. A typed GB limit works anywhere.
 
 ## Settings
 
-In the ⚙ Settings tab:
+In the ⚙ Settings tab, Machine Guard card:
 
 | Setting | Options |
 |---|---|
 | RAM Claude may use | Auto (50%), 25%, 50%, 75%, or a typed amount in GB |
 | Max agents at once | Auto (label shows the sum, e.g. "Auto · 30 (15 GB ÷ 0.5 GB)"), 1, 2, 4, 8, 12, 16, 24, 32, 48, 64, or a typed number |
-| Per-agent cost (read-only) | "≈0.5 GB per agent (learned)" or "(default)" |
+| Per-agent cost | "≈0.5 GB per agent (learned)" or "(default)", with a button to reset it to the default |
 | Machine line (read-only) | e.g. "48 GB RAM · 12 cores · Mac" |
 
 Typed GB:
