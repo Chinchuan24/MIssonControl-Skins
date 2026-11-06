@@ -4,7 +4,8 @@ import type { EngineInterface, Register } from 'claude-code'
 import { BLANK_BILLING, KEY_IN_COMMAND, draft, maskKey, unmaskKey, guideText, isApiCredits, isMacOS, keyStatus, keychainHas, looksLikeKey, MAC_ONLY, modeChip, noteApiSpend, readMode, readSaved, removeKey, saveKey, spendLine, terminalAlternative, cleanSpend, SPEND_KEY } from './billing'
 import { CASTS, CAST_CSS, hashOf, spriteMarkup } from './cast'
 import { BREACH_H, BREACH_W, CJK_FONT, EGG_CSS, EGG_TOOLS, EGG_WORDS, GREETING, KATAKANA, breachCard, breachTicker, celebration, heatStars, legendsCard, legendsHeight, psychoChip, radio, relicText, sandevistan, skyline, sysTag } from './eggs'
-import type { Egg, Legend } from './eggs'
+import type { CyberEgg, Egg, Legend } from './eggs'
+import { CBI_BADGES, CBI_WORDS, CLOSED_FILES_TOAST, COLD_H, COLD_W, MENT_CSS, MENTALIST_BOOT, REDJOHN_BOOT, TEA_WARNING, TYGER_RE, caseClosed, cbiRankOf, cbiToast, coldReadCard, coldTicker, episodeAt, hiddenSmiley, smiley, teaChip } from './mentalist'
 import { canNudge, nudge, pickQuiet, prBadge, quietOf, rememberTask, repoAndBranch, rescueText, retryOnHaiku, whatIf, whatIfText, whatIfTip } from './coach'
 import { BEATS_KEPT, BLANK_CRED, BOOT_H, award, rockerRankOf, bdHeight, bootStrip, braindanceCard, cleanCred, credCard, credHeight, levelOf, rankOf, shiftPick, stepPick } from './extras'
 import type { Beat, Cred } from './extras'
@@ -453,7 +454,7 @@ const beepWav = (): string => {
 // The skin's alert: MaxTac's siren on the cyberpunk skins, the beeps elsewhere.
 async function playAlert($: EngineInterface): Promise<void> {
   if (!(await read($, settings)).sounds) return
-  await $.audio.play(eggOf() ? { asset: `${ADDON}/assets/maxtac.wav` } : { base64: beepWav(), mime: 'audio/wav' }).catch(() => undefined)
+  await $.audio.play(cyberOf() ? { asset: `${ADDON}/assets/maxtac.wav` } : { base64: beepWav(), mime: 'audio/wav' }).catch(() => undefined)
 }
 
 // Each tick: keep every budget current, then alert once per job at 80% and 100%, and
@@ -1065,7 +1066,44 @@ const MENTALIST_SKIN: Skin = {
   tabs: { mission: '🍵 Mission Control', skins: '🍵 Skins' },
 }
 
-const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, MENTALIST_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN, SAMURAI_SKIN]
+// Red John: the hidden skin of The Mentalist. Red on near-black, a pixel smiley in the
+// band, Blake's public-domain "The Tyger" in the spinner. Not in the picker or the list:
+// `/skin red-john` finds it, or typing "tyger tyger" while wearing The Mentalist.
+const RED_JOHN_SKIN: Skin = {
+  id: 'red-john',
+  cast: 'redjohn',
+  hidden: true,
+  name: 'Red John',
+  description: 'The hidden one: red on near-black. He is watching.',
+  font: "'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,'Noto Serif',serif",
+  corners: 'round',
+  dark: true,
+  colors: {
+    accent: '#E0261F',
+    accent2: '#F2F5FA',
+    done: '#F2F5FA',
+    warn: '#F0B35A',
+    alert: '#FF6A62',
+    meter: '#C9332D',
+    text: '#F2F2F2',
+    subtext: '#BBAAAA',
+    muted: '#9A8888',
+    tile: '#0B0708',
+    track: '#221517',
+    line: '#3A1E20',
+    grid: '#1A0F11',
+  },
+  boss: ['#E0261F', '#F2F5FA', '#8A1612', '#F2F5FA', '#E0261F'],
+  roles: ['#E0261F', '#F2F5FA', '#C9332D', '#BBAAAA', '#FF6A62', '#9A8888'],
+  effects: { scanlines: false, glitch: false },
+  chat: true,
+  words: ['Tyger Tyger', 'Burning bright', 'In the forests of the night', 'Fearful symmetry', "He's watching", 'Smile'],
+  toolWords: { Read: 'Watch', Edit: 'Rearrange', MultiEdit: 'Rearrange', Write: 'Leave a mark', Bash: 'Do', PowerShell: 'Do', Grep: 'Follow', Glob: 'Trace', Agent: 'Send word', WebFetch: 'Fetch', WebSearch: 'Listen', ToolSearch: 'Ask around' },
+  backdrop: { fill: '#050304', pattern: 'lines', ink: 'rgba(224,38,31,.06)' },
+  tabs: { mission: '☺ Mission Control', skins: '☺ Skins' },
+}
+
+const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, MENTALIST_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN, SAMURAI_SKIN, RED_JOHN_SKIN]
 
 // Only plain colour and font values reach the drawings: a skin file cannot
 // smuggle markup into an Svg.
@@ -1306,12 +1344,15 @@ async function bumpCredNow($: EngineInterface, change: (c: Cred) => Cred, quiet:
   await update($, cred, () => next)
   const was = levelOf(before.xp)
   const now = levelOf(next.xp)
-  // Street Cred is a cyberpunk add-on: other skins keep counting quietly, with no cheer.
+  // Street Cred is a cyberpunk add-on (CBI Cred on the Mentalist skins): other skins keep counting quietly, with no cheer.
   if (!eggOf()) return false
-  if (now > was) $.ui.toast(`${eggOf() === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED'} ↑ ${now} · ${eggOf() === 'samurai' ? rockerRankOf(now) : rankOf(now)}`)
-  for (const b of fresh) $.ui.toast(`${b.icon} Badge unlocked: ${b.name}`)
+  if (now > was) $.ui.toast(isCaseEgg(eggOf()) ? cbiToast(now) : `${eggOf() === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED'} ↑ ${now} · ${eggOf() === 'samurai' ? rockerRankOf(now) : rankOf(now)}`)
+  for (const b0 of fresh) {
+    const b = isCaseEgg(eggOf()) ? (CBI_BADGES.find(x => x.id === b0.id) ?? b0) : b0
+    $.ui.toast(`${b.icon} Badge unlocked: ${b.name}`)
+  }
   const isCheer = now > was || fresh.length > 0
-  if (!quiet && isCheer) void play($, `${ADDON}/assets/levelup.wav`)
+  if (!quiet && isCheer) void play($, cyberOf() ? `${ADDON}/assets/levelup.wav` : 'assets/done.wav')
   return isCheer
 }
 // The next currency in the list; a custom rate is kept only for the one it was set on.
@@ -1383,6 +1424,16 @@ function applySkin(k: Skin): void {
   ROLE_PALETTE = k.roles
   MOOD_COLOR = [k.colors.done, k.colors.warn, k.colors.alert]
   PANE_CSS = paneCss(k)
+}
+
+// Found a hidden skin: the greeting and a badge for the finder. SAMURAI plays its add-on
+// chime; Red John (core) none.
+async function foundSecret($: EngineInterface, k: Skin): Promise<void> {
+  const isRedJohn = k.cast === 'redjohn'
+  $.ui.toast(isRedJohn ? GREETING.redjohn : GREETING.samurai)
+  if (!isRedJohn) void play($, `${ADDON}/assets/done-samurai.wav`)
+  // Quiet: the badge's chime would cut the band's own.
+  await bumpCred($, c => (c.samurai ? c : { ...c, samurai: true, xp: c.xp + 50 }), true).catch(() => false)
 }
 
 // An open pane behind another tab is not raised by a second ui.open: close it, then open it.
@@ -2057,7 +2108,14 @@ const fmtTokens = (n: number): string =>
   n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${Math.round(n)}`
 
 // The easter eggs' flavour: the cyberpunk skins' casts have them, the rest none.
-const eggOf = (): Egg | undefined => (SKIN.cast === 'runners' || SKIN.cast === 'netrun' || SKIN.cast === 'corpo' || SKIN.cast === 'samurai' ? SKIN.cast : undefined)
+// The Mentalist and its hidden Red John skin have eggs of their own; the cyberpunk
+// visuals (Breach, MaxTac, Sandevistan, skyline, glitch, eddies) are `cyberOf()` only.
+const eggOf = (): Egg | undefined => (SKIN.cast === 'runners' || SKIN.cast === 'netrun' || SKIN.cast === 'corpo' || SKIN.cast === 'samurai' || SKIN.cast === 'mentalist' || SKIN.cast === 'redjohn' ? SKIN.cast : undefined)
+const isCaseEgg = (e: Egg | undefined): boolean => e === 'mentalist' || e === 'redjohn'
+const cyberOf = (): CyberEgg | undefined => {
+  const e = eggOf()
+  return e && !isCaseEgg(e) ? (e as CyberEgg) : undefined
+}
 
 // The money a cost is shown in. Costs are counted in US dollars and converted at an
 // approximate rate (each one can be set with `/missioncontrol currency <code> <rate>`).
@@ -2084,7 +2142,7 @@ const currencyLabel = (c: Currency): string => (c.code === 'AUTO' ? 'Auto ($, or
 const currencyOptions = () => CURRENCIES.map(c => ({ value: c.code, label: currencyLabel(c.code === CURRENCY.code ? CURRENCY : c) }))
 
 const fmtCost = (usd: number): string => {
-  const c = CURRENCY.code === 'AUTO' ? (eggOf() ? (CURRENCIES[2] as Currency) : (CURRENCIES[1] as Currency)) : CURRENCY
+  const c = CURRENCY.code === 'AUTO' ? (cyberOf() ? (CURRENCIES[2] as Currency) : (CURRENCIES[1] as Currency)) : CURRENCY
   const v = usd * c.rate
   return `${c.symbol}${c.decimals === 0 ? Math.round(v).toLocaleString('en-US') : v < 10 ? v.toFixed(2) : v < 10_000 ? v.toFixed(1) : Math.round(v).toLocaleString('en-US')}`
 }
@@ -3725,7 +3783,7 @@ const orgSvg = (W: number, root: OrgNode, isLight = false): string => {
 <circle class="still" cx="${x}" cy="${y + h / 2 + 2}" r="${w * 0.62}" fill="none" stroke="url(#ring)" stroke-width="2"/><circle class="smil" cx="${x}" cy="${y + h / 2 + 2}" r="${w * 0.62}" fill="none" stroke="url(#ring)" stroke-width="2"><animateTransform attributeName="transform" type="rotate" from="0 ${x} ${y + h / 2 + 2}" to="360 ${x} ${y + h / 2 + 2}" dur="${isWorking ? 3 : 8}s" repeatCount="indefinite"/></circle>
 ${(() => {
   const figure = `${crab(left, y, 'boss', false, isWorking, sc)}${crown(left, y, sc)}`
-  const egg = eggOf()
+  const egg = cyberOf()
   if (!egg || !isWorking) return dancing(figure, isParty)
   // David's Sandevistan: the boss leaves afterimages while the job runs.
   const sv = sandevistan(figure, egg)
@@ -3781,7 +3839,7 @@ ${slot >= 46 ? `<text${isWorking ? ' class="t"' : ' class="s"'} x="${x}" y="${y 
     castGrow = 1
     figureDefs = null
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${FONT}">${PANE_CSS}${CRAB_CSS}${eggOf() ? `<style>${EGG_CSS}</style>` : ''}
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${FONT}">${PANE_CSS}${CRAB_CSS}${cyberOf() ? `<style>${EGG_CSS}</style>` : ''}
 <defs>${figureDefsMarkup(figures)}${isLight ? '' : orgMarks()}
 <radialGradient id="aura"><stop offset="0" stop-color="${SKIN.boss[0]}" stop-opacity=".45"/><stop offset=".6" stop-color="${SKIN.boss[0]}" stop-opacity=".12"/><stop offset="1" stop-color="${SKIN.boss[0]}" stop-opacity="0"/></radialGradient>
 <linearGradient id="ring" x1="0" x2="1"><stop offset="0" stop-color="${SKIN.boss[0]}"/><stop offset=".5" stop-color="${SKIN.boss[2]}" stop-opacity=".2"/><stop offset="1" stop-color="${SKIN.boss[3]}"/></linearGradient>
@@ -4510,8 +4568,9 @@ ${label(y3, 'COST')}
 
 const hudBandSvg = (OW: number, d: HudData): string => {
   const c = SKIN.colors
-  const egg = eggOf()
-  if (d.simple && !egg) return hudSimpleSvg(OW, d)
+  const any = eggOf()
+  const egg = cyberOf()
+  if (d.simple && !any) return hudSimpleSvg(OW, d)
   // The frame takes the whole box; the content sits inside it, padded.
   const OH = HUD_OUT_H
   const W = OW - HUD_PAD * 2
@@ -4563,7 +4622,7 @@ ${egg ? heatStars(rx + 178, 43, burnStars(d.burnPerMin), egg) : ''}
 .shine{animation:shine 2.2s ease-in-out infinite}@keyframes shine{from{transform:translateX(-30px);opacity:0}30%{opacity:1}to{transform:translateX(${Math.max(40, Math.round((barW * (pct ?? 0)) / 100))}px);opacity:0}}
 .cur{animation:cur 1.1s steps(1) infinite}@keyframes cur{50%{opacity:0}}
 @media (prefers-reduced-motion: reduce){.ekg,.hscan,.hedge,.beam,.brk,.shine,.cur{animation:none}}
-${egg ? EGG_CSS : ''}
+${egg ? EGG_CSS : isCaseEgg(any) ? MENT_CSS : ''}
 </style>`
   // A beam of light that crosses the card, clipped to its shape.
   const beam = `<defs><clipPath id="hudclip">${cardShape(0.5, 0.5, OW - 1, OH - 1, '', 10)}</clipPath>
@@ -4619,7 +4678,9 @@ ${hudLines(W, d)}
 </g>
 ${hudSpare(W)}
 </g>
-${egg && d.isParty ? celebration(OW, OH, egg, FONT, d.partyAt) : ''}`,
+${egg && d.isParty ? celebration(OW, OH, egg, FONT, d.partyAt) : ''}
+${isCaseEgg(any) && d.isParty ? caseClosed(OW, OH, FONT, c, d.partyAt) : ''}
+${any === 'mentalist' && (d.ctxPct >= 95 || (d.budget && d.budget.usedMs > d.budget.min * 60_000)) ? hiddenSmiley(OW, OH) : ''}`,
   )
 }
 
@@ -4644,12 +4705,13 @@ const hudHead = (W: number, d: HudData): string => {
   const bgW = bgLabel ? Math.round(textWidth(bgLabel, 9.5) + 14) : 0
   const bx = cx + (crewW ? crewW + 8 : 0)
   const mx = bgW ? bx + bgW + 12 : cx + (crewW ? crewW + 12 : 4)
-  const egg = eggOf()
-  const psy = egg ? psychoChip(mx, y, d.ctxPct, FONT) : { svg: '', w: 0 }
+  const any = eggOf()
+  const egg = cyberOf()
+  const psy = egg ? psychoChip(mx, y, d.ctxPct, FONT) : isCaseEgg(any) ? teaChip(mx, y, d.ctxPct, c, FONT) : { svg: '', w: 0 }
   const mx2 = mx + (psy.w ? psy.w + 10 : 0)
   const model = [PROVIDER, d.model, d.effort].filter(Boolean).join(' · ')
   const clock = d.budget ? `⏱\uFE0E ${budgetLabel(d.budget.usedMs, d.budget.min)}` : d.taskMs > 0 ? `⏱\uFE0E ${fmtTime(d.taskMs)}` : ''
-  const parts = [egg ? `♪ ${radio(d.at)}` : '', d.folder ? `▤ ${d.folder}` : '', clock].filter(Boolean)
+  const parts = [egg ? `♪ ${radio(d.at)}` : isCaseEgg(any) ? episodeAt(d.at, any === 'redjohn') : '', d.folder ? `▤ ${d.folder}` : '', clock].filter(Boolean)
   const widthOf = (xs: string[]) => (xs.length ? textWidth(xs.join('   '), 11) + 8 : 0)
   while (parts.length > (clock ? 1 : 0) && W - 14 - widthOf(parts) < mx2 + 60) parts.shift()
   const right = parts.join('   ')
@@ -4657,17 +4719,20 @@ const hudHead = (W: number, d: HudData): string => {
   const done = d.steps.filter(st => st === 'done').length
   // The breach ticker takes the middle when there is room for it.
   const breachX = W - 14 - rightW - BREACH_W - 24
+  const coldX = W - 14 - rightW - COLD_W - 24
   const hasBreach = Boolean(egg) && breachX > mx2 + 120
-  return `<rect x="14" y="${y - 7}" width="5" height="5" fill="${c.accent2}" transform="rotate(45 16.5 ${y - 4.5})"/>
+  const hasCold = isCaseEgg(any) && coldX > mx2 + 120
+  return `${any === 'redjohn' ? smiley(10, y - 11, 11, 1, 'rjs') : `<rect x="14" y="${y - 7}" width="5" height="5" fill="${c.accent2}" transform="rotate(45 16.5 ${y - 4.5})"/>`}
 <text x="24" y="${y}" font-family="${FONT}" font-size="10.5" font-weight="800" letter-spacing=".9" fill="${c.accent2}">${name}<tspan class="cur">▮</tspan></text>
 ${egg ? `<text x="24" y="${y + 7}" font-family="${FONT.replace(/,?sans-serif$/, '')},${CJK_FONT}" font-size="7" letter-spacing="1.2" fill="${c.accent2}" fill-opacity=".5">${KATAKANA[egg]}</text>` : ''}
 ${hasBreach && egg ? breachTicker(breachX, y, d.isWorking, done, d.steps.length, egg, FONT) : ''}
+${hasCold ? coldTicker(coldX, y, d.isWorking, done, d.steps.length, c, FONT) : ''}
 ${psy.svg}
 ${hasSkinChip ? `<rect x="${sx}" y="${y - 10}" width="${skinW}" height="13" rx="2" fill="none" stroke="${c.accent2}" stroke-opacity=".55"/>
 <text x="${sx + skinW / 2}" y="${y - 0.5}" text-anchor="middle" font-family="${FONT}" font-size="9.5" font-weight="700" letter-spacing=".4" fill="${c.accent2}">${xml(skin)}</text>` : ''}
 ${crewW ? `<rect class="live" x="${cx}" y="${y - 10}" width="${crewW}" height="13" rx="2" fill="${c.accent}"/><text x="${cx + crewW / 2}" y="${y - 0.5}" text-anchor="middle" font-family="${FONT}" font-size="9.5" font-weight="800" letter-spacing=".4" fill="${inkOn(c.accent)}"><title>${xml(d.crewMode)}</title>${crewLabel}</text>` : ''}
 ${bgW ? `<rect x="${bx}" y="${y - 10}" width="${bgW}" height="13" rx="2" fill="none" stroke="${c.accent}" stroke-opacity=".8"/><text x="${bx + bgW / 2}" y="${y - 0.5}" text-anchor="middle" font-family="${FONT}" font-size="9.5" font-weight="800" letter-spacing=".4" fill="${c.accent}"><title>${d.bg} ${xml(tr().bgBand)}</title>${bgLabel}</text>` : ''}
-<text class="s" x="${mx2}" y="${y}" font-family="${FONT}" font-size="11">${xml(fitText(model, 11, Math.max(0, (hasBreach ? breachX : W - rightW - 14) - mx2 - 16)))}</text>
+<text class="s" x="${mx2}" y="${y}" font-family="${FONT}" font-size="11">${xml(fitText(model, 11, Math.max(0, (hasBreach ? breachX : hasCold ? coldX : W - rightW - 14) - mx2 - 16)))}</text>
 ${!d.budget && clock && d.taskFrom
   ? // The seconds tick inside the image: the band is not drawn again for them.
     liveText(W - 14, y, d.at, 11, `class="m" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums"`, t => [...parts.slice(0, -1), `⏱\uFE0E ${fmtTime(Math.max(0, t - (d.taskFrom ?? t)))}`].join('   '))
@@ -4935,7 +5000,8 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
   await $.store.set('legends', [legend, ...kept].slice(0, LEGENDS_KEPT)).catch(() => undefined)
   const egg = eggOf()
   // A long job makes a legend: the Afterlife names a drink after it.
-  if (egg && legend.ms >= 180_000) $.ui.toast(egg === 'corpo' ? `▣ Engram filed in Mikoshi: ${clip(legend.task, 40)}` : `🍸 The Afterlife named a drink after you: The ${clip(legend.task, 40)}`)
+  if (isCaseEgg(egg) && legend.ms >= 180_000) $.ui.toast(CLOSED_FILES_TOAST)
+  else if (egg && legend.ms >= 180_000) $.ui.toast(egg === 'corpo' ? `▣ Engram filed in Mikoshi: ${clip(legend.task, 40)}` : `🍸 The Afterlife named a drink after you: The ${clip(legend.task, 40)}`)
   $.ui.toast(`🎉 Done: ${clip(job.task, 60)}`)
   void $.ui.notify(`Claude finished: ${clip(job.task, 80)}`).catch(() => undefined)
   // Spoken status (opt-in): the crew, then what the job cost, after the chime.
@@ -4945,7 +5011,7 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
   }
   // One chime, not two cut short: the level-up's when the job earned one, else the skin's.
   const isCheer = await paid.catch(() => false)
-  void play($, !egg ? 'assets/done.wav' : isCheer ? `${ADDON}/assets/levelup.wav` : `${ADDON}/assets/done-${egg}.wav`)
+  void play($, !egg || isCaseEgg(egg) ? 'assets/done.wav' : isCheer ? `${ADDON}/assets/levelup.wav` : `${ADDON}/assets/done-${egg}.wav`)
 }
 
 // What everyone is doing right now, from each tool call: the live activity line,
@@ -5565,7 +5631,7 @@ export const register: Register = (on, options) => {
         isStep = completed(plan) > completed(prev.plan)
         return { ...prev, plan }
       }).catch(() => undefined)
-      if (isStep && eggOf()) void play($, `${ADDON}/assets/step.wav`)
+      if (isStep && cyberOf()) void play($, `${ADDON}/assets/step.wav`)
     }
     return next(e)
   })
@@ -5765,14 +5831,14 @@ export const register: Register = (on, options) => {
       const ctx = (await read($, env)).contextPct
       if (ctx >= 90 && !(await read($, cred)).chromed) await bumpCred($, c => (c.chromed ? c : { ...c, chromed: true, xp: c.xp + 20 })).catch(() => false)
       if (ctx < 90) sirenPlayed = false
-      else if (egg && ctx >= 95 && !sirenPlayed) {
+      else if (cyberOf() && ctx >= 95 && !sirenPlayed) {
         sirenPlayed = true
         void play($, `${ADDON}/assets/maxtac.wav`)
       }
       if (ctx < 80) psyWarned = false
       else if (egg && ctx >= 85 && !psyWarned) {
         psyWarned = true
-        $.ui.toast(`⚠ Cyberpsychosis risk: context ${ctx}%. Take your immunosuppressants: /compact`)
+        $.ui.toast(isCaseEgg(egg) ? TEA_WARNING(ctx) : `⚠ Cyberpsychosis risk: context ${ctx}%. Take your immunosuppressants: /compact`)
       }
       if (typeof e.effort === 'string') {
         const effort = e.effort
@@ -6087,7 +6153,7 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="boot" marginBottom={1}>
                 <Svg
-                  source={bootStrip(W, SKIN.colors, FONT, 'JACKING IN…', egg === 'corpo' ? 'ARASAKA NETWORK › IDENTITY VERIFIED › ACCESS GRANTED' : egg === 'samurai' ? 'WAKE UP, SAMURAI › AMPS ON › LIVE AT THE ATLANTIS' : egg === 'netrun' ? 'JACKED IN › DIVING THE NET › ICE BYPASSED' : 'LINK ESTABLISHED › NEURAL HANDSHAKE OK › ICE BYPASSED')}
+                  source={isCaseEgg(egg) ? bootStrip(W, SKIN.colors, FONT, ...(egg === 'redjohn' ? REDJOHN_BOOT : MENTALIST_BOOT) as [string, string]) : bootStrip(W, SKIN.colors, FONT, 'JACKING IN…', egg === 'corpo' ? 'ARASAKA NETWORK › IDENTITY VERIFIED › ACCESS GRANTED' : egg === 'samurai' ? 'WAKE UP, SAMURAI › AMPS ON › LIVE AT THE ATLANTIS' : egg === 'netrun' ? 'JACKED IN › DIVING THE NET › ICE BYPASSED' : 'LINK ESTABLISHED › NEURAL HANDSHAKE OK › ICE BYPASSED')}
                   alt="Mission Control online"
                 />
               </Box>
@@ -6107,8 +6173,8 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="cred" marginBottom={1}>
                 <Svg
-                  source={credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
-                  alt={`Level ${levelOf(streetCred.xp)} ${(egg === 'samurai' ? rockerRankOf : rankOf)(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
+                  source={isCaseEgg(egg) ? credCard(W, streetCred, SKIN.colors, FONT, cardShape, 'CBI CRED', '', cbiRankOf, CBI_WORDS) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
+                  alt={`Level ${levelOf(streetCred.xp)} ${(isCaseEgg(egg) ? cbiRankOf : egg === 'samurai' ? rockerRankOf : rankOf)(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
                 />
               </Box>
             ) : null}
@@ -6130,8 +6196,8 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="breach" marginBottom={1}>
                 <Svg
-                  source={breachCard(W, steps.filter(st => st.state === 'done').length, steps.length, boss.isWorking, egg, FONT, cardShape)}
-                  alt={`Breach Protocol: ${steps.filter(st => st.state === 'done').length} of ${steps.length} steps`}
+                  source={isCaseEgg(egg) ? coldReadCard(W, boss.task, boss.isWorking, steps.filter(st => st.state === 'done').length, steps.length, SKIN.colors, FONT, cardShape, egg === 'redjohn') : breachCard(W, steps.filter(st => st.state === 'done').length, steps.length, boss.isWorking, egg, FONT, cardShape)}
+                  alt={isCaseEgg(egg) ? `Cold read: ${boss.isWorking ? 'reading' : 'waiting'}, ${steps.filter(st => st.state === 'done').length} of ${steps.length} steps` : `Breach Protocol: ${steps.filter(st => st.state === 'done').length} of ${steps.length} steps`}
                 />
               </Box>
             ) : null}
@@ -6139,14 +6205,14 @@ export const register: Register = (on, options) => {
               <Box key="legends" marginBottom={1}>
                 <Svg
                   source={legendsCard(W, legends, egg, FONT, fmtCost, cardShape)}
-                  alt={`${egg === 'corpo' ? 'Mikoshi engrams' : 'Afterlife drinks'}: ${legends.map(l => l.task).join(', ') || 'none yet'}`}
+                  alt={`${isCaseEgg(egg) ? 'Closed files' : egg === 'corpo' ? 'Mikoshi engrams' : 'Afterlife drinks'}: ${legends.map(l => l.task).join(', ') || 'none yet'}`}
                 />
               </Box>
             ) : null}
             {egg ? (
               <Box key="bd" flexDirection="column" marginBottom={1}>
                 <Svg
-                  source={braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
+                  source={braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, isCaseEgg(egg) ? 'CASE BOARD' : egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
                   alt={braindanceAlt(beats, pick)}
                 />
                 <Box flexDirection="row" gap={2}>
@@ -6495,6 +6561,17 @@ export const register: Register = (on, options) => {
     if (isNote) await dropNotified($, e.text ?? '').catch(() => undefined)
     const asked = e.isMeta || e.command || !isPersons ? '' : e.text.trim()
     if (!e.isMeta) pendingCommand = isPersons && e.command ? `/${e.command.name}${e.command.args && !looksLikeKey(e.command.args) ? ` ${e.command.args}` : ''}` : '' // a pasted key never becomes a job's name
+    // The hidden skin: "tyger tyger" typed while wearing The Mentalist. The prompt goes on unchanged.
+    if (asked && SKIN.id === 'mentalist' && TYGER_RE.test(asked)) {
+      const found = SKINS.get('red-john')
+      if (found) {
+        applySkin(found)
+        await $.store.set('skin', found.id).catch(() => undefined)
+        await update($, skin, () => found.id)
+        await retitle($).catch(() => undefined)
+        await foundSecret($, found).catch(() => undefined)
+      }
+    }
     if (asked) await startJob($, asked)
     // A turn Claude starts on its own (a report to answer, a schedule, a peer) is work
     // in hand; a report read inside the running turn is answered there.
@@ -6799,7 +6876,7 @@ export const register: Register = (on, options) => {
           )}
           <Button
             key="set-sounds"
-            label={`${prefs.sounds ? '☑\uFE0E' : '☐'} ${eggOf() ? 'Sounds: chimes, blips and the MaxTac siren' : 'Sounds: job-done chime'}`}
+            label={`${prefs.sounds ? '☑\uFE0E' : '☐'} ${cyberOf() ? 'Sounds: chimes, blips and the MaxTac siren' : 'Sounds: job-done chime'}`}
             plain
             onPress={async () => {
               const isOn = !(await read($, settings)).sounds
@@ -6896,13 +6973,7 @@ export const register: Register = (on, options) => {
     await $.store.set('skin', k.id)
     await update($, skin, () => k.id)
     await retitle($)
-    if (k.hidden) {
-      // Found the secret: a badge for the finder.
-      $.ui.toast(GREETING.samurai)
-      void play($, `${ADDON}/assets/done-samurai.wav`)
-      // Quiet: the badge's chime would cut the band's own.
-      await bumpCred($, c => (c.samurai ? c : { ...c, samurai: true, xp: c.xp + 50 }), true).catch(() => false)
-    }
+    if (k.hidden) await foundSecret($, k)
     return { text: `Skin: ${k.name}.` }
   })
 

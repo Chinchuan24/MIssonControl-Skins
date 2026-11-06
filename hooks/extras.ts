@@ -37,6 +37,8 @@ export const BADGES: Badge[] = [
 ]
 
 // The badges a cred has just earned, and the cred with them recorded.
+// The words a skin can swap on the card: its badges' names and the stat labels.
+export type CredWords = { badges: Badge[]; cases: string; long: string; all: string }
 export const award = (c: Cred): { cred: Cred; fresh: Badge[] } => {
   const fresh = BADGES.filter(b => !c.badges.includes(b.id) && b.progress(c) >= 1)
   return { cred: fresh.length ? { ...c, badges: [...c.badges, ...fresh.map(b => b.id)] } : c, fresh }
@@ -153,7 +155,8 @@ const credHead = (W: number): number => (W < NARROW ? 206 : 146)
 // (the medallion rows start a little lower, under the "NEXT" line)
 const credPer = (W: number): number => Math.max(1, Math.floor((W - 28) / 100))
 export const credHeight = (W: number): number => credHead(W) + 20 + Math.ceil(BADGES.length / credPer(W)) * 70
-export const credCard = (W: number, c: Cred, t: Theme, font: string, frame: Frame, title: string, kana = '', ranks: (level: number) => string = rankOf): string => {
+export const credCard = (W: number, c: Cred, t: Theme, font: string, frame: Frame, title: string, kana = '', ranks: (level: number) => string = rankOf, words?: CredWords): string => {
+  const badges = words?.badges ?? BADGES
   const H = credHeight(W)
   const head = credHead(W)
   const isNarrow = W < NARROW
@@ -193,8 +196,8 @@ ${segs}
   const stat = (x: number, y: number, slot: number, k: string, v: string) =>
     `<text x="${x.toFixed(1)}" y="${y}" font-family="${font}" font-size="9" font-weight="800" letter-spacing=".8" fill="${t.muted}">${esc(clipW(k, 9, slot - 6, 0.8))}</text><text x="${x.toFixed(1)}" y="${y + 13}" font-family="${font}" font-size="13" font-weight="800" fill="${v === '0' ? t.muted : t.text}" font-variant-numeric="tabular-nums">${v === '0' ? '—' : esc(clipW(v, 13, slot - 6))}</text>`
   const statList: [string, string][] = [
-    ['GIGS', `${c.jobs}`],
-    ['MAJOR GIGS', `${c.longJobs}`],
+    [words?.cases ?? 'GIGS', `${c.jobs}`],
+    [words?.long ?? 'MAJOR GIGS', `${c.longJobs}`],
     ['AGENTS', `${c.agents}`],
     ['BADGES', `${c.badges.length}/${BADGES.length}`],
   ]
@@ -214,7 +217,7 @@ ${segs}
   // The medallions: hexes with an icon; earned ones glow, locked ones are dark with a "?".
   const per = credPer(W)
   const cell = (W - 28) / per
-  const meds = BADGES.map((b, i) => {
+  const meds = badges.map((b, i) => {
     const on = c.badges.includes(b.id)
     const mx = 14 + (i % per) * cell + cell / 2
     const my = head + 40 + Math.floor(i / per) * 70
@@ -241,8 +244,8 @@ ${bar}
 ${stats}
 <line x1="14" y1="${head + 0.5}" x2="${W - 14}" y2="${head + 0.5}" stroke="${t.line}"/>
 ${(() => {
-  const next = BADGES.filter(b => !c.badges.includes(b.id)).sort((a, b2) => b2.progress(c) - a.progress(c))[0]
-  const line = next ? `NEXT: ${next.name} · ${next.how}` : 'ALL BADGES EARNED. PREEM.'
+  const next = badges.filter(b => !c.badges.includes(b.id)).sort((a, b2) => b2.progress(c) - a.progress(c))[0]
+  const line = next ? `NEXT: ${next.name} · ${next.how}` : words?.all ?? 'ALL BADGES EARNED. PREEM.'
   return `<text x="${W - 14}" y="${head + 12}" text-anchor="end" font-family="${font}" font-size="8.5" font-weight="800" letter-spacing=".8" fill="${t.muted}">${esc(clipW(line, 8.5, W - 28, 0.8))}</text>`
 })()}
 ${meds}
