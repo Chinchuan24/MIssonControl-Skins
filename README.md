@@ -66,7 +66,7 @@
 
 <p align="center"><sub>Both zips are the full mod (Cyberpunk = Core + add-on). Unzip, <a href="#-install">point Claude Code at the folder</a>, restart.</sub></p>
 
-> **Unofficial, non-commercial fan project.** Not affiliated with, endorsed by or sponsored by CD PROJEKT S.A., CD PROJEKT RED, Studio Trigger or Netflix. Cyberpunk 2077, Cyberpunk: Edgerunners and all related names, characters and terms belong to their respective owners and are used as fan homage only. The MIT license covers this project's code, not those properties. Removal requests: open an issue.
+> **Unofficial, non-commercial fan project.** Not affiliated with, endorsed by or sponsored by CD PROJEKT S.A., CD PROJEKT RED, Studio Trigger or Netflix. Cyberpunk 2077, Cyberpunk: Edgerunners, Edgerunners 2 and all related names, characters and terms belong to their respective owners and are used as fan homage only. The MIT license covers this project's code, not those properties. Removal requests: open an issue.
 
 ---
 
@@ -134,7 +134,8 @@ The add-on swaps the crabs for a pixel-art cast, moves the HUD to Night City and
 |---|:---:|:---:|
 | HUD band, pane, crew, Token Manager, crew mode, done chime, rich replies | ✓ | ✓ |
 | `default` and Crab Classic skins, custom JSON skins | ✓ | ✓ |
-| **Cyberpunk Edgerunner**, **Lucy · Edgerunners**, **Arasaka** skins + a hidden one 🎸 | — | ✓ |
+| **Cyberpunk Edgerunner**, **Lucy · Edgerunners**, **Arasaka**, **Edgerunners 2** skins + two hidden ones 🎸 | — | ✓ |
+| **Edgerunners 2** (fan homage): torn magenta paper on black, BIOCHIP, Roman's Tape, the Watson Wall, and Capri who walks in now and then | — | ✓ |
 | Pixel-art cast: David, Lucy, Rebecca, Maine, Kiwi, Johnny… Saburo and Adam Smasher on Arasaka | — | ✓ |
 | **Street Cred**: XP per job, ranks NOBODY → LEGEND OF THE AFTERLIFE, 9 badges | — | ✓ |
 | **Braindance**: replay the session, every tool call a mark | — | ✓ |
@@ -155,6 +156,7 @@ Pick one with `/skins` (a live picker) or `/skin <id>`. Each skin restyles the b
 | 🟡 Cyberpunk Edgerunner | `cyberpunk-2077` | Neon yellow, cyan and hot red. David leads the crew. |
 | 🌙 Lucy · Edgerunners | `lucy-edgerunners` | Rose-pink and cyan under the moon. Lucy runs the net. |
 | 🔴 Arasaka | `arasaka` | Corporate red and black. Saburo at the top, Smasher on call. |
+| ✂️ Edgerunners 2 | `edgerunners-2` | Torn magenta paper on black. D and the Kings; Capri visits. |
 | 🎸 ??? | — | Not in the picker. Wake up… |
 
 <details open>

@@ -25,14 +25,40 @@ import {
 } from './mentalist'
 import { MENT_EXTRA_CSS, cardGlyphs, hypnosis, mentSkyline, redJohnHeat, smileGlitch, teaSteam } from './mentalist-extra'
 import { caseBoard, caseBoardAlt, ctxChip, personnelFile } from './mentalist-cards'
+import { CAPRICORN_GREETING, ER2_BAND_H, ER2_BOOT, ER2_CSS, ER2_GREETING, ER2_TITLE_WORDS, ER2_TOOLS, ER2_WARNING, TK_CSS, er2Cheer, er2Chip, er2Crew, er2EpW, er2Ep, er2EpisodeAt, er2Figure, er2Foot, er2Name, er2PaneCreep, er2PaneSpots, er2Peek, er2Pip, er2Takeover, er2Tear, er2W } from './edgerunners2'
+import { ER2_BADGES, ER2_WORDS as ER2_CRED_WORDS, biochipAlt, biochipCard, er2RankOf, er2Toast, tapeAlt, tapeCard, wallAlt, wallCard } from './edgerunners2-cards'
+import { ER_CAPRI } from './cast'
+import type { Sprite } from './cast'
+import type { RoamColors, RoamPlan, RoamTiming } from './roamer'
 import type { Badge, Beat, Cred, CredWords, Frame } from './extras'
 import type { Legend } from './eggs'
 
-export type ThemeKey = 'mentalist' | 'redjohn' | 'breakingbad' | 'heisenberg'
+export type ThemeKey = 'mentalist' | 'redjohn' | 'breakingbad' | 'heisenberg' | 'edgerunners2' | 'capricorn'
 /** The skin colours a theme's drawers read. */
 export type ThemeColors = { accent: string; accent2: string; done: string; warn: string; alert: string; text: string; subtext: string; muted: string; tile: string; track: string; line: string }
 /** What the band knows when it asks for its corner egg. */
-export type ThemeCtx = { ctxPct: number; overBudget: boolean }
+export type ThemeCtx = { ctxPct: number; overBudget: boolean; /** Is a job running (the Edgerunners 2 edge is magenta while it works). */ isWorking?: boolean }
+
+/** A character who wanders through both panels now and then (roamer.ts): her sprite, rim colours, lines and chance. */
+export type ThemeRoamer = {
+  /** Walks and sits. */
+  sprite: Sprite
+  colors: RoamColors
+  /** Makes her plan her own: the same seed gives the same plan for the same clock. */
+  seed: string
+  /** What a takeover says, one picked per takeover. */
+  lines: string[]
+  /** The chance of a walk, peek or sit per 30 s window, higher as the context climbs. */
+  chance: (ctxPct: number) => number
+  /** Her peek at a band spot (the edge she leans out of); without it the engine's own peek stands at `peekAt`. */
+  peek?: (x: number, y: number, plan: RoamPlan, tm: RoamTiming) => string
+  /** The pane's spots: where a peek stands and where a sit sits, for a card W by H. */
+  spots?: (W: number, H: number) => { peek?: { x: number; y: number }; sit?: { x: number; y: number } }
+  /** Always drawn over a card past 95% context (shards creeping in along the edge). */
+  creep?: (W: number, H: number, ctxPct: number) => string
+  /** Keyframes for her own pieces (the takeover's), with a reduced-motion rule. */
+  css?: string
+}
 
 export type ThemeEggs = {
   // --- the slots every theme fills ---
@@ -80,7 +106,19 @@ export type ThemeEggs = {
     gauge: (xr: number, y: number, isWorking: boolean, done: number, total: number, t: ThemeColors, font: string) => { svg: string; w: number }
     /** The strip along the foot, with the hidden corner egg. */
     foot: (W: number, H: number, t: ThemeColors, ctx: ThemeCtx) => string
+    /** The header's name in the theme's own hand (a paper label, a patch, a line of identity), in place of the plain label; `w` is what it takes. */
+    name?: (x: number, y: number, W: number, t: ThemeColors, font: string) => { svg: string; w: number }
+    /** The episode in place of the plain text: its width, and it drawn right-aligned at `xr`; `full` shows the title, else only the code. */
+    ep?: { w: (code: string, title: string, full: boolean) => number; draw: (xr: number, y: number, code: string, title: string, full: boolean, t: ThemeColors) => string }
+    /** The task row's gauge (x, y, width, percent) in place of the segment bar. */
+    tear?: (x: number, y: number, w: number, pct: number, t: ThemeColors) => string
+    /** The foot draws the band's left edge itself: the engine's thin status edge is left out. */
+    ownEdge?: boolean
   }
+  /** A character who roams the band and the pane (a walk, a peek, a sit, now and then a takeover). */
+  roamer?: ThemeRoamer
+  /** The takeover's look in place of roamer.ts's (a dark scrim, her big, a bubble): a cover over the panel W by H, timed by `tm` (pinned start, or now and start). */
+  takeover?: (W: number, H: number, line: string, tm: RoamTiming) => string
   /** One line of the cold read for the slim band. */
   coldLine?: (task: string) => string
   /** The slim band's idle drawing (a cup of tea): the top-left of a 12 by 16 box. */
@@ -179,11 +217,65 @@ const bbTheme = (heis: boolean): ThemeEggs => ({
   tools: BB_TOOLS,
 })
 
+
+// Edgerunners 2 (and its secret CAPRICORN skin): torn magenta paper on black. The band is the slim band in
+// the theme's own hand; BIOCHIP is the level card, ROMAN'S TAPE the log, WATSON WALL the closed jobs.
+const er2Theme = (sec: boolean): ThemeEggs => ({
+  ticker: er2EpisodeAt,
+  css: ER2_CSS,
+  readout: { w: 0, draw: () => '' },
+  chip: (x, y, ctxPct) => er2Chip(x, y, ctxPct, sec),
+  slimBand: true,
+  slim: {
+    h: ER2_BAND_H,
+    sw: (s, size, ls = 0, bold = false) => er2W(s, size, ls, bold ? 700 : 500),
+    head: () => ({ svg: '', w: 0 }),
+    name: (x, y, W) => er2Name(x, y, W, sec),
+    ep: { w: er2EpW, draw: (xr, y, code, title, full) => er2Ep(xr, y, code, title, full, sec) },
+    tear: (x, y, w, pct) => er2Tear(x, y, w, pct, sec),
+    ownEdge: true,
+    figure: () => er2Figure(sec),
+    crew: (x, y, color) => er2Crew(x, y, color, sec),
+    pip: (st, cx, cy, t) => er2Pip(st, cx, cy, t, sec),
+    gauge: () => ({ svg: '', w: 0 }),
+    foot: (W, H, _t, ctx) => er2Foot(W, H, sec, ctx),
+  },
+  warning: ER2_WARNING,
+  cheer: (W, H, font, t, startAt) => er2Cheer(W, H, font, t, startAt, sec),
+  cred: { title: 'BIOCHIP', ranks: er2RankOf, words: ER2_CRED_WORDS, badges: ER2_BADGES, toast: er2Toast, card: (W, c) => biochipCard(W, c, sec) },
+  card: {
+    draw: (W, _task, _isWorking, _done, _total, _t, _font, _frame, legends) => wallCard(W, legends, sec),
+    alt: () => 'Watson Wall',
+  },
+  legends: { title: 'WATSON WALL', empty: 'Bare wall. Finish a job and paste it up.', icon: '✂', alt: 'Watson Wall', toast: 'Pasted up on the Watson Wall.', hidden: true },
+  log: { draw: (W, beats, pick) => tapeCard(W, beats, pick, sec), hasControls: true, alt: tapeAlt },
+  boot: ER2_BOOT,
+  greeting: sec ? CAPRICORN_GREETING : ER2_GREETING,
+  words: ER2_TITLE_WORDS,
+  tools: ER2_TOOLS,
+  roamer: {
+    sprite: ER_CAPRI,
+    // Her pink rim is what keeps a black sprite visible on black; the data trail she sheds is acid green.
+    colors: { accent: '#FF2E7E', accent2: '#3DF27A', text: '#F7F4EA' },
+    seed: sec ? 'capricorn' : 'er2',
+    lines: sec ? ["we're one now."] : ['hi, choom.', 'hi.', 'just me, choom.', 'bye-bye, choomba!'],
+    // She comes more often as the context climbs: a little at the start, much more near 95%.
+    chance: ctxPct => (sec ? 0.6 : ctxPct >= 95 ? 0.8 : ctxPct >= 85 ? 0.55 : 0.3),
+    peek: (x, y, plan, tm) => er2Peek(x, y, plan, tm),
+    spots: er2PaneSpots,
+    creep: er2PaneCreep,
+    css: TK_CSS,
+  },
+  takeover: (W, H, line, tm) => er2Takeover(W, H, line, tm, sec),
+})
+
 export const THEMES: Record<ThemeKey, ThemeEggs> = {
   mentalist: caseTheme(false),
   redjohn: caseTheme(true),
   breakingbad: bbTheme(false),
   heisenberg: bbTheme(true),
+  edgerunners2: er2Theme(false),
+  capricorn: er2Theme(true),
 }
 export const THEME_KEYS = Object.keys(THEMES) as ThemeKey[]
 export const themeKeyOf = (cast: string | undefined): ThemeKey | undefined => (cast && Object.hasOwn(THEMES, cast) ? (cast as ThemeKey) : undefined)

@@ -8,6 +8,8 @@ import type { CyberEgg, Egg, Legend } from './eggs'
 import { TYGER_RE } from './mentalist'
 import { BB_SKIN_WORDS, BB_TOOLS, SAY_MY_NAME_RE } from './breakingbad'
 import { THEMES, themeKeyOf } from './themes'
+import { CAPRICORN_RE, ER2_FONT, ER2_TOOLS, ER2_WORDS, HI_CAPRI_MS, HI_CAPRI_RE } from './edgerunners2'
+import { overlayInto, roamOverlay, takeoverWithin } from './overlay'
 import type { ThemeEggs } from './themes'
 import { canNudge, nudge, pickQuiet, prBadge, quietOf, rememberTask, repoAndBranch, rescueText, retryOnHaiku, whatIf, whatIfText, whatIfTip } from './coach'
 import { flatSmiley, serifClip, serifW } from './mentalist-cards'
@@ -1678,7 +1680,80 @@ const HEISENBERG_SKIN: Skin = {
   tabs: { mission: '⚗\uFE0E Mission Control', skins: '⚗\uFE0E Skins' },
 }
 
-const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, MENTALIST_SKIN, BREAKING_BAD_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN, SAMURAI_SKIN, RED_JOHN_SKIN, HEISENBERG_SKIN]
+// Edgerunners 2 (fan homage, Cyberpunk Skins add-on): torn magenta paper pasted on black, paper tape and the
+// key art's eye, in a condensed face. Pink and acid green are Capri's own and show only when she is near.
+// Cyberpunk: Edgerunners belongs to CD PROJEKT RED, Studio Trigger and Netflix, used as fan homage only.
+const EDGERUNNERS2_SKIN: Skin = {
+  id: 'edgerunners-2',
+  cast: 'edgerunners2',
+  name: 'Edgerunners 2',
+  description: 'Fan homage: D and the Kings on torn magenta paper and black. No signal, no survival.',
+  font: ER2_FONT,
+  corners: 'round',
+  dark: true,
+  colors: {
+    accent: '#FD0250',
+    accent2: '#E9E6D8',
+    done: '#8ED1BF',
+    warn: '#F5A35C',
+    alert: '#FF5A92',
+    meter: '#3E80F7',
+    text: '#F1EEE4',
+    subtext: '#C2B9B3',
+    muted: '#968B90',
+    tile: '#0A0709',
+    track: '#1A333C',
+    line: '#2C2128',
+    grid: '#1E161B',
+  },
+  boss: ['#FD0250', '#E9E6D8', '#A02241', '#3E80F7', '#FD0250'],
+  roles: ['#FD0250', '#E9E6D8', '#3E80F7', '#8ED1BF', '#F5A35C', '#A02241'],
+  effects: { scanlines: false, glitch: false },
+  chat: true,
+  words: ER2_WORDS,
+  toolWords: ER2_TOOLS,
+  backdrop: { fill: '#020A0D', pattern: 'none', ink: '' },
+  tabs: { mission: '✂\uFE0E Mission Control', skins: '✂\uFE0E Skins' },
+}
+
+// CAPRICORN: the hidden skin of Edgerunners 2, where Capri owns the paper. Not in the picker or the list:
+// `/skin capricorn` finds it, or typing "0+2=1" (the third episode's title) while wearing Edgerunners 2, or
+// answering one of her takeovers with "hi capri" inside a minute. Typing "0+2=1" again takes it off.
+const CAPRICORN_SKIN: Skin = {
+  id: 'capricorn',
+  cast: 'capricorn',
+  hidden: true,
+  name: 'CAPRICORN',
+  description: 'The hidden one: she owns the paper now. 0+2=1.',
+  font: ER2_FONT,
+  corners: 'round',
+  dark: true,
+  colors: {
+    accent: '#050305',
+    accent2: '#22030C',
+    done: '#050305',
+    warn: '#22030C',
+    alert: '#050305',
+    meter: '#050305',
+    text: '#050305',
+    subtext: '#22030C',
+    muted: '#2A0510',
+    tile: '#FD0250',
+    track: '#B0003A',
+    line: '#B8003A',
+    grid: '#E0023F',
+  },
+  boss: ['#050305', '#3DF27A', '#FF2E7E', '#050305', '#3DF27A'],
+  roles: ['#050305', '#3DF27A', '#FF2E7E', '#22030C', '#A02241', '#F7F4EA'],
+  effects: { scanlines: false, glitch: false },
+  chat: true,
+  words: [...ER2_WORDS, "We're one now"],
+  toolWords: ER2_TOOLS,
+  backdrop: { fill: '#FD0250', pattern: 'none', ink: '' },
+  tabs: { mission: '✂\uFE0E Mission Control', skins: '✂\uFE0E Skins' },
+}
+
+const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, MENTALIST_SKIN, BREAKING_BAD_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN, SAMURAI_SKIN, RED_JOHN_SKIN, HEISENBERG_SKIN, EDGERUNNERS2_SKIN, CAPRICORN_SKIN]
 
 // Only plain colour and font values reach the drawings: a skin file cannot
 // smuggle markup into an Svg.
@@ -1954,7 +2029,7 @@ const skinByWord = (arg: string): Skin | undefined => {
 // Without that folder Mission Control is the core edition: default and Crab Classic.
 const ADDON = 'addons/cyberpunk'
 const ADDON_URL = 'https://github.com/Chinchuan24/MissionControl#-choose-your-edition'
-const ADDON_CASTS = new Set(['runners', 'netrun', 'corpo', 'samurai'])
+const ADDON_CASTS = new Set(['runners', 'netrun', 'corpo', 'samurai', 'edgerunners2', 'capricorn'])
 let HAS_CYBER = false
 const checkAddon = async ($: EngineInterface): Promise<boolean> => {
   HAS_CYBER = await $.fs.exists(`${$.plugin.root}/${ADDON}/addon.json`).catch(() => false)
@@ -1962,7 +2037,7 @@ const checkAddon = async ($: EngineInterface): Promise<boolean> => {
 }
 const isAddonSkin = (k: Skin): boolean => ADDON_CASTS.has(String(k.cast ?? ''))
 const canWear = (k: Skin): boolean => HAS_CYBER || !isAddonSkin(k)
-const ADDON_PITCH = `Cyberpunk Skins add-on: Cyberpunk Edgerunner, Lucy · Edgerunners and Arasaka. Get it: ${ADDON_URL}`
+const ADDON_PITCH = `Cyberpunk Skins add-on: Cyberpunk Edgerunner, Lucy · Edgerunners, Arasaka and Edgerunners 2. Get it: ${ADDON_URL}`
 let SKIN: Skin = CRAB_SKIN
 const SKINS_FOLDER = 'Custom Claude Skins'
 
@@ -5214,15 +5289,17 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   s.push(`<style>.tea{animation:tea 1.6s ease-in-out infinite}@keyframes tea{50%{opacity:.6}}.rjs{animation:rjs2 3.6s ease-in-out infinite}@keyframes rjs2{50%{opacity:.12}}@media (prefers-reduced-motion: reduce){.tea,.rjs{animation:none}}${th.css}</style>`)
   s.push(`<rect x=".5" y=".5" width="${W - 1}" height="${H - 1}" rx="10" class="tile"/><rect x=".5" y=".5" width="${W - 1}" height="${H - 1}" rx="10" fill="none" stroke="${edge}" stroke-opacity=".5"${d.isWorking ? ' class="hedge"' : ''}/>`)
   const overBudget = Boolean(d.budget && d.budget.usedMs > d.budget.min * 60_000)
-  if (sl) s.push(sl.foot(W, H, c, { ctxPct: d.ctxPct, overBudget }))
-  s.push(`<rect x=".5" y="14" width="3" height="${H - 28}" rx="1.5" fill="${edge}"/>`)
+  if (sl) s.push(sl.foot(W, H, c, { ctxPct: d.ctxPct, overBudget, isWorking: d.isWorking }))
+  if (!sl?.ownEdge) s.push(`<rect x=".5" y="14" width="3" height="${H - 28}" rx="1.5" fill="${edge}"/>`)
   // ---- header (baseline 22)
   const y = 22
   const lead = sl ? sl.head(x0, y, c, FONT) : { svg: '', w: 0 }
   if (lead.svg) s.push(lead.svg)
   const nx = lead.w ? x0 + lead.w + 10 : x0
-  s.push(Lb(nx, y, 'MISSION CONTROL', 'start', c.accent2).replace('letter-spacing=".8"', 'letter-spacing="1.6"'))
-  let hx = nx + sw('MISSION CONTROL', 9.5, 1.6, true) + 16
+  // A theme may draw the name in its own hand (a paper label, a patch, a line of identity).
+  const own = sl?.name?.(x0, y, W, c, FONT)
+  s.push(own ? own.svg : Lb(nx, y, 'MISSION CONTROL', 'start', c.accent2).replace('letter-spacing=".8"', 'letter-spacing="1.6"'))
+  let hx = own ? x0 + own.w + 14 : nx + sw('MISSION CONTROL', 9.5, 1.6, true) + 16
   const chip = th.chip(hx, y, d.ctxPct, c, FONT)
   s.push(chip.svg)
   if (chip.w) hx += chip.w + 16
@@ -5237,11 +5314,11 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   const modelW = sw(model, 11.5)
   const clockTxt = d.budget ? `${fmtTime(d.budget.usedMs)} / ${d.budget.min}m` : d.taskMs > 0 ? fmtTime(d.taskMs) : ''
   const clockW = clockTxt ? sw(clockTxt, 11.5) + 4 : 0
-  const epm = /^(?:\S+\s+)?(S\d+E\d+)\s+(.*)$/.exec(th.ticker(d.at))
+  const epm = /^(?:\S+\s+)?(S\d+E\d+|EP \d+)\s+(.*)$/.exec(th.ticker(d.at))
   const ep: [string, string] = epm ? [epm[1] as string, epm[2] as string] : ['', '']
   // The episode shrinks to its code (S1E4) before it goes, and goes last of the header's extras.
-  const epWFull = ep[0] ? sw(ep[0], 9.5, 0.8, true) + sw(ep[1], 11.5) + 12 : 0
-  const epWCode = ep[0] ? sw(ep[0], 9.5, 0.8, true) + 2 : 0
+  const epWFull = ep[0] ? (sl?.ep ? sl.ep.w(ep[0], ep[1], true) : sw(ep[0], 9.5, 0.8, true) + sw(ep[1], 11.5) + 12) : 0
+  const epWCode = ep[0] ? (sl?.ep ? sl.ep.w(ep[0], ep[1], false) : sw(ep[0], 9.5, 0.8, true) + 2) : 0
   let epMode: 0 | 1 | 2 = epWFull > 0 ? 0 : 2
   const epWof = (): number => (epMode === 0 ? epWFull : epMode === 1 ? epWCode : 0)
   const rightEdge = (withEp: boolean) => xr - clockW - (withEp && epWof() ? epWof() + (clockW ? 28 : 0) : 0)
@@ -5267,7 +5344,8 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   if (showEp) {
     const ex = xr - clockW - 14
     if (clockW) s.push(`<line x1="${r2(ex + 7)}" y1="${y - 10}" x2="${r2(ex + 7)}" y2="${y + 2}" stroke="${c.line}"/>`)
-    s.push(`<text x="${r2(clockW ? ex - 4 : xr)}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11.5" fill="${c.muted}"><tspan font-size="9.5" font-weight="700" letter-spacing=".8">${xml(ep[0])}</tspan>${epMode === 0 ? `  <tspan font-style="italic" fill="${c.subtext}">${xml(ep[1])}</tspan>` : ''}</text>`)
+    if (sl?.ep) s.push(sl.ep.draw(clockW ? ex - 4 : xr, y, ep[0], ep[1], epMode === 0, c))
+    else s.push(`<text x="${r2(clockW ? ex - 4 : xr)}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11.5" fill="${c.muted}"><tspan font-size="9.5" font-weight="700" letter-spacing=".8">${xml(ep[0])}</tspan>${epMode === 0 ? `  <tspan font-style="italic" fill="${c.subtext}">${xml(ep[1])}</tspan>` : ''}</text>`)
     epLeft = (clockW ? ex - 4 : xr) - epWof()
   }
   if (showGauge && sl) s.push(sl.gauge(epLeft - 26, y, d.isWorking, d.steps.filter(st => st === 'done').length, d.steps.length, c, FONT).svg)
@@ -5323,9 +5401,10 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   const gy = 66
   const litN = pct === null ? 0 : Math.round((pct / 100) * segs)
   if (segs > 0) {
-    if (pct !== null && climb) s.push(liveSegmentBar(tx, gy, segs * 6 - 2, d.at, t => Math.round(climb(t) * 100), d.isParty ? c.done : c.accent).replace(/height="8"/g, 'height="6"'))
+    if (sl?.tear) s.push(sl.tear(tx, 64, segs * 6 - 2, pct ?? 0, c))
+    else if (pct !== null && climb) s.push(liveSegmentBar(tx, gy, segs * 6 - 2, d.at, t => Math.round(climb(t) * 100), d.isParty ? c.done : c.accent).replace(/height="8"/g, 'height="6"'))
     else s.push(`<g shape-rendering="crispEdges">${Array.from({ length: segs }, (_, i) => `<rect x="${tx + i * 6}" y="${gy}" width="4" height="6" fill="${i < litN ? (d.isParty ? c.done : c.accent) : c.track}"/>`).join('')}</g>`)
-    if (pct !== null && climb) s.push(liveText(tx + segs * 6 + 8, 73, d.at, 13, `font-family="${FONT}" font-size="13" font-weight="700" fill="${c.text}" font-variant-numeric="tabular-nums"`, t => `${Math.round(climb(t) * 100)}%`))
+    if (pct !== null && climb && !sl?.tear) s.push(liveText(tx + segs * 6 + 8, 73, d.at, 13, `font-family="${FONT}" font-size="13" font-weight="700" fill="${c.text}" font-variant-numeric="tabular-nums"`, t => `${Math.round(climb(t) * 100)}%`))
     else s.push(Vl(tx + segs * 6 + 8, 73, pct === null ? (d.isWorking ? '···' : '') : `${pct}%`))
     if (idle) s.push(th.idle?.(tx + segs * 6 + 8 + 44, 56, c) ?? '')
   }
@@ -5428,7 +5507,11 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   s.push(`<circle${tipLive ? ' class="live"' : ''} cx="${x0 + 4}" cy="${yb - 4}" r="3.5" fill="${MOOD_COLOR[d.tip.level]}"/>`)
   s.push(Bd(tipX, yb, fitW(d.tip.text, 11.5, Math.max(0, rx - tipX - 12)), tipLive ? c.text : c.subtext))
   if (!sl && (d.ctxPct >= 95 || overBudget)) s.push(flatSmiley(W - 21, H - 19, 9, RJ, 0.3, 'rjs'))
-  const body = `${s.join('\n')}${d.isParty ? th.cheer(W, H, FONT, c, d.partyAt) : ''}`
+  // A roaming character (a walk, a peek at the episode, a sit on the gauge, now and then a takeover) goes last, over the celebration.
+  const roam = th.roamer
+    ? roamOverlay(th, { W, H, surface: 'band', at: d.at, ctxPct: d.ctxPct, spots: { ...(showEp && sl?.ep ? { peek: { x: epLeft, y: 22 } } : {}), ...(sl?.tear && segs > 0 ? { sit: { x: tx + ((segs * 6 - 2) * (pct ?? 0)) / 100, y: 64 } } : {}) } })
+    : ''
+  const body = `${s.join('\n')}${d.isParty ? th.cheer(W, H, FONT, c, d.partyAt) : ''}${roam}`
   return svg(W, H, body)
 }
 
@@ -7103,7 +7186,7 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="cred" marginBottom={1}>
                 <Svg
-                  source={th ? (th.cred.card ? th.cred.card(W, streetCred, SKIN.colors, FONT, cardShape) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, th.cred.title, '', th.cred.ranks, th.cred.words)) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
+                  source={th ? ((src: string) => (th.roamer ? overlayInto(src, th, { at: clockNow, ctxPct: info.contextPct }) : src))(th.cred.card ? th.cred.card(W, streetCred, SKIN.colors, FONT, cardShape) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, th.cred.title, '', th.cred.ranks, th.cred.words)) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
                   alt={`Level ${levelOf(streetCred.xp)} ${(th ? th.cred.ranks : egg === 'samurai' ? rockerRankOf : rankOf)(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
                 />
               </Box>
@@ -7517,6 +7600,21 @@ export const register: Register = (on, options) => {
         await update($, skin, () => found.id)
         await retitle($).catch(() => undefined)
         await foundSecret($, found).catch(() => undefined)
+      }
+    }
+    // Edgerunners 2's secret skin: the third episode's title anywhere in a prompt, or "hi capri" within a minute of one of her
+    // takeovers (the plan is a pure function of the clock, so no memory of what was drawn is needed). The title again takes it off.
+    if (asked && (SKIN.id === 'edgerunners-2' || SKIN.id === 'capricorn')) {
+      const now = await $.clock.now().catch(() => 0)
+      const th = themeOf()
+      const toSecret = SKIN.id === 'edgerunners-2' && (CAPRICORN_RE.test(asked) || (HI_CAPRI_RE.test(asked) && Boolean(th) && takeoverWithin(th as ThemeEggs, now, HI_CAPRI_MS)))
+      const found = toSecret ? SKINS.get('capricorn') : SKIN.id === 'capricorn' && CAPRICORN_RE.test(asked) ? SKINS.get('edgerunners-2') : undefined
+      if (found) {
+        applySkin(found)
+        await $.store.set('skin', found.id).catch(() => undefined)
+        await update($, skin, () => found.id)
+        await retitle($).catch(() => undefined)
+        if (toSecret) await foundSecret($, found).catch(() => undefined)
       }
     }
     if (asked) await startJob($, asked)
