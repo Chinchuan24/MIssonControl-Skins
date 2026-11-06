@@ -443,7 +443,8 @@ export const er2Takeover = (W: number, H: number, line: string, tm: RoamTiming, 
   layer += [[0.5, 0.18, 0.2, 0.02], [0.5, 0.2, 0.86, 0.06], [0.5, 0.6, 0.1, 0.9], [0.52, 0.6, 0.92, 0.94], [0.48, 0.3, 0.02, 0.42]]
     .map(([a, b, c, d], i) => `<g class="tk-bolt" style="animation-delay:${dly(0.5 + (i % 2) * 0.2)}">${bolt(W * (a as number), H * (b as number), W * (c as number), H * (d as number), `tkb${i}`, 7, 9, 2.4)}</g>`)
     .join('')
-  layer += `<path d="${burst(fx, floor - figH * 0.5, figW * 0.95, figH * 0.56, 'tkh', 30, 0.2)}" fill="${P.black}" opacity=".85"/>`
+  // A solid dark cut-out behind her, wide enough that the paper never shows through her shards.
+  layer += `<path d="${burst(fx, floor - figH * 0.5, figW * 1.45, figH * 0.62, 'tkh', 30, 0.16)}" fill="${P.black}"/>`
   layer += `<g class="tk-big" style="animation-delay:${dly(0.6)}">${capriBig(fx - figW / 2, floor - figH, k, 'style="filter:drop-shadow(0 0 3px #FF2E7E)"')}</g>`
   layer += small ? ransom(W * 0.62, H * 0.6, text, Math.min(30, H * 0.26), 'rn', dly, sec) : ransom(cx, floor + cover * 1.45 > H - 6 ? H - 10 : floor + cover * 1.45, text, cover, 'rn', dly, sec)
   // The rip out: two copies of the layer, split by a jagged vertical seam, slide apart.

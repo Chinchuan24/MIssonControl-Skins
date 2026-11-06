@@ -18,6 +18,8 @@ export type Sprite = {
   cls?: Record<string, 'hair' | 'vis' | 'led'>
   /** Hovers instead of walking. */
   float?: boolean
+  /** false: no dark rim around the silhouette (a big figure on a bright backdrop, whose holes would turn the rim into a wireframe). */
+  rim?: boolean
 }
 
 export type Cast = {
@@ -2965,6 +2967,7 @@ export const ER_CAPRI_BIG: Sprite = {
     "......................h...................",
     "......................h...................",
   ],
+  rim: false,
   pal: { a: '#0E111D', b: '#1EF97D', c: '#D5124E', d: '#641C4B', e: '#F778AE', f: '#E9215E', g: '#EFF5F4', h: '#F91C63', i: '#147D60', j: '#A82656', k: '#40102E', l: '#FB3B7F', m: '#3B94FA', n: '#0E443C', o: '#131626', p: '#1ACC6A' },
   cls: { f: 'hair', h: 'hair', l: 'hair', m: 'vis', p: 'led' },
 }
@@ -3135,7 +3138,7 @@ export const spriteMarkup = (sp: Sprite, tint: string, box = 30, floor = 27): st
       const color = colorOf(row[x])
       if (color === undefined) {
         // The rim: an empty pixel touching the silhouette.
-        if (isFilled(x + 1, y) || isFilled(x - 1, y) || isFilled(x, y + 1) || isFilled(x, y - 1)) {
+        if (sp.rim !== false && (isFilled(x + 1, y) || isFilled(x - 1, y) || isFilled(x, y + 1) || isFilled(x, y - 1))) {
           add(y >= legFrom ? side(x) : y < headTo ? 'hdrim' : 'rim', RIM, x, y, 1)
         }
         continue
