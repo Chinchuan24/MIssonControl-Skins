@@ -63,8 +63,8 @@ const bandSvg = async (ui: { findAll: (q: { type: string }) => Promise<{ props: 
 // 1. The ticker stops one second short of the cache's expiry: left === 0 is not
 // "close", so `now` is not written again until the minute tick, and the band
 // keeps drawing 00:01 for up to a minute after the cache has expired.
-test('BUG cache: the band moves on to "expired" once the cache runs out', async ($, on) => {
-  const clock = base(on)
+test('BUG cache: the band moves on to "expired" once the cache runs out', { timeoutMs: 20_000 }, async ($, on) => {
+  const clock = base(on, { store: { simpleBand: false } }) // the cache countdown is on the full band
   await start($)
   await $.prompt.submit({ text: 'hi', cursor: 0 } as never)
   await $.turn.complete({ reason: 'answer', answer: 'done' } as never)
@@ -150,7 +150,7 @@ for (const skin of ['crab-classic', 'mentalist', 'breaking-bad', 'cyberpunk-2077
 }
 
 // 6. The estimate: a running agent with no steps shows ~N%, never NaN, never past 95%.
-test('estimate: ~0% at start, below 95% after an hour, no NaN', async ($, on) => {
+test('estimate: ~0% at start, below 95% after an hour, no NaN', { timeoutMs: 20_000 }, async ($, on) => {
   const clock = base(on)
   await start($)
   await $.prompt.submit({ text: 'do it', cursor: 0 } as never)

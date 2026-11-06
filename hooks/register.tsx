@@ -5270,6 +5270,7 @@ const heartbeat = (x: number, y: number, w: number, color: string): string => {
 // The full readouts stay in the pane; Settings brings the full band back.
 const SIMPLE_H = 100
 const SIMPLE_OUT_H = SIMPLE_H + HUD_PAD * 2
+const SIMPLE_CRABS = 6
 const hudSimpleSvg = (OW: number, d: HudData): string => {
   const c = SKIN.colors
   const OH = SIMPLE_OUT_H
@@ -5279,6 +5280,9 @@ const hudSimpleSvg = (OW: number, d: HudData): string => {
   const left = 52
   const titleW = Math.min(180, textWidth(d.title, 13) + 4)
   const pillW = Math.round(20 + textWidth(d.status, 10.5))
+  // The Timekeeper's clock (elapsed/budget) sits at the right of row 1 while a job has a budget; it takes room from the action text.
+  const clockTxt = d.budget ? `⏱\uFE0E ${budgetLabel(d.budget.usedMs, d.budget.min)}` : ''
+  const clockW = clockTxt ? textWidth(clockTxt, 11.5) + 12 : 0
   const pct = d.progress === null ? null : Math.round(d.progress * 100)
   const barW = Math.max(40, W - left - 64)
   const gaugeY = 28
@@ -5300,8 +5304,12 @@ const hudSimpleSvg = (OW: number, d: HudData): string => {
   const done = d.crew.filter(m => m.status !== 'running').length
   const count = d.crew.length ? [working ? `${working} working` : '', quiet ? `${quiet} quiet` : '', done ? `${done} done` : ''].filter(Boolean).join(' · ') : 'Just Claude on this one'
   const countW = textWidth(count, 12) + 8
-  const room = Math.max(0, Math.floor((W - 14 - countW - 16 - left) / 22))
-  const crabs = d.crew.slice(0, room).map((m, i) => {
+  // A drawn crab is several kB of Svg; the engine refuses a picture over 131072 characters (the whole band then
+  // goes missing), so at most SIMPLE_CRABS are drawn, the busy ones first, and the rest are the "+N".
+  const room = Math.min(SIMPLE_CRABS, Math.max(0, Math.floor((W - 14 - countW - 16 - left) / 22)))
+  const rank = (m: HudData['crew'][number]): number => (m.status === 'running' && !m.isQuiet ? 0 : m.isQuiet ? 1 : 2)
+  const shown = d.crew.map((m, i) => ({ m, i })).sort((a, b) => rank(a.m) - rank(b.m) || a.i - b.i).slice(0, room).map(x => x.m)
+  const crabs = shown.map((m, i) => {
     const x = left + i * 22
     return `${crab(x, y2, m.costume, m.status !== 'running', m.status === 'running' && !m.isQuiet, 0.68)}${m.isQuiet ? `<circle cx="${x + 10}" cy="${y2 + 10}" r="11" fill="none" stroke="${c.alert}" stroke-width="1.5"/>` : ''}`
   }).join('')
@@ -5325,7 +5333,8 @@ ${dancing(`${crab(10, 6, 'boss', false, d.isWorking, 1.05)}${crown(10, 6, 1.05)}
 <text x="${left}" y="17" font-family="${FONT}" font-size="13" font-weight="800" fill="${c.accent}">${xml(fitText(d.title, 13, titleW))}</text>
 <rect x="${left + titleW + 8}" y="6" width="${pillW}" height="15" rx="7.5" fill="${tone}" fill-opacity="${d.isWorking || d.isParty ? 0.95 : 0.25}"/>
 <text x="${left + titleW + 8 + pillW / 2}" y="17" text-anchor="middle" font-family="${FONT}" font-size="10.5" font-weight="800" fill="${d.isWorking || d.isParty ? inkOn(tone) : c.text}">${xml(d.status)}</text>
-<text class="s" x="${left + titleW + pillW + 18}" y="17" font-family="${FONT}" font-size="11.5">${xml(fitText(d.activity ? `▸ ${d.activity}` : '', 11.5, Math.max(0, W - (left + titleW + pillW + 18) - 14)))}</text>
+<text class="s" x="${left + titleW + pillW + 18}" y="17" font-family="${FONT}" font-size="11.5">${xml(fitText(d.activity ? `▸ ${d.activity}` : '', 11.5, Math.max(0, W - (left + titleW + pillW + 18) - 14 - clockW)))}</text>
+${d.budget && clockTxt ? `<text class="m" x="${W - 14}" y="17" text-anchor="end" font-family="${FONT}" font-size="11.5" font-variant-numeric="tabular-nums">${budgetClock([clockTxt], clockTxt, d.budget)}</text>` : ''}
 ${gauge}
 ${pctText}
 <line x1="12" y1="${y2 - 6.5}" x2="${W - 12}" y2="${y2 - 6.5}" stroke="${c.line}"/>

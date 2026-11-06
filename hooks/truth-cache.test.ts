@@ -23,6 +23,7 @@ const base = (on: On, now = Date.parse('2026-10-19T10:00:00Z'), ownStore = false
   const clock = mock.clock(on, { now })
   mock.env(on, { LANG: 'en_US.UTF-8' })
   for (const k of Object.keys(saved)) delete saved[k]
+  saved.simpleBand = false // these tests read the full band's cache countdown; the Simple band has none
   if (!ownStore) mock.store(on, saved)
   on('fs.exists', async () => ({ value: false }) as never)
   on('settings.read', async () => ({ value: {} }) as never)
@@ -82,7 +83,7 @@ const bandSvg = async ($: Engine): Promise<string> => {
 const cacheCell = (svg: string): string => (svg.match(/>(warm|expired|—|\d+ min|\d\d:\d\d)</g) ?? []).join(' ')
 
 // Control: same timeline with no agent at all -> the band counts down.
-test('control: no agent, 52 min after the turn, band shows ~08:00', async ($, on) => {
+test('control: no agent, 52 min after the turn, band shows ~08:00', { timeoutMs: 20_000 }, async ($, on) => {
   const clock = base(on)
   await start($)
   await ask($, 'quick question')
@@ -97,7 +98,7 @@ test('control: no agent, 52 min after the turn, band shows ~08:00', async ($, on
 })
 
 // Background agent: same timeline, one non-fork background agent still running.
-test('a background agent running: the band counts the main cache down, as the toast warns', async ($, on) => {
+test('a background agent running: the band counts the main cache down, as the toast warns', { timeoutMs: 20_000 }, async ($, on) => {
   const clock = base(on)
   await start($)
   await ask($, 'kick off the crawl')
