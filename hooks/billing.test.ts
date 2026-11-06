@@ -347,7 +347,8 @@ test('billing pane: typing a key and pressing Save puts it in the Keychain, show
   const after = await everyText(ui)
   expect(after).toContain('Key saved ••••-key')
   expect(after).not.toContain(FAKE)
-  const field = await ui.find({ type: 'Input' })
+  // The key box, wherever it sits among the settings' own fields.
+  const field = (await ui.findAll({ type: 'Input' })).find(f => String(f.props.key).startsWith('bill-key-'))
   expect(field?.props.key).toBe('bill-key-1') // a new, empty box
   expect(String(field?.props.value ?? '')).toBe('')
   expect(JSON.stringify(hostCalls.map(c => c.argv))).not.toContain(FAKE)
@@ -400,7 +401,8 @@ test('billing pane: off macOS there is no box, only the macOS-only line', async 
   await start($)
   const ui = await mountSettings($)
   expect(await everyText(ui)).toContain('macOS-only')
-  expect(await ui.find({ type: 'Input' })).toBeUndefined()
+  // No key box (the settings' own number fields stay).
+  expect((await ui.findAll({ type: 'Input' })).filter(f => String(f.props.key).startsWith('bill-key-'))).toEqual([])
   await ui.unmount()
 })
 

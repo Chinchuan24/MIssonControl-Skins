@@ -6,7 +6,9 @@ test('a Dock-launched Mac with no LANG follows AppleLanguages', async ($, on) =>
   mock.store(on, {})
   let asked: readonly string[] = []
   on("process.run", async (_x: unknown, e: unknown) => { 
-    asked = ((e as { argv?: string[]; args?: { argv?: string[] } }).argv ?? (e as { args?: string[][] }).args?.[0] ?? []) as string[]
+    const argv = ((e as { argv?: string[]; args?: { argv?: string[] } }).argv ?? (e as { args?: string[][] }).args?.[0] ?? []) as string[]
+    // Only the language lookup: Machine Guard's own machine probes run beside it at session start.
+    if (argv[0] === '/usr/bin/defaults') asked = argv
     return { value: { exitCode: 0, stdout: '(\n    "ru-SG",\n    "en-SG"\n)\n', stderr: '' } } as never
   })
   on('fs.exists', async () => ({ value: false }) as never)
