@@ -255,6 +255,8 @@ export type Billing = {
   nonce: number
   /** The four steps are open in the pane. */
   isGuideOpen: boolean
+  /** How many characters the key box holds: it draws that many dots, never the key. */
+  typedLen?: number
 }
 
 declare module 'claude-code' {

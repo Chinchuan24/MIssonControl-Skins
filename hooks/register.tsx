@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { BLANK_BILLING, KEY_IN_COMMAND, draft, guideText, isApiCredits, isMacOS, keyStatus, keychainHas, looksLikeKey, MAC_ONLY, modeChip, noteApiSpend, readMode, readSaved, removeKey, saveKey, spendLine, terminalAlternative, cleanSpend, SPEND_KEY } from './billing'
+import { BLANK_BILLING, KEY_IN_COMMAND, draft, maskKey, unmaskKey, guideText, isApiCredits, isMacOS, keyStatus, keychainHas, looksLikeKey, MAC_ONLY, modeChip, noteApiSpend, readMode, readSaved, removeKey, saveKey, spendLine, terminalAlternative, cleanSpend, SPEND_KEY } from './billing'
 import { CASTS, CAST_CSS, hashOf, spriteMarkup } from './cast'
 import { BREACH_H, BREACH_W, CJK_FONT, EGG_CSS, EGG_TOOLS, EGG_WORDS, GREETING, KATAKANA, breachCard, breachTicker, celebration, heatStars, legendsCard, legendsHeight, psychoChip, radio, relicText, sandevistan, skyline, sysTag } from './eggs'
 import type { Egg, Legend } from './eggs'
@@ -1088,11 +1088,19 @@ async function refreshBilling($: EngineInterface, note?: string): Promise<void> 
   await update($, billing, prev => ({ ...prev, mode: BILLING, isMac, saved, inKeychain, note: note ?? prev.note }))
 }
 // Save and Remove: the result's message never holds the key. The field is drawn new and empty after.
-async function billingSave($: EngineInterface, raw: string): Promise<void> {
-  const done = await saveKey($, raw)
+// The key box shows dots: each edit is turned back into the real text, kept in memory
+// only (billing.ts's `draft`), and the box is drawn again with one dot a character.
+async function billingType($: EngineInterface, shown: string): Promise<void> {
+  const at = await $.clock.now()
+  const real = unmaskKey(shown, draft.get(at))
+  draft.set(real, at)
+  await update($, billing, prev => ({ ...prev, typedLen: real.length }))
+}
+async function billingSave($: EngineInterface, shown: string): Promise<void> {
+  const done = await saveKey($, unmaskKey(shown, draft.get(await $.clock.now())))
   draft.clear()
   await refreshBilling($, done.message)
-  await update($, billing, prev => ({ ...prev, nonce: prev.nonce + 1 }))
+  await update($, billing, prev => ({ ...prev, nonce: prev.nonce + 1, typedLen: 0 }))
   $.ui.toast(done.ok ? '🔑 Key saved in your Keychain' : `🔑 ${done.message}`, { timeoutMs: 8000 })
 }
 async function billingRemove($: EngineInterface): Promise<void> {
@@ -5893,6 +5901,15 @@ export const register: Register = (on, options) => {
     // the box's text lives in billing.ts's `draft` (memory only) until a Save sends it to the Keychain.
     const bill = await read($, billing)
     const Field = 'Input' in ui ? ui.Input : null
+    // Settings with a few fixed choices are dropdowns where the surface draws a Select, else ▸ buttons that cycle.
+    const Pick = 'Select' in ui ? ui.Select : null
+    const stepOptions = (steps: readonly number[], now: number, word: (v: number) => string) =>
+      [...new Set([...steps, now])].sort((a, b) => a - b).map(v => ({ value: String(v), label: v ? word(v) : 'Off' }))
+    const SHOT_OPTIONS = [
+      { value: 'ask', label: 'Ask me each time' },
+      { value: 'on', label: 'On: does the whole plan, then reports' },
+      { value: 'off', label: 'Off: one part at a time' },
+    ]
     const typed = draft.get(clockNow)
     const billingBlock = (
       <Box key="billing" flexDirection="column">
@@ -5906,14 +5923,14 @@ export const register: Register = (on, options) => {
               key={`bill-key-${bill.nonce}`}
               label="Claude API key"
               placeholder="sk-ant-…"
-              value={typed}
+              value={maskKey(typed)}
               submitLabel="save"
-              onInput={async (v: string) => draft.set(v, await $.clock.now())}
+              onInput={(v: string) => void billingType($, v)}
               onSubmit={(v: string) => billingSave($, v)}
             />
             <Box flexDirection="row" gap={2}>
               <Button key="bill-save" label="🔑 Save to Keychain" plain onPress={async () => billingSave($, draft.get(await $.clock.now()))} />
-              <Button key="bill-clear" label="✕ Clear box" plain onPress={async () => { draft.clear(); await update($, billing, prev => ({ ...prev, nonce: prev.nonce + 1 })) }} />
+              <Button key="bill-clear" label="✕ Clear box" plain onPress={async () => { draft.clear(); await update($, billing, prev => ({ ...prev, nonce: prev.nonce + 1, typedLen: 0 })) }} />
               {bill.saved || bill.inKeychain ? <Button key="bill-remove" label="🗑 Remove key" plain onPress={() => billingRemove($)} /> : null}
             </Box>
           </Box>
@@ -6034,7 +6051,11 @@ export const register: Register = (on, options) => {
             </Box>
             <Box key="oneshot" flexDirection="row" gap={2} marginBottom={1}>
               <Svg source={shotChip.svg} alt={`Plan mode: ${oneShotWord(prefs.oneShot)}`} width={shotChip.W} height={24} />
-              <Button key="oneshot-cycle" label="Change ▸" plain onPress={async () => setOneShot($, nextOneShot(cleanOneShot((await read($, settings)).oneShot)))} />
+              {Pick ? (
+                <Pick key="oneshot-pick" value={shotMode} options={SHOT_OPTIONS} onSelect={v => void setOneShot($, cleanOneShot(v))} />
+              ) : (
+                <Button key="oneshot-cycle" label="Change ▸" plain onPress={async () => setOneShot($, nextOneShot(cleanOneShot((await read($, settings)).oneShot)))} />
+              )}
             </Box>
             {bg.length > 0 && (
               <Box key="background" marginBottom={1}>
@@ -6163,6 +6184,15 @@ export const register: Register = (on, options) => {
                   await update($, settings, prev => ({ ...prev, crewMode: isOn }))
                 }}
               />
+              {Pick ? (
+                <Pick
+                  key="set-currency-pick"
+                  label="¤ Currency"
+                  value={CURRENCY.code}
+                  options={CURRENCIES.map(c => ({ value: c.code, label: currencyLabel(c.code === CURRENCY.code ? CURRENCY : c) }))}
+                  onSelect={v => void setCurrency($, CURRENCIES.find(c => c.code === v) ?? CURRENCY)}
+                />
+              ) : (
               <Button
                 key="set-currency"
                 label={`¤ Currency: ${currencyLabel(currencyOf(prefs.currency, CURRENCY.code === prefs.currency ? CURRENCY.rate : undefined))} ▸`}
@@ -6172,6 +6202,7 @@ export const register: Register = (on, options) => {
                   await setCurrency($, CURRENCIES[(i + 1) % CURRENCIES.length] as Currency)
                 }}
               />
+              )}
               <Button
                 key="set-sounds"
                 label={`${prefs.sounds ? '☑\uFE0E' : '☐'} ${eggOf() ? 'Sounds: chimes, blips and the MaxTac siren' : 'Sounds: job-done chime'}`}
@@ -6188,7 +6219,11 @@ export const register: Register = (on, options) => {
               <Button key="set-calm" label={`${prefs.calm ? '☑\uFE0E' : '☐'} Calm mode: one status line instead of the band`} plain onPress={async () => setFlag($, 'calm', !(await read($, settings)).calm)} />
               <Button key="set-voice" label={`${prefs.voice ? '☑\uFE0E' : '☐'} Spoken status: say when a job is done and what it cost`} plain onPress={async () => setFlag($, 'voice', !(await read($, settings)).voice)} />
               <Button key="set-staffing" label={`${prefs.staffing ? '☑\uFE0E' : '☐'} Smart staffing: each agent gets the model and effort its job needs`} plain onPress={async () => setFlag($, 'staffing', !(await read($, settings)).staffing)} />
-              <Button key="set-oneshot" label={`⏩\uFE0E One-shot plans: ${prefs.oneShot === 'on' ? 'on, does the whole plan then reports' : prefs.oneShot === 'off' ? 'off, one part at a time' : 'asks you each time'} ▸`} plain onPress={async () => setOneShot($, nextOneShot(cleanOneShot((await read($, settings)).oneShot)))} />
+              {Pick ? (
+                <Pick key="set-oneshot-pick" label="⏩\uFE0E One-shot plans" value={cleanOneShot(prefs.oneShot)} options={SHOT_OPTIONS} onSelect={v => void setOneShot($, cleanOneShot(v))} />
+              ) : (
+                <Button key="set-oneshot" label={`⏩\uFE0E One-shot plans: ${prefs.oneShot === 'on' ? 'on, does the whole plan then reports' : prefs.oneShot === 'off' ? 'off, one part at a time' : 'asks you each time'} ▸`} plain onPress={async () => setOneShot($, nextOneShot(cleanOneShot((await read($, settings)).oneShot)))} />
+              )}
               <Button
                 key="set-timekeeper"
                 label={`${tkNow.on ? '☑\uFE0E' : '☐'} ${tkStr().setting(tkNow.jobMin, tkNow.agentMin)}`}
@@ -6203,8 +6238,16 @@ export const register: Register = (on, options) => {
               </Text>
               <Button key="set-autopilot" label={`${money.autopilot ? '☑\uFE0E' : '☐'} Autopilot: read-only explorers run on Haiku`} plain onPress={async () => setAutopilot($, !(await read($, watch)).autopilot)} />
               <Button key="set-warm" label={`${(money.warm ?? BLANK_WARM).on ? '☑\uFE0E' : '☐'} Keep-Warm: refresh the prompt cache when that saves more than it costs`} plain onPress={async () => setKeepWarm($, !((await read($, watch)).warm ?? BLANK_WARM).on)} />
-              <Button key="set-daily" label={`💵\uFE0E Daily cap: ${prefs.dailyUsd ? `${fmtCost(prefs.dailyUsd)} a day` : 'off'} ▸`} plain onPress={async () => setDailyCap($, nextStep(DAILY_STEPS, (await read($, settings)).dailyUsd))} />
-              <Button key="set-budget" label={`🎯\uFE0E Budget per task: ${money.budgetUsd ? fmtCost(money.budgetUsd) : 'off'} ▸`} plain onPress={async () => setBudget($, nextStep(BUDGET_STEPS, (await read($, watch)).budgetUsd))} />
+              {Pick ? (
+                <Pick key="set-daily-pick" label="💵\uFE0E Daily cap" value={String(prefs.dailyUsd)} options={stepOptions(DAILY_STEPS, prefs.dailyUsd, v => `${fmtCost(v)} a day`)} onSelect={v => void setDailyCap($, Number(v) || 0)} />
+              ) : (
+                <Button key="set-daily" label={`💵\uFE0E Daily cap: ${prefs.dailyUsd ? `${fmtCost(prefs.dailyUsd)} a day` : 'off'} ▸`} plain onPress={async () => setDailyCap($, nextStep(DAILY_STEPS, (await read($, settings)).dailyUsd))} />
+              )}
+              {Pick ? (
+                <Pick key="set-budget-pick" label="🎯\uFE0E Budget per task" value={String(money.budgetUsd)} options={stepOptions(BUDGET_STEPS, money.budgetUsd, v => fmtCost(v))} onSelect={v => void setBudget($, Number(v) || 0)} />
+              ) : (
+                <Button key="set-budget" label={`🎯\uFE0E Budget per task: ${money.budgetUsd ? fmtCost(money.budgetUsd) : 'off'} ▸`} plain onPress={async () => setBudget($, nextStep(BUDGET_STEPS, (await read($, watch)).budgetUsd))} />
+              )}
             </Box>
           </Box>
         </Box>

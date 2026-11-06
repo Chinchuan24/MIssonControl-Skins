@@ -94,6 +94,20 @@ export const draft = {
   },
 }
 
+// The key box draws a dot for each character typed, never the key itself.
+export const KEY_DOT = '•'
+export const maskKey = (real: string): string => KEY_DOT.repeat(real.length)
+/**
+ * The real text behind what the box now shows. The box held `real` as dots; the person's
+ * edit kept some leading dots and typed or pasted the rest. A paste over everything has
+ * no dots and is taken whole.
+ */
+export const unmaskKey = (shown: string, real: string): string => {
+  let kept = 0
+  while (kept < shown.length && shown[kept] === KEY_DOT) kept += 1
+  return real.slice(0, Math.min(kept, real.length)) + shown.slice(kept).split(KEY_DOT).join('')
+}
+
 // --- the Keychain, through `security` ----------------------------------------------
 
 /** The name the Keychain item is filed under: this Mac user, from `id -un`, not from the environment. */
