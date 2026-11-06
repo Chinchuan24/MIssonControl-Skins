@@ -13,7 +13,7 @@ import { canNudge, nudge, pickQuiet, prBadge, quietOf, rememberTask, repoAndBran
 import { flatSmiley, serifClip, serifW } from './mentalist-cards'
 import { BEATS_KEPT, BLANK_CRED, BOOT_H, award, rockerRankOf, bdHeight, bootStrip, braindanceCard, cleanCred, credCard, credHeight, levelOf, rankOf, shiftPick, stepPick } from './extras'
 import type { Beat, Cred } from './extras'
-import { ONESHOT_KEY, ULTRA_KEY, pillChip, oneShotChipWord, cleanOneShot, cleanUltraRules, isUltraAgent, matchUltra, nextOneShot, oneShotChip, oneShotSaid, oneShotSection, oneShotWord, parseOneShot, resolveEffort, ultraCommand, ultraLine, withUltraBrief } from './crewcontrol'
+import { ONESHOT_KEY, ULTRA_BY_KEY, ULTRA_BY_OPTIONS, ULTRA_KEY, ULTRA_TASK_HINT, cleanUltraBy, managerPicks, parseUltraBy, ultraBySaid, ultraBySection, ultraPlanToast, type UltraBy, pillChip, oneShotChipWord, cleanOneShot, cleanUltraRules, isUltraAgent, matchUltra, nextOneShot, oneShotChip, oneShotSaid, oneShotSection, oneShotWord, parseOneShot, resolveEffort, ultraCommand, ultraLine, withUltraBrief } from './crewcontrol'
 import type { OneShot } from './crewcontrol'
 import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, unifiedDiff } from './richtext'
 import { LIVE_N, glide, isNewReading, isSame, liveText, liveWidth, pin, steady, steadyTree, wallMinute } from './smooth'
@@ -899,8 +899,8 @@ const planBudget = (f: Flow | null): number | undefined => {
 }
 
 // A run's budget: its task's when the plan names it (matched as the panel matches runs), else the default.
-const agentBudget = (a: AgentRun, f: Flow | null, tk: Timekeeper): number =>
-  f?.tasks.find(t => norm(t.title) === norm(a.description))?.minutes ?? tk.agentMin
+const planTaskFor = (f: Flow | null | undefined, description: string): PlannedTask | undefined => f?.tasks.find(t => norm(t.title) === norm(description))
+const agentBudget = (a: AgentRun, f: Flow | null, tk: Timekeeper): number => planTaskFor(f, a.description)?.minutes ?? tk.agentMin
 
 // "12/45m": whole minutes used of the budget. Drawn calm, warn past 80%, alert past 100%.
 const budgetLabel = (usedMs: number, min: number): string => `${Math.floor(Math.max(0, usedMs) / 60_000)}/${min}m`
@@ -1307,7 +1307,7 @@ type ProgressInput = {
   done?: number
   phase?: Phase
   finished?: boolean
-  tasks?: { title?: string; tier?: string; after?: number[]; minutes?: number }[]
+  tasks?: { title?: string; tier?: string; after?: number[]; minutes?: number; ultra?: boolean }[]
   minutes?: number
 }
 
@@ -1766,7 +1766,7 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
 
 const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.id)
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
-const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, crewAlways: false, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, dailyUsd: 0, autopilot: false, keepWarm: false, budgetUsd: 0, tkOn: true, tkJobMin: 60, tkAgentMin: 20, ramLimit: 'auto', maxAgents: 0, killSwitch: 'on' })
+const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, crewAlways: false, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, ultraBy: 'me' as UltraBy, dailyUsd: 0, autopilot: false, keepWarm: false, budgetUsd: 0, tkOn: true, tkJobMin: 60, tkAgentMin: 20, ramLimit: 'auto', maxAgents: 0, killSwitch: 'on' })
 // Machine Guard (hooks/machineguard.ts): what the Settings pane and the band draw. Written only when it changes.
 const guard = atom({ plugin: 'crab-progress', key: 'guard' } as const, { line: 'unknown machine', usedGb: -1, limitGb: 0, max: 4, calibrated: 4, autoLabel: 'Auto · 4 (machine unknown)', perAgent: '≈0.5 GB per agent (default)', isTight: false, others: 0, sessions: 1 })
 // The part of it the Settings pane shows. The RAM in use, the crew and the other sessions
@@ -1798,6 +1798,7 @@ const readSettings = async ($: EngineInterface) => {
     voice: (await $.store.get('voice').catch(() => undefined)) === true,
     staffing: (await $.store.get(STAFF_KEY).catch(() => undefined)) === true,
     oneShot: cleanOneShot(await $.store.get(ONESHOT_KEY).catch(() => undefined)),
+    ultraBy: cleanUltraBy(await $.store.get(ULTRA_BY_KEY).catch(() => undefined)),
     dailyUsd: Number(await $.store.get(DAILY_KEY).catch(() => 0)) || 0,
     // The Money switches, mirrored here too (watch keeps its own copy for the Token Manager):
     // the settings pane reads only this atom, so a turn's busy watch never redraws it.
@@ -1882,13 +1883,21 @@ async function setOneShot($: EngineInterface, mode: OneShot): Promise<void> {
   await update($, settings, prev => ({ ...prev, oneShot: mode }))
 }
 
+// Who decides Ultra. Kept in the store, mirrored for the pane.
+async function setUltraBy($: EngineInterface, mode: UltraBy): Promise<void> {
+  ultraBy = mode
+  await $.store.set(ULTRA_BY_KEY, mode).catch(() => undefined)
+  await update($, settings, prev => (prev.ultraBy === mode ? prev : { ...prev, ultraBy: mode }))
+}
+
 // The ⚡ button on a running agent's card: max effort from its next request, no prompt change.
 async function toggleUltra($: EngineInterface, id: string): Promise<void> {
   const run = (await read($, agents)).find(a => a.id === id)
   if (!run || run.status !== 'running') return
   const isOn = !run.isUltra
   if (run.agentId) ultraExplicit.set(run.agentId, isOn)
-  await update($, agents, list => list.map(a => (a.id === id ? { ...a, isUltra: isOn } : a)))
+  // The person's press is the person's choice, whatever the Manager picked.
+  await update($, agents, list => list.map(a => (a.id === id ? { ...a, isUltra: isOn, isUltraByManager: false } : a)))
   $.ui.toast(isOn ? `⚡ Ultra: "${clip(run.description || run.type, 30)}" goes to max effort from its next request` : `Ultra off for "${clip(run.description || run.type, 30)}"`)
 }
 // Billing (see billing.ts): the status the pane shows is read from the Keychain's
@@ -2380,6 +2389,7 @@ const cleanTasks = (tasks: ProgressInput['tasks']): PlannedTask[] | undefined =>
       tier: tierName(t.tier ?? ''),
       after: (t.after ?? []).filter(n => Number.isInteger(n) && n > 0).slice(0, MAX_AFTER),
       ...(cleanMin(t.minutes) ? { minutes: cleanMin(t.minutes) } : {}),
+      ...(t.ultra === true ? { ultra: true } : {}),
     }))
 
 const merge = (prev: Flow | null, input: ProgressInput): Flow => {
@@ -2605,7 +2615,7 @@ const runEffort = (a: AgentRun): string => a.effort ?? (a.isUltra ? 'max' : TIER
 const effortLabel = (effort: string, isUltra = false): string => `${effortWord(effort)}${isUltra ? ' + Ultra' : ''}`
 
 // "Opus 5.5 · effort low" for a run; "· effort max + Ultra" for an Ultra one.
-const runModel = (a: AgentRun): string => `${modelName(a.model)} · effort ${effortLabel(runEffort(a), a.isUltra)}`
+const runModel = (a: AgentRun): string => `${modelName(a.model)} · effort ${effortLabel(runEffort(a), a.isUltra)}${a.isUltra && a.isUltraByManager ? " (Manager's call)" : ''}`
 
 // USD per million tokens: input, output, cache read, cache write. The first row that
 // matches a model id wins, so a release sits above its family. Anthropic's list prices
@@ -2683,6 +2693,8 @@ const OFFER_KEY = 'saversOffered'
 // Per-agent Ultra: the role rules (kept in the store) and the mode for a plan's approval.
 let ultraRules: string[] = []
 let oneShotMode: OneShot = 'ask'
+let ultraBy: UltraBy = 'me' // who decides Ultra: the person, or the Manager per task
+let ultraToastFor = '' // the plan the "Manager put N of M on Ultra" toast was shown for
 const ultraFlag = new Map<string, boolean>() // matched a rule at spawn
 const ultraExplicit = new Map<string, boolean>() // the card's ⚡ button, which beats the rule
 const staffFor = (type: string, description: string): Staff | null => {
@@ -6211,6 +6223,7 @@ async function registerEntryPoints($: EngineInterface): Promise<void> {
               title: { type: 'string', description: 'A few words; reused verbatim as the Agent description.' },
               tier: { type: 'string', enum: [...TIERS], description: 'Worker size: fable, heavy, careful, medium or light.' },
               after: { type: 'array', items: { type: 'integer' }, description: 'Numbers of the tasks this one waits for.' },
+              ultra: { type: 'boolean', description: ULTRA_TASK_HINT },
               minutes: { type: 'integer', minimum: 1, description: "Time budget for this task, in minutes; its sub-agent is flagged once it runs past it. Without the plan's own `minutes`, the tasks' sum is the job's budget." },
             },
             required: ['title', 'tier'],
@@ -6259,7 +6272,7 @@ async function registerEntryPoints($: EngineInterface): Promise<void> {
   }).catch(() => undefined)
   await $.command.register({
     name: 'tokens',
-    description: 'Token Manager: /tokens for a report, budget <dollars|off>, daily <dollars|off>, autopilot <on|off>, staffing <on|off>, ultra <add|remove|list|off> <role>, warm <on|off>, receipt, pr, whatif, rescue, spend today|week|month|<from> <to>, export [period], model <id> <model>',
+    description: 'Token Manager: /tokens for a report, budget <dollars|off>, daily <dollars|off>, autopilot <on|off>, staffing <on|off>, ultra <manager|me|add|remove|list|off> <role>, warm <on|off>, receipt, pr, whatif, rescue, spend today|week|month|<from> <to>, export [period], model <id> <model>',
   }).catch(() => undefined)
   await $.command.register(TIMEKEEPER_COMMAND).catch(() => undefined)
 }
@@ -6377,6 +6390,7 @@ export const register: Register = (on, options) => {
     staffSaved = { session: staffSaved.session, total: Number(await $.store.get(STAFF_SAVED_KEY).catch(() => 0)) || 0 }
     ultraRules = cleanUltraRules(await $.store.get(ULTRA_KEY).catch(() => undefined))
     oneShotMode = cleanOneShot(await $.store.get(ONESHOT_KEY).catch(() => undefined))
+    ultraBy = cleanUltraBy(await $.store.get(ULTRA_BY_KEY).catch(() => undefined))
     const budget = Number(await $.store.get('budgetUsd').catch(() => 0)) || 0
     const keepWarmOn = (await $.store.get('keepWarm').catch(() => false)) === true
     await update($, watch, prev => ({ ...prev, autopilot, budgetUsd: budget, warm: { ...(prev.warm ?? BLANK_WARM), on: keepWarmOn } }))
@@ -6599,15 +6613,27 @@ export const register: Register = (on, options) => {
     // Ultra: a role with a rule gets a deep-check brief and max effort from its first request.
     const ultraRule = matchUltra(ultraRules, e.subagentType, e.description)
     const routed0 = staff?.model ? { ...piloted, model: staff.model } : piloted
-    const routed = ultraRule ? { ...routed0, prompt: withUltraBrief(routed0.prompt) } : routed0
+    // Manager mode: the plan's task with this description may carry the Manager's `ultra: true`.
+    // Matched as the panel matches runs to tasks. The person's ⚡ button still beats it later.
+    const plan = ultraBy === 'manager' && !ultraRule ? await read($, flow) : null
+    const livePlan = plan && !plan.isFinished ? plan : null
+    const byManager = managerPicks(ultraBy, planTaskFor(livePlan, e.description))
+    const isUltraSpawn = Boolean(ultraRule) || byManager
+    const routed = isUltraSpawn ? { ...routed0, prompt: withUltraBrief(routed0.prompt) } : routed0
     const started = await next(routed).finally(() => releaseSpawn(gate.at))
     // A workflow's agent is not in $.agent.list(): Machine Guard counts it from here.
     if (e.workflow && started.agentId && started.deny === undefined) mgWorkflow.set(started.agentId, gate.at ?? 0)
     if (started.deny !== undefined) return started
     rememberTask(started.agentId, { prompt: e.prompt, description: e.description, subagentType: e.subagentType })
-    if (ultraRule && started.agentId) {
+    if (isUltraSpawn && started.agentId) {
       ultraFlag.set(started.agentId, true)
-      $.ui.toast(`⚡ Ultra: "${clip(e.description, 30)}" runs at max effort with a deep check`)
+      if (byManager && livePlan) {
+        // Once per job: how many of the plan's tasks the Manager put on Ultra.
+        if (ultraToastFor !== livePlan.title) {
+          ultraToastFor = livePlan.title
+          $.ui.toast(ultraPlanToast(livePlan.tasks))
+        }
+      } else $.ui.toast(`⚡ Ultra: "${clip(e.description, 30)}" runs at max effort with a deep check`)
     }
     if (staff && started.agentId) {
       staffEffort.set(started.agentId, staff.effort)
@@ -6651,7 +6677,8 @@ export const register: Register = (on, options) => {
         steps: 0,
         round,
         parentAgentId: e.parentAgentId,
-        ...(ultraRule ? { isUltra: true } : {}),
+        ...(isUltraSpawn ? { isUltra: true } : {}),
+        ...(byManager ? { isUltraByManager: true } : {}),
         // Its end queues a report the main loop answers in a turn of its own (one an
         // agent started reports to that agent, a workflow's to its script).
         ...(e.background && !e.workflow && !e.parentAgentId ? { isBackground: true } : {}),
@@ -7245,6 +7272,7 @@ export const register: Register = (on, options) => {
                   />
                   {r.a.status !== 'running' && <Button key={`close-${r.key}`} label="▴ Collapse" plain onPress={() => toggleOpen(r.a.id)} />}
                   {rescueRow($, r.a, ui)}
+                  {r.a.isUltra && r.a.isUltraByManager && <Text key={`ultra-by-${r.key}`} dimColor>{"⚡ Manager's call"}</Text>}
                   {r.a.status === 'running' && <Button key={`ultra-${r.key}`} label={r.a.isUltra ? '⚡ Turn Ultra off' : '⚡ Turn Ultra on'} plain onPress={() => toggleUltra($, r.a.id)} />}
                 </Box>
               ),
@@ -7619,6 +7647,7 @@ export const register: Register = (on, options) => {
     // One-shot, added last: what to do once a roadmap is approved. Main session only.
     if (e.tools.includes('Agent') && e.tools.length >= mostTools * 0.9) {
       sections.push(oneShotSection(cleanOneShot((await read($, settings)).oneShot ?? oneShotMode)))
+      if (ultraBy === 'manager') sections.push(ultraBySection())
     }
     return sections.length === composed.sections.length ? composed : { ...composed, sections }
   })
@@ -7948,6 +7977,15 @@ export const register: Register = (on, options) => {
         ),
       ),
       opt(
+        'opt-ultra-by',
+        'Who says which agents get max effort and a deep check: you, or the Manager per task.',
+        Pick ? (
+          <Pick key="set-ultraby-pick" label="⚡ Ultra decided by" value={among(cleanUltraBy(prefs.ultraBy), ULTRA_BY_OPTIONS)} options={ULTRA_BY_OPTIONS} onSelect={v => void setUltraBy($, cleanUltraBy(v))} />
+        ) : (
+          <Button key="set-ultraby" label={`⚡ Ultra decided by: ${cleanUltraBy(prefs.ultraBy) === 'manager' ? 'Manager' : 'Me'} ▸`} plain onPress={async () => setUltraBy($, cleanUltraBy((await read($, settings)).ultraBy) === 'manager' ? 'me' : 'manager')} />
+        ),
+      ),
+      opt(
         'opt-staffing',
         'Each agent gets the model and effort its job needs.',
         <Button key="set-staffing" label={`${box(prefs.staffing)} Smart staffing`} plain onPress={async () => setFlag($, 'staffing', !(await read($, settings)).staffing)} />,
@@ -8147,7 +8185,7 @@ export const register: Register = (on, options) => {
     }
     // Anything but a report, a budget or autopilot on|off gets the usage line.
     if ((verb && verb !== 'autopilot' && verb !== 'budget' && verb !== 'warm' && verb !== 'staffing' && verb !== 'ultra' && verb !== 'daily' && verb !== 'receipt' && verb !== 'rescue' && verb !== 'whatif' && verb !== 'pr') || ((verb === 'autopilot' || verb === 'warm') && arg && arg !== 'on' && arg !== 'off')) {
-      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>, /tokens staffing <on|off>, /tokens ultra <add|remove|list|off> [role], /tokens daily <dollars|off>, /tokens receipt, /tokens pr, /tokens whatif, /tokens rescue, /tokens spend today|week|month [YYYY-MM]|<from YYYY-MM-DD> <to YYYY-MM-DD>, /tokens export [period], /tokens model <id> <model|off>' }
+      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>, /tokens staffing <on|off>, /tokens ultra <manager|me|add|remove|list|off> [role], /tokens daily <dollars|off>, /tokens receipt, /tokens pr, /tokens whatif, /tokens rescue, /tokens spend today|week|month [YYYY-MM]|<from YYYY-MM-DD> <to YYYY-MM-DD>, /tokens export [period], /tokens model <id> <model|off>' }
     }
     if (verb === 'warm') {
       const isOn = arg !== 'off'
@@ -8203,6 +8241,12 @@ export const register: Register = (on, options) => {
       return { text: dollars ? `Daily cap set: ${fmtCost(dollars)} a day (≈${fmtCost(todayCostUsd)} so far today). The Token Manager warns at 80% and 100%.` : 'Daily cap off.' }
     }
     if (verb === 'ultra') {
+      // `/tokens ultra manager|me`: who decides Ultra.
+      const by = parseUltraBy((e.args ?? '').trim().slice('ultra'.length))
+      if (by) {
+        await setUltraBy($, by)
+        return { text: ultraBySaid(by) }
+      }
       const running = (await read($, agents)).filter(a => a.status === 'running' && a.isUltra).length
       const done = ultraCommand(ultraRules, (e.args ?? '').trim().slice('ultra'.length), running)
       ultraRules = done.rules
@@ -8239,7 +8283,7 @@ export const register: Register = (on, options) => {
         `Token Manager: ${MOOD_WORD[r.mood]}`,
         ...unpriced,
         `Smart staffing ${smartStaffing ? `on${staffSavedText()}` : `off (/tokens staffing on)${staffSavedText()}`} · autopilot ${watched.autopilot ? 'on' : 'off'}`,
-        ultraLine((await read($, agents)).filter(a => a.status === 'running' && a.isUltra).length, ultraRules.length),
+        `${ultraLine((await read($, agents)).filter(a => a.status === 'running' && a.isUltra).length, ultraRules.length)} · decided by ${ultraBy === 'manager' ? 'the Manager (/tokens ultra me)' : 'you (/tokens ultra manager)'}`,
         ...(isApiCredits(BILLING) ? [`${modeChip(BILLING)} · ${spendLine(API_SPEND, dayOf(at), fmtCost)}`] : []),
         `Burn ${fmtTokens(r.burnPerMin)}/min · this task ${fmtTokens(r.taskTokens)} (≈${fmtCost(r.taskCost)})${r.cachedPct === null ? '' : ` · ${r.cachedPct}% cached`}`,
         ...(() => {

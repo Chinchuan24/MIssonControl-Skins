@@ -6,6 +6,8 @@ export type PlannedTask = {
   after: number[]
   /** The timekeeper's budget for this task, as the plan gave it. */
   minutes?: number
+  /** The Manager's call: this task needs max effort and a deep self-check. */
+  ultra?: boolean
 }
 
 export type Flow = {
@@ -63,6 +65,8 @@ export type AgentRun = {
   toolsInFlight?: number
   /** Runs at max effort with a deep-check brief: an Ultra rule matched, or the person pressed ⚡. */
   isUltra?: boolean
+  /** Ultra the Manager chose in its plan (not the person's ⚡ button or a role rule). */
+  isUltraByManager?: boolean
 }
 
 export type Panel = {

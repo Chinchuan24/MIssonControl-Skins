@@ -7,7 +7,7 @@ import type { Engine } from 'claude-code/testing'
 
 type Spawned = { model?: string; prompt: string }
 const base = (on: On, store: Record<string, unknown> = {}) => {
-  const seen = { spawns: [] as Spawned[], efforts: [] as unknown[] }
+  const seen = { spawns: [] as Spawned[], efforts: [] as unknown[], toasts: [] as string[] }
   mock.clock(on, { now: Date.parse('2026-10-20T10:00:00Z') })
   mock.env(on, { LANG: 'en_US.UTF-8' })
   mock.store(on, store)
@@ -15,7 +15,10 @@ const base = (on: On, store: Record<string, unknown> = {}) => {
   on('settings.read', async () => ({ value: {} }) as never)
   on('ui.open', async () => ({ value: { isPlaced: true } }) as never)
   on('ui.panes', async () => ({ value: [] }) as never)
-  on('ui.toast', async () => ({ value: undefined }) as never)
+  on('ui.toast', async (_$, e) => {
+    seen.toasts.push(String((e as { text?: string }).text ?? (e as { message?: string }).message ?? ''))
+    return { value: undefined } as never
+  })
   on('session.usage', async () => ({ value: { startedAt: 0, context: { window: 1_000_000, tokens: 100_000 }, rateLimits: [] } }) as never)
   on('session.start', async () => ({ cwd: '/repo' }) as never)
   on('prompt.submit', async (_$, e) => ({ text: (e as { text: string }).text }) as never)
@@ -155,4 +158,119 @@ test('ultra on a card reads inside the effort: "high + Ultra" with its bars, pla
   await step($, 'a1', 'high')
   const term = await pane($, 'terminal')
   expect(await term.find({ type: 'Text', text: /effort max \+ Ultra/ })).toBeDefined()
+})
+
+// ---- Ultra decided by: the person (default) or the Manager, per task -------------------
+
+const PROGRESS = 'mcp__crab-progress__progress'
+const plan = ($: Engine, tasks: { title: string; ultra?: boolean }[], title = 'Ship it') =>
+  $.tool.call({ tool: PROGRESS, title, phase: 'delegate', total: tasks.length, tasks: tasks.map(t => ({ tier: 'medium', ...t })) } as never)
+test('ultra by Manager: the progress tool takes ultra per task, and the Manager is told in its prompt (main session only)', async ($, on) => {
+  base(on)
+  await start($)
+  // Me (default): nothing is said about Ultra to the Manager.
+  expect(await section($, 'crab-progress:ultraby')).toBe('')
+  expect(await run($, 'tokens', 'ultra manager')).toContain('Manager')
+  expect(await section($, 'crab-progress:ultraby')).toContain('set `ultra: true` only on tasks that truly need it')
+  // A worker's request (no Agent tool) is not told.
+  const worker = ((await $.prompt.compose({ model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: [], tools: ['Read'], outputStyle: null, traits: [] } as never)) as { sections: { id: string }[] }).sections
+  expect(worker.some(sc => sc.id === 'crab-progress:ultraby')).toBe(false)
+  const out = await plan($, [{ title: 'Auditor: check the login', ultra: true }, { title: 'Writer: fix the readme' }])
+  expect(out).toMatchObject({ result: expect.stringContaining('ok') })
+  expect(await run($, 'tokens', 'ultra me')).toContain('you')
+  expect(await section($, 'crab-progress:ultraby')).toBe('')
+})
+
+test('ultra by Manager: a flagged task gets Ultra (brief, max effort, "max + Ultra", Manager\'s call); an unflagged one stays normal; one toast per job', async ($, on) => {
+  const seen = base(on)
+  await start($)
+  await run($, 'tokens', 'ultra manager')
+  await plan($, [{ title: 'Auditor: check the login', ultra: true }, { title: 'Writer: fix the readme' }, { title: 'Migrator: move the table', ultra: true }])
+  await spawn($, 'Auditor: check the login')
+  expect(seen.spawns.at(-1)?.prompt).toContain('[Ultra: deep check]')
+  await step($, 'a1', 'high')
+  expect(seen.efforts.at(-1)).toBe('max')
+  await spawn($, 'Writer: fix the readme')
+  expect(seen.spawns.at(-1)?.prompt).not.toContain('[Ultra: deep check]')
+  await step($, 'a2', 'high')
+  expect(seen.efforts.at(-1)).toBe('high')
+  // The description matches loosely, as the panel matches runs to tasks (case, punctuation).
+  await spawn($, 'migrator   move the TABLE!')
+  expect(seen.spawns.at(-1)?.prompt).toContain('[Ultra: deep check]')
+  expect(seen.toasts.filter(t => t.includes('Manager put'))).toEqual(['⚡ Manager put 2 of 3 tasks on Ultra'])
+  const term = await pane($, 'terminal')
+  expect(await term.find({ type: 'Text', text: /effort max \+ Ultra \(Manager's call\)/ })).toBeDefined()
+  expect(await term.find({ type: 'Text', text: /effort high(?! \+)/ })).toBeDefined()
+  const desk = await pane($, 'desktop')
+  expect(await desk.find({ type: 'Text', text: /Manager's call/ })).toBeDefined()
+  expect((await desk.findAll({ type: 'Text', text: /Manager's call/ })).length).toBe(2)
+  await desk.unmount()
+  expect(await cardAt($, 60, 'Auditor: check the login')).toMatch(/>max \+ Ultra<\/text>/)
+})
+
+test('ultra by "Me": the Manager\'s flags are ignored', async ($, on) => {
+  const seen = base(on)
+  await start($)
+  await plan($, [{ title: 'Auditor: check the login', ultra: true }])
+  await spawn($, 'Auditor: check the login')
+  expect(seen.spawns.at(-1)?.prompt).not.toContain('[Ultra: deep check]')
+  await step($, 'a1', 'high')
+  expect(seen.efforts.at(-1)).toBe('high')
+  expect(seen.toasts.some(t => t.includes('Manager put'))).toBe(false)
+  const term = await pane($, 'terminal')
+  expect(await term.find({ type: 'Text', text: /Ultra/ })).toBeUndefined()
+})
+
+test('ultra by Manager: the person\'s ⚡ button beats the Manager, both ways; role rules still work', async ($, on) => {
+  const seen = base(on)
+  await start($)
+  await run($, 'tokens', 'ultra manager')
+  await run($, 'tokens', 'ultra add Tester')
+  await plan($, [{ title: 'Auditor: check the login', ultra: true }, { title: 'Writer: fix the readme' }])
+  await spawn($, 'Auditor: check the login')
+  await spawn($, 'Writer: fix the readme')
+  // A role rule works in Manager mode, though the plan does not flag it.
+  await spawn($, 'Tester: check widths')
+  expect(seen.spawns.at(-1)?.prompt).toContain('[Ultra: deep check]')
+  const ui = await pane($, 'desktop')
+  // Off for the flagged one; on for the unflagged one.
+  await ui.press({ key: 'ultra-a1' })
+  await ui.press({ key: 'ultra-a2' })
+  await ui.unmount()
+  await step($, 'a1', 'high')
+  expect(seen.efforts.at(-1)).toBe('high')
+  await step($, 'a2', 'high')
+  expect(seen.efforts.at(-1)).toBe('max')
+  await step($, 'a3', 'high')
+  expect(seen.efforts.at(-1)).toBe('max')
+  // The ⚡ the person pressed is the person's: no "Manager's call" on it.
+  const term = await pane($, 'terminal')
+  expect(await term.find({ type: 'Text', text: /Manager's call/ })).toBeUndefined()
+})
+
+test('ultra decided by: the setting round-trips through the command, the store and the Settings pick', async ($, on) => {
+  base(on, { ultraBy: 'manager' })
+  await start($)
+  const settings = () => $.ui.mount({ plugin: 'crab-progress', surface: 'desktop', component: 'Pane', requestId: 'crab-settings', props: { title: '', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} } } as never)
+  // A saved "manager" is read back; the pick shows it, and its value is among its options.
+  let ui = await settings()
+  const pick = await ui.find({ key: 'set-ultraby-pick' })
+  if (pick) {
+    expect(pick.props.value).toBe('manager')
+    expect((pick.props.options as { value: string; label: string }[]).map(o => o.value)).toContain(pick.props.value)
+    for (const o of pick.props.options as { value: unknown; label: unknown }[]) expect([typeof o.value, typeof o.label]).toEqual(['string', 'string'])
+    await ui.select({ key: 'set-ultraby-pick', value: 'me' })
+  } else await ui.press({ key: 'set-ultraby' })
+  await ui.unmount()
+  expect(await section($, 'crab-progress:ultraby')).toBe('')
+  expect(await run($, 'tokens', '')).toContain('decided by you')
+  // The command sets it back, and the pane follows.
+  expect(await run($, 'tokens', 'ultra manager')).toContain('Manager')
+  ui = await settings()
+  const again = await ui.find({ key: 'set-ultraby-pick' })
+  if (again) expect(again.props.value).toBe('manager')
+  await ui.unmount()
+  // Junk is not a mode.
+  expect(await run($, 'tokens', 'ultra sideways')).toContain('Usage')
+  expect(await section($, 'crab-progress:ultraby')).toContain('ultra: true')
 })

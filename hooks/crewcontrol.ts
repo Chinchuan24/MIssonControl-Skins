@@ -58,6 +58,36 @@ export const ultraCommand = (rules: readonly string[], arg: string, running = 0)
   return { rules: [...rules], text: 'Usage: /tokens ultra add <role> | remove <role> | list | off' }
 }
 
+// ---- Who decides Ultra: the person (default) or the Manager, per task -----------------
+
+export const ULTRA_BY_KEY = 'ultraBy'
+export type UltraBy = 'me' | 'manager'
+export const cleanUltraBy = (raw: unknown): UltraBy => (raw === 'manager' ? 'manager' : 'me')
+// The Pick's options: values and labels are strings.
+export const ULTRA_BY_OPTIONS = [
+  { value: 'me', label: 'Me: I turn Ultra on (the ⚡ button, role rules)' },
+  { value: 'manager', label: 'Manager: it picks the tasks that need it' },
+]
+// `manager` | `me`; anything else is not a choice.
+export const parseUltraBy = (arg: string): UltraBy | null => {
+  const a = arg.trim().toLowerCase()
+  return a === 'manager' || a === 'me' ? a : null
+}
+export const ultraBySaid = (m: UltraBy): string =>
+  m === 'manager'
+    ? "Ultra decided by the Manager: in its plan it flags the tasks that really need max effort and a deep check. Your ⚡ button and role rules still work."
+    : 'Ultra decided by you: the ⚡ button on a card and role rules (/tokens ultra add <role>). The Manager does not pick.'
+export const ULTRA_BY_ID = 'crab-progress:ultraby'
+export const ULTRA_BY_TEXT = "Ultra is your call: in the progress plan, set `ultra: true` only on tasks that truly need it; most tasks don't."
+export const ultraBySection = () => ({ id: ULTRA_BY_ID, text: ULTRA_BY_TEXT, scope: 'session' as const })
+export const ULTRA_TASK_HINT = 'true only for a task that really needs max effort and a deep self-check: hard design, tricky debugging, security, or a risky migration; leave it off for routine work.'
+
+// A task the Manager flagged counts only in Manager mode ("Me" ignores the flag).
+export const managerPicks = (by: UltraBy, task: { ultra?: boolean } | undefined | null): boolean => by === 'manager' && task?.ultra === true
+
+export const ultraPlanToast = (tasks: readonly { ultra?: boolean }[]): string =>
+  `⚡ Manager put ${tasks.filter(t => t.ultra === true).length} of ${tasks.length} task${tasks.length === 1 ? '' : 's'} on Ultra`
+
 // ---- Effort order: the person's card choice > an Ultra rule > Smart staffing -----------
 
 // `explicit` is the card's ⚡ button (true/false once pressed, undefined if never);
