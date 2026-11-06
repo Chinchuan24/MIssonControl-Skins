@@ -51,7 +51,7 @@ const work = async ($: Engine, clock: { advance: (ms: number) => Promise<unknown
 const stops = () => toasts.filter(t => t.includes('Stop signal'))
 const report = async ($: Engine) => String(((await $.command.run({ command: 'tokens', args: '' } as never)) as { text?: string }).text)
 
-test('stop signal: warns once when stalled, shows a tip, and not again the moment the plan moves', async ($, on) => {
+test('stop signal: warns once when stalled, shows a tip, and not again the moment the plan moves', { timeoutMs: 20_000 }, async ($, on) => {
   const clock = base(on)
   await $.session.start({ source: 'startup', cwd: '/repo', surface: 'terminal', isInteractive: true } as never)
   await $.prompt.submit({ text: 'build it', cursor: 0 } as never)

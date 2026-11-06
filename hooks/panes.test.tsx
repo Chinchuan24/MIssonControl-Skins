@@ -209,14 +209,14 @@ test('settings: every dropdown holds strings, sits on one of its options, and ea
     expect(options.map(o => o.value)).toContain(await valueOf(key))
     // Every option, picked, is the value drawn next.
     for (const o of options) {
-      await ui.select({ key, value: String(o.value) })
+      await (ui as unknown as { select: (t: { key: string; value: string }) => Promise<unknown> }).select({ key, value: String(o.value) })
       await ui.drawn()
       expect([key, await valueOf(key)]).toEqual([key, String(o.value)])
       expect((await optionsOf(key)).map(x => x.value)).toContain(await valueOf(key))
     }
     // Leave each on its second option, so the restart below shows what was saved, not a default.
     const second = String(options[1]?.value)
-    await ui.select({ key, value: second })
+    await (ui as unknown as { select: (t: { key: string; value: string }) => Promise<unknown> }).select({ key, value: second })
     await ui.drawn()
     last[key] = second
   }

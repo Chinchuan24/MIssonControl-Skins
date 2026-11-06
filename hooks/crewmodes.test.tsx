@@ -46,7 +46,7 @@ const step = async ($: Engine, agentId: string, effort = 'high') => {
   for await (const _ of stream) void _
 }
 const sections = async ($: Engine) =>
-  ((await $.prompt.compose({ model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: [], tools: ['Agent', 'Read'], outputStyle: null, traits: [] } as never)) as { sections: { id: string; text: string }[] }).sections
+  ((await $.prompt.compose({ model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: [], tools: ['Agent', 'Read'], outputStyle: null, traits: [] } as never)) as unknown as { sections: { id: string; text: string }[] }).sections
 const section = async ($: Engine, id: string) => (await sections($)).find(sc => sc.id === id)?.text ?? ''
 const pane = ($: Engine, surface: 'desktop' | 'terminal', bodyColumns = 60) =>
   $.ui.mount({ plugin: 'crab-progress', surface, component: 'Pane', requestId: 'crab-agents', props: { title: '', isFocused: false, bodyColumns, placement: 'dock', scroll: { offset: 0, bodyRows: 45 }, view: {} } } as never)
@@ -173,7 +173,7 @@ test('ultra by Manager: the progress tool takes ultra per task, and the Manager 
   expect(await run($, 'tokens', 'ultra manager')).toContain('Manager')
   expect(await section($, 'crab-progress:ultraby')).toContain('set `ultra: true` only on tasks that truly need it')
   // A worker's request (no Agent tool) is not told.
-  const worker = ((await $.prompt.compose({ model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: [], tools: ['Read'], outputStyle: null, traits: [] } as never)) as { sections: { id: string }[] }).sections
+  const worker = ((await $.prompt.compose({ model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: [], tools: ['Read'], outputStyle: null, traits: [] } as never)) as unknown as { sections: { id: string }[] }).sections
   expect(worker.some(sc => sc.id === 'crab-progress:ultraby')).toBe(false)
   const out = await plan($, [{ title: 'Auditor: check the login', ultra: true }, { title: 'Writer: fix the readme' }])
   expect(out).toMatchObject({ result: expect.stringContaining('ok') })
@@ -259,7 +259,7 @@ test('ultra decided by: the setting round-trips through the command, the store a
     expect(pick.props.value).toBe('manager')
     expect((pick.props.options as { value: string; label: string }[]).map(o => o.value)).toContain(pick.props.value)
     for (const o of pick.props.options as { value: unknown; label: unknown }[]) expect([typeof o.value, typeof o.label]).toEqual(['string', 'string'])
-    await ui.select({ key: 'set-ultraby-pick', value: 'me' })
+    await (ui as unknown as { select: (t: { key: string; value: string }) => Promise<unknown> }).select({ key: 'set-ultraby-pick', value: 'me' })
   } else await ui.press({ key: 'set-ultraby' })
   await ui.unmount()
   expect(await section($, 'crab-progress:ultraby')).toBe('')
