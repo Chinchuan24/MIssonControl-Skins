@@ -182,6 +182,8 @@ let progressSamples: ProgressSample[] = []
 let stopNow: StopSignal | null = null
 // The plan's progress when the person was last warned, or null when not warned.
 let stopWarnedAt: number | null = null
+// The plan the samples and the warning belong to: a new plan may warn again.
+let stopPlan = ''
 async function watchStop($: EngineInterface, at: number, list: AgentRun[], boss: Manager): Promise<void> {
   const f = await read($, flow)
   const isFlow = Boolean(f && !f.isFinished && f.tasks.length)
@@ -194,22 +196,30 @@ async function watchStop($: EngineInterface, at: number, list: AgentRun[], boss:
     progressSamples = []
     stopNow = null
     stopWarnedAt = null
+    stopPlan = ''
     return
   }
   const isWorking = boss.isWorking || list.some(a => a.status === 'running')
   if (!isWorking) {
+    // History counts working time only: a pause is not ten minutes of a stalled plan.
+    progressSamples = []
     stopNow = null
     return
   }
   const plan = isFlow && f ? `flow:${f.title}:${f.tasks.map(t => t.title).join('|')}` : `plan:${(boss.plan ?? []).map(st => st.content).join('|')}`
-  const before = progressSamples[0]?.plan
+  if (plan !== stopPlan) {
+    stopPlan = plan
+    stopWarnedAt = null
+  }
   progressSamples = noteSample(progressSamples, { at, costUsd: liveEnv(await read($, env), at).costUsd, progress, plan, steps: steps.length })
-  if (progressSamples[0]?.plan !== before) stopWarnedAt = null
+  // The newest sample, not the live value: the signal is judged on the samples, so a move
+  // seen between two samples must not re-arm the warning before a sample records it.
+  const sampled = progressSamples[progressSamples.length - 1]?.progress ?? progress
   // Warned already: wait for the plan to move before warning again.
-  if (stopWarnedAt !== null && progress >= stopWarnedAt + minMove(steps.length)) stopWarnedAt = null
+  if (stopWarnedAt !== null && sampled >= stopWarnedAt + minMove(steps.length)) stopWarnedAt = null
   stopNow = stopSignal(progressSamples, at)
   if (!stopNow || stopWarnedAt !== null) return
-  stopWarnedAt = progress
+  stopWarnedAt = sampled
   const text = stopText(stopNow, fmtCost)
   $.ui.toast(`🛑 ${text}`, { timeoutMs: 60000 })
   void $.ui.notify(`Mission Control: ${text}`).catch(() => undefined)
@@ -3943,7 +3953,7 @@ const managerEstimate = (f: Flow | null, list: AgentRun[], m: Manager, at = 0): 
 
 // Terminal: the tree as text, `├─` and `└─` like a file listing.
 const treePrefix = (r: TreeRow): string =>
-  r.lines.slice(0, r.depth - 1).map(on => (on ? '│ ' : '  ')).join('') + (r.isLast ? '└─ ' : '├─ ')
+  r.lines.slice(0, r.depth - 1).map(isOn => (isOn ? '│ ' : '  ')).join('') + (r.isLast ? '└─ ' : '├─ ')
 
 // --- the workflow card: each step of the work in hand, with its own bar. The
 // plan's tasks when a flow is reported, else the sub-agents at work, else the
@@ -7758,7 +7768,9 @@ export const register: Register = (on, options) => {
     if (verb === 'rescue') {
       const at = await $.clock.now()
       const quiet = quietOf(await read($, agents))
-      const [act = '', pick = ''] = arg.split(/\s+/)
+      // `/tokens rescue retry 2`: the action is the second word, the pick the third.
+      const act = arg
+      const pick = target
       if (act !== 'retry' && act !== 'nudge') return { text: rescueText(quiet, at, fmtTime) }
       const chosen = pickQuiet(quiet, pick)
       if (!chosen.length) return { text: quiet.length ? `Which one? /tokens rescue ${act} <1-${quiet.length}|all>` : rescueText(quiet, at, fmtTime) }
