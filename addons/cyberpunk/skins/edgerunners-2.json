@@ -1,0 +1,77 @@
+{
+  "id": "edgerunners-2",
+  "name": "Edgerunners 2",
+  "description": "Fan homage: D and the Kings on torn magenta paper and black. No signal, no survival.",
+  "font": "'Avenir Next Condensed','Roboto Condensed','Arial Narrow',Bahnschrift,sans-serif",
+  "corners": "round",
+  "dark": true,
+  "colors": {
+    "accent": "#FD0250",
+    "accent2": "#E9E6D8",
+    "done": "#8ED1BF",
+    "warn": "#F5A35C",
+    "alert": "#FF5A92",
+    "meter": "#3E80F7",
+    "text": "#F1EEE4",
+    "subtext": "#C2B9B3",
+    "muted": "#968B90",
+    "tile": "#0A0709",
+    "track": "#1A333C",
+    "line": "#2C2128",
+    "grid": "#1E161B"
+  },
+  "boss": [
+    "#FD0250",
+    "#E9E6D8",
+    "#A02241",
+    "#3E80F7",
+    "#FD0250"
+  ],
+  "roles": [
+    "#FD0250",
+    "#E9E6D8",
+    "#3E80F7",
+    "#8ED1BF",
+    "#F5A35C",
+    "#A02241"
+  ],
+  "effects": {
+    "scanlines": false,
+    "glitch": false
+  },
+  "backdrop": {
+    "fill": "#020A0D",
+    "pattern": "none",
+    "ink": ""
+  },
+  "chat": true,
+  "words": [
+    "Syncing the chip",
+    "Reading the engram",
+    "Rolling tape",
+    "Pasting it up",
+    "Asking Sal",
+    "Calling King's crew",
+    "Crossing the Badlands",
+    "Riding through Watson"
+  ],
+  "toolWords": {
+    "Read": "Pan",
+    "Grep": "Zoom",
+    "Glob": "Wide shot",
+    "Edit": "Cut",
+    "MultiEdit": "Cut",
+    "Write": "Print",
+    "Bash": "Action",
+    "PowerShell": "Action",
+    "Agent": "Cast",
+    "WebFetch": "B-roll",
+    "WebSearch": "Scout",
+    "ToolSearch": "Ask Sal"
+  },
+  "tabs": {
+    "mission": "✂︎ Mission Control",
+    "skins": "✂︎ Skins"
+  },
+  "cast": "edgerunners2"
+}

@@ -210,6 +210,8 @@ export type RoamTiming = {
   perchY?: number
   /** For a takeover: when it starts (ms), to pair with `now`. */
   startAt?: number
+  /** Where a peek stands, or a sit sits (its feet), instead of the spot picked from the plan: a theme names the edge she leans out of. */
+  peekAt?: { x: number; y: number }
 }
 
 const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -261,9 +263,10 @@ export const roamerMarkup = (sprite: Sprite, plan: RoamPlan, W: number, H: numbe
   }
 
   // peek and sit: glitch in, stay, glitch out.
-  const x = r2(clamp(W * plan.x, 20 * s, W - 20 * s))
+  const x = r2(clamp(tm.peekAt ? tm.peekAt.x : W * plan.x, 20 * s, W - 20 * s))
   const isSit = plan.kind === 'sit'
-  const y = isSit ? r2(clamp(tm.perchY ?? (surface === 'band' ? H * 0.55 : H * (0.3 + 0.5 * plan.y)), top, H - 2)) : floor
+  const spotY = tm.peekAt ? tm.peekAt.y : undefined
+  const y = isSit ? r2(clamp(tm.perchY ?? spotY ?? (surface === 'band' ? H * 0.55 : H * (0.3 + 0.5 * plan.y)), top, H - 2)) : spotY !== undefined ? r2(clamp(spotY, top, H - 2)) : floor
   const pw = r2(34 * s)
   const perch = isSit
     ? `<rect x="${r2(-pw / 2)}" y="1" width="${pw}" height="${plan.perch === 'bar' ? 4 : 2}" rx="1" fill="${plan.perch === 'bar' ? t.accent2 : t.accent}" fill-opacity=".75"/>`

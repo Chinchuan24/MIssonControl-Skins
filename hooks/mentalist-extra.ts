@@ -24,11 +24,10 @@ export const MENT_EXTRA_CSS = `.mx-win{animation:mx-win 3.4s steps(1) infinite}@
 .mx-heat{animation:mx-heat .9s steps(1) infinite}@keyframes mx-heat{50%{opacity:.35}}
 .mx-fall{animation:mx-fall 16s linear infinite}@keyframes mx-fall{0%{transform:translate(0,-8px);opacity:0}10%,85%{opacity:1}100%{transform:translate(var(--dx,0px),var(--dy,60px));opacity:0}}
 .mx-coin{animation:mx-coin 1.8s linear infinite}@keyframes mx-coin{50%{transform:scaleX(.12)}}
-.mx-ttl{animation:mx-ttl 11s steps(1) infinite}@keyframes mx-ttl{0%{opacity:1}92%{opacity:0}95%{opacity:1}96%{opacity:0}97%{opacity:1}}
-.mx-smile{animation:mx-smile 11s steps(1) infinite}@keyframes mx-smile{0%{opacity:0}92%{opacity:1}95%{opacity:0}96%{opacity:.8}97%{opacity:0}}
-.mx-ghost{animation:mx-ghost 11s steps(1) infinite}@keyframes mx-ghost{0%{opacity:0}91%{opacity:.8;transform:translate(-2px,0)}92%{opacity:0}95%{opacity:.7;transform:translate(2px,0)}96%{opacity:0}}
+.mx-smile{animation:mx-smile 30s steps(1) -12s infinite}@keyframes mx-smile{0%{opacity:.7}1%{opacity:0}}
+.mx-ghost{animation:mx-ghost 30s steps(1) -12s infinite}@keyframes mx-ghost{0%{opacity:.6;transform:translate(-2px,0)}.5%{opacity:.5;transform:translate(2px,0)}1%{opacity:0}}
 .mx-steam{animation:mx-steam 2.6s ease-in-out infinite}@keyframes mx-steam{0%{transform:translateY(2px);opacity:0}30%{opacity:.7}100%{transform:translateY(-4px);opacity:0}}
-@media (prefers-reduced-motion: reduce){.mx-win,.mx-spin,.mx-echo,.mx-heat,.mx-coin,.mx-ttl,.mx-smile,.mx-ghost,.mx-steam{animation:none}.mx-fall{animation:none;transform:translate(0,var(--ys,0px));opacity:1}}`
+@media (prefers-reduced-motion: reduce){.mx-win,.mx-spin,.mx-echo,.mx-heat,.mx-coin,.mx-smile,.mx-ghost,.mx-steam{animation:none}.mx-fall{animation:none;transform:translate(0,var(--ys,0px));opacity:1}}`
 
 // --- 1. Sacramento by night: the skyline slot ---
 // Drawn in a 24-unit-high space with the ground at y=0 and scaled to the band height.
@@ -171,17 +170,19 @@ export const cardGlyphs = (W: number, H: number, at: number, t: MxTheme): string
 }
 
 // --- 5. The title that blinks: the title-glitch slot (like relicText) ---
-// Every eleven seconds the task title flickers away for a moment, a red smiley takes its
-// place, a red ghost of the text tears sideways, and the title comes back. `attrs` are the
+// The title is always drawn. Every 30 s a red smiley and a red ghost of the text flick past for
+// 0.3 s, beside the title (never hiding it); reduced motion shows none. `attrs` are the
 // title's own text attributes (font-size, fill, text-anchor). Needs MENT_EXTRA_CSS.
-export const smileGlitch = (x: number, y: number, text: string, attrs: string, _t: MxTheme): string => {
+export const smileGlitch = (x: number, y: number, text: string, attrs: string, _t: MxTheme, titleW = 0): string => {
   const fs = +(/font-size="([\d.]+)"/.exec(attrs)?.[1] ?? 12) || 12
   const size = Math.min(16, Math.max(9, Math.round(fs * 1.1)))
   const anchor = /text-anchor="(middle|end)"/.exec(attrs)?.[1]
-  const sx = anchor === 'middle' ? x - size / 2 : anchor === 'end' ? x - size : x
+  // The title is always there; every 30 s a red ghost and a small smiley flick past for 0.3 s, beside the text, not over it.
+  const est = [...text].length * fs * 0.52
+  const sx = anchor === 'middle' ? x - size / 2 : anchor === 'end' ? x - size : Math.min(x + est + 6, x + (titleW || est + 6 + size) - size)
   const body = esc(text)
   return (
-    `<text class="mx-ttl" x="${r1(x)}" y="${r1(y)}" ${attrs}>${body}</text>` +
+    `<text x="${r1(x)}" y="${r1(y)}" ${attrs}>${body}</text>` +
     `<text class="mx-ghost" opacity="0" x="${r1(x)}" y="${r1(y)}" ${attrs.replace(/fill="[^"]*"/, '')} fill="${RED}" style="mix-blend-mode:screen">${body}</text>` +
     smiley(r1(sx), r1(y - size * 0.9), size, 0, 'mx-smile')
   )

@@ -71,7 +71,8 @@ test('mentalist-extra: the glitch keeps the title, escapes it, and swaps in a re
   const g = smileGlitch(10, 20, 'a <b> & c', 'font-size="12" fill="#fff"', T)
   expect(g).toContain('a &lt;b&gt; &amp; c')
   expect(g).not.toContain('<b>')
-  expect(g).toContain('mx-ttl')
+  expect(g).not.toContain('mx-ttl') // the title is never animated away
+  expect(g).toContain('>a &lt;b&gt; &amp; c</text>')
   expect(g).toContain('mx-smile')
   expect(g).toContain(RED)
   // the red ghost copy carries no second fill
