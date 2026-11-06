@@ -5,7 +5,8 @@
 // less than MIN_MOVE, the person is asked once: re-plan or stop? Pure functions only;
 // register.tsx keeps the samples in memory and does the toasting.
 
-export type ProgressSample = { at: number; costUsd: number; progress: number }
+/** `plan` names the plan sampled (a new one starts the history again); `steps` is its size. */
+export type ProgressSample = { at: number; costUsd: number; progress: number; plan: string; steps: number }
 export type StopSignal = { spentUsd: number; moved: number; minutes: number }
 type Step = { state: string; progress: number | null }
 
@@ -19,12 +20,11 @@ export const MIN_SPEND_USD = 1
 export const MIN_MOVE = 0.05
 /** A sample at most this often. */
 export const SAMPLE_EVERY_MS = 30_000
-/** Progress falling by more than this is a new plan: the history starts again. */
-const NEW_PLAN_DROP = 0.2
 
 /**
- * How far along a plan is, 0 to 1: a done step counts whole, a running step its own
- * progress. Fewer than two steps is no plan to judge, so null.
+ * How far along a plan is, 0 to 1: a done step counts whole, a running step the progress
+ * it reported. Fewer than two steps is no plan to judge, so null. The caller passes steps
+ * without time-based estimates: a guess that climbs with the clock is not progress.
  */
 export const planProgress = (steps: readonly Step[]): number | null => {
   if (steps.length < 2) return null
@@ -34,12 +34,12 @@ export const planProgress = (steps: readonly Step[]): number | null => {
 
 /**
  * The samples with this one added, at most one per SAMPLE_EVERY_MS and none older than
- * the window needs. A cost or progress that went backwards (a new session, a new plan)
- * starts the history again.
+ * the window needs. A different plan, or a cost that went backwards (a new session),
+ * starts the history again. A step that failed and dropped back is not a new plan.
  */
 export const noteSample = (samples: readonly ProgressSample[], s: ProgressSample): ProgressSample[] => {
   const last = samples[samples.length - 1]
-  if (last && (s.costUsd < last.costUsd || s.progress < last.progress - NEW_PLAN_DROP)) return [s]
+  if (last && (s.plan !== last.plan || s.costUsd < last.costUsd)) return [s]
   if (last && s.at - last.at < SAMPLE_EVERY_MS) return [...samples]
   // Keep one sample from before the window, so a full window can be measured.
   const kept = samples.filter(x => x.at >= s.at - WINDOW_MS - SAMPLE_EVERY_MS * 2)
@@ -47,8 +47,14 @@ export const noteSample = (samples: readonly ProgressSample[], s: ProgressSample
 }
 
 /**
+ * How much the plan must move to count as moving: MIN_MOVE, or one step of a long plan,
+ * whichever is less, so a 30-step plan that finishes a step is moving.
+ */
+export const minMove = (steps: number): number => Math.min(MIN_MOVE, steps > 0 ? 1 / steps - 1e-9 : MIN_MOVE)
+
+/**
  * The signal, or null: the oldest sample inside the window against the newest. Needs
- * MIN_HISTORY_MS of history, MIN_SPEND_USD spent and less than MIN_MOVE of progress.
+ * MIN_HISTORY_MS of history, MIN_SPEND_USD spent and less than minMove of progress.
  * A finished plan (progress 1) never signals.
  */
 export const stopSignal = (samples: readonly ProgressSample[], at: number): StopSignal | null => {
@@ -58,7 +64,7 @@ export const stopSignal = (samples: readonly ProgressSample[], at: number): Stop
   if (!from || now.at - from.at < MIN_HISTORY_MS) return null
   const spentUsd = now.costUsd - from.costUsd
   const moved = now.progress - from.progress
-  if (spentUsd < MIN_SPEND_USD || moved >= MIN_MOVE) return null
+  if (spentUsd < MIN_SPEND_USD || moved >= minMove(now.steps)) return null
   return { spentUsd, moved: Math.max(0, moved), minutes: Math.round((now.at - from.at) / 60_000) }
 }
 

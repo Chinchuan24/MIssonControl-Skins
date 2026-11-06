@@ -16,7 +16,7 @@ import { COLOR_RE, FONT_BAD_RE, ID_RE, TOOL_KEY_RE, skinCheck, skinNew } from '.
 import { WARM_PROMPT, WARM_TAG, isWarmDue, isWarmed, warmCall, warmLimitHit } from './warm'
 import { BLANK_PICK, BLANK_SPEND, SPEND_KINDS, TODAY_PERIOD, exportSpend, isRescanDue, loadSpend, logSpendDay, monthLabel, monthOf, cleanDays, combineDays, monthsWithData, parseSpendArgs, pickSpendKind, pickSpendMonth, readSpend, setSpendPeriod, shiftMonth, spendCard, typeSpendDay } from './spend'
 import type { SpendDirs, SpendIo, SpendKind, SpendRecord } from './spend'
-import { noteSample, planProgress as stepProgress, stopSignal, stopText } from './stopsignal'
+import { minMove, noteSample, planProgress as stepProgress, stopSignal, stopText } from './stopsignal'
 import type { ProgressSample, StopSignal } from './stopsignal'
 import type { AgentRun, AgentStatus, AllTime, Background, Billing, BillingMode, BgCron, BgTask, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Spend, Today, Watch } from '../types'
 import type { On } from 'claude-code'
@@ -171,19 +171,24 @@ async function suggestSaving($: EngineInterface, at: number): Promise<void> {
 }
 
 // Stop Signal (hooks/stopsignal.ts): the session's cost and the plan's progress, sampled
-// by the ticker while work runs. Money going out with the plan stalled asks once, until
-// the plan moves again; the Token Manager shows it as a red tip meanwhile.
+// by the ticker while work runs. Money going out with the plan stalled asks once, and
+// again only after the plan has moved since; the Token Manager shows it as a red tip.
 let progressSamples: ProgressSample[] = []
 let stopNow: StopSignal | null = null
-let isStopWarned = false
+// The plan's progress when the person was last warned, or null when not warned.
+let stopWarnedAt: number | null = null
 async function watchStop($: EngineInterface, at: number, list: AgentRun[], boss: Manager): Promise<void> {
   const f = await read($, flow)
-  const hasPlan = Boolean((f && !f.isFinished && f.tasks.length) || boss.plan?.length)
-  const progress = hasPlan ? stepProgress(workSteps(f, list, boss, at)) : null
+  const isFlow = Boolean(f && !f.isFinished && f.tasks.length)
+  const hasPlan = isFlow || Boolean(boss.plan?.length)
+  // No `at`: an agent that reports no steps counts nothing until it is done, rather than a
+  // time-based estimate that climbs whether or not it gets anywhere.
+  const steps = hasPlan ? workSteps(f, list, boss) : []
+  const progress = hasPlan ? stepProgress(steps) : null
   if (progress === null) {
     progressSamples = []
     stopNow = null
-    isStopWarned = false
+    stopWarnedAt = null
     return
   }
   const isWorking = boss.isWorking || list.some(a => a.status === 'running')
@@ -191,14 +196,15 @@ async function watchStop($: EngineInterface, at: number, list: AgentRun[], boss:
     stopNow = null
     return
   }
-  progressSamples = noteSample(progressSamples, { at, costUsd: liveEnv(await read($, env), at).costUsd, progress })
+  const plan = isFlow && f ? `flow:${f.title}:${f.tasks.map(t => t.title).join('|')}` : `plan:${(boss.plan ?? []).map(st => st.content).join('|')}`
+  const before = progressSamples[0]?.plan
+  progressSamples = noteSample(progressSamples, { at, costUsd: liveEnv(await read($, env), at).costUsd, progress, plan, steps: steps.length })
+  if (progressSamples[0]?.plan !== before) stopWarnedAt = null
+  // Warned already: wait for the plan to move before warning again.
+  if (stopWarnedAt !== null && progress >= stopWarnedAt + minMove(steps.length)) stopWarnedAt = null
   stopNow = stopSignal(progressSamples, at)
-  if (!stopNow) {
-    isStopWarned = false
-    return
-  }
-  if (isStopWarned) return
-  isStopWarned = true
+  if (!stopNow || stopWarnedAt !== null) return
+  stopWarnedAt = progress
   const text = stopText(stopNow, fmtCost)
   $.ui.toast(`🛑 ${text}`, { timeoutMs: 60000 })
   void $.ui.notify(`Mission Control: ${text}`).catch(() => undefined)
@@ -6494,13 +6500,20 @@ export const register: Register = (on, options) => {
     if (e.tools.includes('Agent') && e.tools.length >= mostTools * 0.9) {
       const auto = await readAutoCrew($)
       let reason = auto.on ? (await read($, session)).crewMode ?? '' : ''
+      // Every-job mode turned off mid-job: its reason no longer holds.
+      if (reason === EVERY_JOB && !auto.always) reason = ''
       if (auto.on && !reason) {
         // A plan that grew long, or a context that filled, calls the crew mid-task.
         const boss = await read($, manager)
         const info = await read($, env)
         if (info.contextPct < auto.ctxPct - 10) crewCalled = false
         if (boss.isWorking && !crewCalled) reason = bigJobReason('', info.contextPct, (boss.plan ?? []).length, auto.ctxPct)
-        if (reason) {
+        // Every-job mode turned on mid-job applies from the next request, not the next prompt.
+        if (!reason && auto.always && boss.isWorking) {
+          await update($, session, prev => ({ ...prev, crewMode: EVERY_JOB }))
+          reason = EVERY_JOB
+        }
+        if (reason && reason !== EVERY_JOB) {
           crewCalled = true
           await update($, session, prev => ({ ...prev, crewMode: reason }))
           $.ui.toast(`🦀 Big job (${reason}): summoning the crew`)
@@ -6719,9 +6732,12 @@ export const register: Register = (on, options) => {
             onPress={async () => {
               const auto = await readAutoCrew($)
               const isOn = !auto.on
-              await $.store.set('autoCrew', { ...auto, on: isOn }).catch(() => undefined)
+              // The stored choice of every job survives off and on again.
+              const raw = (await $.store.get('autoCrew').catch(() => null)) as Partial<AutoCrew> | null
+              const always = raw?.always === true
+              await $.store.set('autoCrew', { ...auto, on: isOn, always }).catch(() => undefined)
               if (!isOn) await update($, session, prev => ({ ...prev, crewMode: '' }))
-              await update($, settings, prev => ({ ...prev, crewMode: isOn }))
+              await update($, settings, prev => ({ ...prev, crewMode: isOn, crewAlways: isOn && always }))
             }}
           />
           )}
