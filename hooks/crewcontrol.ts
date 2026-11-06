@@ -110,9 +110,11 @@ export const oneShotSaid = (m: OneShot): string =>
       ? 'Part by part: after you approve a plan, Claude does one item, reports, and waits.'
       : 'One-shot asks: after you approve a plan, Claude asks "Part by part, or one-shot?" once.'
 
-// A small chip for the pane: the word in a rounded pill. Colours and font come from the caller.
-export const oneShotChip = (m: OneShot, color: string, font: string, text: string, width: (s: string, size: number) => number): { W: number; svg: string } => {
-  const label = `⏩︎ ${oneShotWord(m)}`
+// The chip's words for each mode, always shown: what runs when a plan is approved.
+export const oneShotChipWord = (m: OneShot): string => (m === 'on' ? '\u23E9\uFE0E One-shot' : m === 'off' ? '\u25B6\uFE0E Step by step' : '\u2753\uFE0E Ask each time')
+
+// A small chip for the pane: the label in a rounded pill. Colours and font come from the caller.
+export const pillChip = (label: string, color: string, font: string, text: string, width: (s: string, size: number) => number): { W: number; svg: string } => {
   const W = Math.round(width(label, 11.5) + 22)
   const esc = label.replace(/&/g, '&amp;').replace(/</g, '&lt;')
   return {
@@ -120,3 +122,4 @@ export const oneShotChip = (m: OneShot, color: string, font: string, text: strin
     svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="24" viewBox="0 0 ${W} 24"><rect x="0.5" y="2.5" width="${W - 1}" height="19" rx="9.5" fill="${color}" fill-opacity=".16" stroke="${color}" stroke-opacity=".6"/><text x="${W / 2}" y="16" text-anchor="middle" font-family="${font}" font-size="11.5" font-weight="600" fill="${text}">${esc}</text></svg>`,
   }
 }
+export const oneShotChip = (m: OneShot, color: string, font: string, text: string, width: (s: string, size: number) => number): { W: number; svg: string } => pillChip(oneShotChipWord(m), color, font, text, width)

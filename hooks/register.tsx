@@ -4,11 +4,12 @@ import type { EngineInterface, Register } from 'claude-code'
 import { BLANK_BILLING, KEY_IN_COMMAND, draft, maskKey, unmaskKey, guideText, isApiCredits, isMacOS, keyStatus, keychainHas, looksLikeKey, MAC_ONLY, modeChip, noteApiSpend, readMode, readSaved, removeKey, saveKey, spendLine, terminalAlternative, cleanSpend, SPEND_KEY } from './billing'
 import { CASTS, CAST_CSS, hashOf, spriteMarkup } from './cast'
 import { BREACH_H, BREACH_W, CJK_FONT, EGG_CSS, EGG_TOOLS, EGG_WORDS, GREETING, KATAKANA, breachCard, breachTicker, celebration, heatStars, legendsCard, legendsHeight, psychoChip, radio, relicText, sandevistan, skyline, sysTag } from './eggs'
-import type { Egg, Legend } from './eggs'
+import type { CyberEgg, Egg, Legend } from './eggs'
+import { CBI_BADGES, CBI_WORDS, CLOSED_FILES_TOAST, COLD_H, COLD_W, MENT_CSS, MENTALIST_BOOT, REDJOHN_BOOT, TEA_WARNING, TYGER_RE, caseClosed, cbiRankOf, cbiToast, coldReadCard, coldTicker, episodeAt, hiddenSmiley, smiley, teaChip } from './mentalist'
 import { canNudge, nudge, pickQuiet, prBadge, quietOf, rememberTask, repoAndBranch, rescueText, retryOnHaiku, whatIf, whatIfText, whatIfTip } from './coach'
 import { BEATS_KEPT, BLANK_CRED, BOOT_H, award, rockerRankOf, bdHeight, bootStrip, braindanceCard, cleanCred, credCard, credHeight, levelOf, rankOf, shiftPick, stepPick } from './extras'
 import type { Beat, Cred } from './extras'
-import { ONESHOT_KEY, ULTRA_KEY, cleanOneShot, cleanUltraRules, isUltraAgent, matchUltra, nextOneShot, oneShotChip, oneShotSaid, oneShotSection, oneShotWord, parseOneShot, resolveEffort, ultraCommand, ultraLine, withUltraBrief } from './crewcontrol'
+import { ONESHOT_KEY, ULTRA_KEY, pillChip, oneShotChipWord, cleanOneShot, cleanUltraRules, isUltraAgent, matchUltra, nextOneShot, oneShotChip, oneShotSaid, oneShotSection, oneShotWord, parseOneShot, resolveEffort, ultraCommand, ultraLine, withUltraBrief } from './crewcontrol'
 import type { OneShot } from './crewcontrol'
 import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, unifiedDiff } from './richtext'
 import { LIVE_N, glide, isNewReading, isSame, liveText, liveWidth, pin, steady, steadyTree, wallMinute } from './smooth'
@@ -18,6 +19,10 @@ import { BLANK_PICK, BLANK_SPEND, SPEND_KINDS, TODAY_PERIOD, exportSpend, isResc
 import type { SpendDirs, SpendIo, SpendKind, SpendRecord } from './spend'
 import { minMove, noteSample, planProgress as stepProgress, stopSignal, stopText } from './stopsignal'
 import type { ProgressSample, StopSignal } from './stopsignal'
+import { FRESH_MS, HEARTBEAT_MS, HOT_EVERY_MS, KILL_TERM_WAIT_MS, LOCK_WAIT_MS, MAX_AGENTS_STEPS, SAMPLE_EVERY_MS as GUARD_EVERY_MS, SESSION_PREFIX, UNKNOWN_MACHINE, agentSample, autoMaxLabel, calibrate, canLearn, claudeBytes, cleanKillSwitch, cleanMaxAgents, cleanRamLimit, effectiveMax, gbOf, guardVerdict, heavyCommand, heavyRamVerdict, holdWins, holderWhere, isHot, isLiveAgent, killContext, killDecision, killNote, killNoteLive, killOptions, killToast, learnAgentBytes, limitToast, lockDenyReason, lockRelease, lockTry, machineLine, machineOf, maxAgentsOptions, noteTrip, othersSummary, paneLine, peerAgents, peerHeavy, peersOf, perAgentBytes, perAgentLine, ramLimitBytes, ramLimitOptions, ruleText, sessionCount, tightKind, typedMaxAgents, typedRamLimit, useGb, withArgs } from './machineguard'
+import type { GuardInput, Hold, HeavyLock, KillSwitch, KillTarget, Machine, Peer, Proc, Warned } from './machineguard'
+import { argsOfCmd as unixArgsOf, forceCmd as unixForce, machineCmd as unixMachine, parseMachine as parseUnixMachine, parseProcs as parseUnixProcs, parseProcsArgs as parseUnixProcsArgs, procsArgsCmd as unixProcsArgs, procsCmd as unixProcs, termCmd as unixTerm } from './probeunix'
+import { argsOfCmd as winArgsOf, forceCmd as winForce, machineCmd as winMachine, parseMachine as parseWinMachine, parseProcs as parseWinProcs, parseProcsArgs as parseWinProcsArgs, procsArgsCmd as winProcsArgs, procsCmd as winProcs, termCmd as winTerm } from './probewin'
 import type { AgentRun, AgentStatus, AllTime, Background, Billing, BillingMode, BgCron, BgTask, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Spend, Today, Watch } from '../types'
 import type { On } from 'claude-code'
 import type { Timekeeper } from '../types'
@@ -208,6 +213,499 @@ async function watchStop($: EngineInterface, at: number, list: AgentRun[], boss:
   const text = stopText(stopNow, fmtCost)
   $.ui.toast(`🛑 ${text}`, { timeoutMs: 60000 })
   void $.ui.notify(`Mission Control: ${text}`).catch(() => undefined)
+}
+
+// Machine Guard: sizes the crew to the machine and keeps Claude inside a RAM limit. The OS
+// commands and parsers are probeunix.ts / probewin.ts; the decisions are machineguard.ts.
+// A probe is a short local process (never the network): one for RAM and cores, one for the
+// process table, and only while work runs, one at a time, every GUARD_EVERY_MS.
+type ProbeKind = 'unix' | 'win'
+const PROBES = {
+  unix: { machine: unixMachine, parseMachine: parseUnixMachine, procs: unixProcs, parseProcs: parseUnixProcs, procsEveryMs: 30_000, procsArgs: unixProcsArgs, parseProcsArgs: parseUnixProcsArgs, argsOf: unixArgsOf, term: unixTerm, force: unixForce, sleep: (sec: number) => ['sleep', String(sec)] },
+  win: { machine: winMachine, parseMachine: parseWinMachine, procs: winProcs, parseProcs: parseWinProcs, procsEveryMs: 45_000, procsArgs: winProcsArgs, parseProcsArgs: parseWinProcsArgs, argsOf: winArgsOf, term: winTerm, force: winForce, sleep: (sec: number) => ['powershell', '-NoProfile', '-Command', `Start-Sleep -Seconds ${sec}`] },
+}
+const GUARD_KEY = 'machineGuard'
+// What one agent costs on this machine, learned: an EMA kept in the store, and the baseline
+// (Claude's process tree with 0 agents) it is measured against.
+const AGENT_RAM_KEY = 'agentRam'
+let mgLearned: number | null = null
+let mgBaseline: number | null = null
+// The one heavy-command lock, across the main loop and every sub-agent.
+let mgLock: HeavyLock | null = null
+// Counts lock changes: a process read that straddles one is not used for learning.
+let mgLockSeq = 0
+// Claude's tree without heavy tools' subtrees: what the learner measures.
+let mgClaudeLean: number | null = null
+let mgMachine: Machine = UNKNOWN_MACHINE
+let mgKind: ProbeKind | null = null
+let mgFreeBytes: number | null = null
+let mgClaude: number | null = null
+let mgSampleAt = 0
+let mgProcsAt = 0
+let mgBusy = false
+let mgWarned: Warned = []
+let mgRam = 'auto'
+let mgMaxSetting = 0
+let mgRunning = 0
+// Spawns let through whose agent has not started yet, by when: parallel Agent calls each see
+// the others. One not released within a minute (a hook that threw) stops counting.
+let mgPending: number[] = []
+// A workflow's agents, which $.agent.list() leaves out: id → when it started.
+const mgWorkflow = new Map<string, number>()
+// One budget across every live session of the mod. Each session writes only its own key in the
+// store (`mg.s.<sessionId>`: its agents, its heavy hold, a heartbeat), so writes never race, and
+// reads the others' only while work runs: at spawn time, at heavy-command time, on the heartbeat.
+let mgSid = ''
+let mgName = ''
+// The other live sessions, as of the last read.
+let mgPeers: Peer[] = []
+// The heavy command this session holds the global lock for, and this session's own crew, as last published.
+let mgHold: Hold | null = null
+let mgOwnAgents = 0
+let mgWorking = false
+// A record that says "working" or "has agents" is in the store: one idle write retires it.
+let mgLive = false
+let mgPubAt = 0
+// Writes of the session's record go one after another, each built when its turn comes.
+let mgPubQ: Promise<void> = Promise.resolve()
+// The kill switch: its setting, when it last stopped a process, how many it has stopped, and the note Claude reads.
+let mgKill: KillSwitch = 'on'
+let mgKillAt: number | null = null
+let mgKillSeq = 0
+let mgStopped: { text: string; at: number } | null = null
+
+// The output of a command, or '' when it cannot start, fails or takes over 10 s (PowerShell's first run can take 3).
+async function probeOut($: EngineInterface, cmd: { cmd: string; args: string[] }): Promise<string> {
+  try {
+    return (await $.process.run([cmd.cmd, ...cmd.args], { timeoutMs: 10_000 })).stdout
+  } catch {
+    return ''
+  }
+}
+const limitNow = (): number | null => ramLimitBytes(mgRam, mgMachine.totalBytes)
+const calibratedNow = (): number => calibrate(limitNow(), perAgentBytes(mgLearned))
+// `running` is this session's crew; the crews of the other live sessions are added to it.
+const guardInput = (running: number): GuardInput => ({
+  machine: mgMachine,
+  running: running + peerAgents(mgPeers),
+  maxAgents: effectiveMax(mgMaxSetting, calibratedNow()),
+  perAgentBytes: perAgentBytes(mgLearned),
+  limitBytes: limitNow(),
+  claudeBytes: mgClaude,
+  freeBytes: mgFreeBytes,
+  sessions: mgPeers.length ? { count: sessionCount(mgPeers), here: running, others: othersSummary(mgPeers) } : undefined,
+})
+const round1 = (n: number): number => Math.round(n * 10) / 10
+// Redraws only when what is drawn changes.
+async function syncGuard($: EngineInterface, running: number): Promise<void> {
+  mgRunning = running
+  const g = guardInput(running)
+  const tight = tightKind(g)
+  for (const kind of ['ram', 'free'] as const) {
+    const r = noteTrip(mgWarned, kind, tight === kind)
+    mgWarned = r.warned
+    if (r.toast) $.ui.toast(guardVerdict({ ...g, running: 0 })?.reason ?? 'Machine Guard: RAM is tight')
+  }
+  if (g.running < g.maxAgents) mgWarned = noteTrip(mgWarned, 'agents', false).warned
+  const used = useGb(g)
+  const per = perAgentBytes(mgLearned)
+  const next = {
+    line: machineLine(mgMachine),
+    usedGb: used === null ? -1 : round1(used),
+    limitGb: g.limitBytes === null ? 0 : round1(gbOf(g.limitBytes)),
+    max: g.maxAgents,
+    calibrated: calibratedNow(),
+    autoLabel: autoMaxLabel(calibratedNow(), g.limitBytes, per),
+    perAgent: perAgentLine(per, mgLearned !== null),
+    isTight: tight !== null,
+    others: peerAgents(mgPeers),
+    sessions: sessionCount(mgPeers),
+  }
+  const was = await read($, guard)
+  if (JSON.stringify(was) !== JSON.stringify(next)) await update($, guard, () => next)
+}
+// Session start and every reload: what the person set, what was found last time, then a fresh look.
+async function loadGuard($: EngineInterface): Promise<void> {
+  mgRam = cleanRamLimit(await $.store.get('ramLimit').catch(() => undefined))
+  mgMaxSetting = cleanMaxAgents(await $.store.get('maxAgents').catch(() => undefined))
+  mgKill = cleanKillSwitch(await $.store.get('killSwitch').catch(() => undefined))
+  const learned = (await $.store.get(AGENT_RAM_KEY).catch(() => undefined)) as number | undefined
+  mgLearned = typeof learned === 'number' && learned > 0 ? learned : null
+  const saved = (await $.store.get(GUARD_KEY).catch(() => undefined)) as { os?: Machine['os']; totalBytes?: number; cores?: number } | undefined
+  // Last time's machine sizes the crew until the new look is in, but guards nothing (no free-RAM number yet).
+  if (saved && typeof saved.totalBytes === 'number') mgMachine = machineOf({ os: saved.os ?? 'unknown', totalBytes: saved.totalBytes, freeBytes: null, cores: typeof saved.cores === 'number' ? saved.cores : null })
+  await syncGuard($, 0)
+  await detectMachine($)
+}
+async function detectMachine($: EngineInterface): Promise<void> {
+  if (mgBusy) return
+  mgBusy = true
+  try {
+    // Unix first (it fails to start on Windows, or reports no RAM), then PowerShell.
+    for (const kind of mgKind ? [mgKind] : (['unix', 'win'] as const)) {
+      const info = PROBES[kind].parseMachine(await probeOut($, PROBES[kind].machine))
+      if (!info.totalBytes) continue
+      mgKind = kind
+      mgMachine = machineOf(info)
+      mgFreeBytes = info.freeBytes
+      mgSampleAt = await $.clock.now()
+      const saved = { os: mgMachine.os, totalBytes: mgMachine.totalBytes, cores: mgMachine.cores }
+      if (JSON.stringify(await $.store.get(GUARD_KEY).catch(() => undefined)) !== JSON.stringify(saved)) await $.store.set(GUARD_KEY, saved).catch(() => undefined)
+      break
+    }
+    await syncGuard($, mgRunning)
+  } catch {
+    // Unknown machine: safe defaults, nothing refused for RAM.
+  } finally {
+    mgBusy = false
+  }
+}
+// A fresh process read: with 0 agents it is the baseline; with N >= 1 it teaches the cost of one.
+// Heavy commands skew both: reads that overlap a held lock are skipped, and heavy tools' own
+// subtrees (a tsc child) are left out of the measure.
+async function learnFromSample($: EngineInterface, running: number, isClean: boolean): Promise<void> {
+  if (mgClaudeLean === null || !isClean) return
+  if (running === 0) {
+    mgBaseline = mgClaudeLean
+    return
+  }
+  const next = learnAgentBytes(mgLearned, agentSample(mgClaudeLean, mgBaseline, running))
+  if (next === null || (mgLearned !== null && Math.round(next / 1048576) === Math.round(mgLearned / 1048576))) return
+  mgLearned = next
+  await $.store.set(AGENT_RAM_KEY, next).catch(() => undefined)
+}
+// Before a refusal for RAM: a process read no older than maxAgeMs, so a process that has already
+// died cannot keep blocking. Skipped while another probe runs (that one is fresh enough soon).
+async function freshClaude($: EngineInterface, maxAgeMs: number): Promise<void> {
+  if (!mgKind || mgBusy) return
+  const at = await $.clock.now()
+  if (at - mgProcsAt < maxAgeMs) return
+  mgBusy = true
+  mgProcsAt = at
+  try {
+    const procs = PROBES[mgKind].parseProcs(await probeOut($, PROBES[mgKind].procs))
+    if (procs.length) {
+      mgClaude = claudeBytes(procs)
+      mgClaudeLean = claudeBytes(procs, true)
+    }
+  } catch {
+    // A failed look changes nothing.
+  } finally {
+    mgBusy = false
+  }
+}
+// ---- one budget across sessions: this session's record, and the others' ----
+// The session's id; if the engine cannot say, a random one for this process.
+async function sessionKey($: EngineInterface): Promise<string> {
+  try {
+    const id = String(await $.session.id())
+    if (id) mgSid = id
+  } catch {
+    // keep the last one
+  }
+  if (!mgSid) mgSid = `p${Math.random().toString(36).slice(2, 10)}`
+  return mgSid
+}
+// The project folder's name, so a refusal can say which session holds what.
+async function sessionName($: EngineInterface): Promise<string> {
+  if (!mgName) mgName = await $.session.root().then(r => r.split(/[\\/]/).filter(Boolean).pop() ?? '', () => '')
+  return mgName
+}
+// The other live sessions: every `mg.s.*` key but this session's, fresh ones only. Old records are deleted here.
+async function readPeers($: EngineInterface, now: number): Promise<Peer[]> {
+  try {
+    const sid = await sessionKey($)
+    const entries: Record<string, unknown> = {}
+    for (const k of (await $.store.keys()).filter(key => key.startsWith(SESSION_PREFIX))) entries[k.slice(SESSION_PREFIX.length)] = await $.store.get(k)
+    const { peers, drop } = peersOf(entries, sid, now)
+    for (const id of drop) await $.store.delete(SESSION_PREFIX + id).catch(() => undefined)
+    mgPeers = peers
+  } catch {
+    // The last list stays.
+  }
+  return mgPeers
+}
+// Writes this session's record: its crew, its heavy hold, whether it works, and when. One write at a time.
+function publishSelf($: EngineInterface, now: number): Promise<void> {
+  mgPubQ = mgPubQ
+    .then(async () => {
+      const rec = { agents: mgOwnAgents, busy: mgWorking, heavy: mgHold, at: now, name: await sessionName($) }
+      mgLive = rec.agents > 0 || rec.busy || rec.heavy !== null
+      mgPubAt = now
+      await $.store.set(SESSION_PREFIX + (await sessionKey($)), rec)
+    })
+    .catch(() => undefined)
+  return mgPubQ
+}
+// Work runs: every HEARTBEAT_MS the others are read and this session's record is renewed.
+async function beatGuard($: EngineInterface, at: number): Promise<void> {
+  if (at - mgPubAt < HEARTBEAT_MS - 1000) return
+  mgWorking = true
+  mgOwnAgents = await crewCount($)
+  await readPeers($, at)
+  await publishSelf($, at)
+}
+// Work has stopped: one write retires the record, so the others stop counting this session at once.
+async function idleGuard($: EngineInterface, at: number): Promise<void> {
+  if (!mgLive || mgHold) return
+  mgWorking = false
+  mgOwnAgents = 0
+  mgPeers = []
+  await publishSelf($, at)
+  await syncGuard($, mgRunning)
+}
+async function forgetSession($: EngineInterface): Promise<void> {
+  mgWorking = false
+  mgOwnAgents = 0
+  mgHold = null
+  mgLive = false
+  mgPeers = []
+  await $.store.delete(SESSION_PREFIX + (await sessionKey($))).catch(() => undefined)
+}
+
+// ---- the kill switch ----
+// Claude is over its limit on a FRESH look: stop the biggest heavy process under it, one at a time.
+// The process table with command lines is read only then, and merged with the names by pid.
+async function killIfOver($: EngineInterface, procs: Proc[], readAt: number): Promise<void> {
+  if (mgKill !== 'on' || !mgKind) return
+  const limit = limitNow()
+  const used = claudeBytes(procs)
+  if (limit === null || used === null || used <= limit) return
+  const p = PROBES[mgKind]
+  const rows = p.parseProcsArgs(await probeOut($, p.procsArgs))
+  if (!rows.length) return
+  const now = await $.clock.now()
+  const d = killDecision({ enabled: true, limitBytes: limit, procs: withArgs(procs, rows), readAgeMs: now - readAt, sinceKillMs: mgKillAt === null ? null : now - mgKillAt })
+  if ('kill' in d) await stopProcess($, d.kill, d.claudeBytes, limit, now)
+}
+// Stops ONE process: first checks its command line is still the one chosen (a pid can be reused),
+// then a polite stop, and a forced one 5 s later if it is still there. The wait does not hold the sampler.
+async function stopProcess($: EngineInterface, t: KillTarget, used: number, limit: number, now: number): Promise<void> {
+  if (!mgKind) return
+  const p = PROBES[mgKind]
+  const same = async () => (await probeOut($, p.argsOf(t.pid))).trim() === t.args.trim()
+  if (!(await same())) return
+  mgKillAt = now
+  mgKillSeq++
+  const term = p.term(t.pid)
+  await $.process.run([term.cmd, ...term.args], { timeoutMs: 10_000 }).catch(() => undefined)
+  mgStopped = { text: killNote(t, used, limit), at: now }
+  $.ui.toast(killToast(t, used, limit))
+  void (async () => {
+    await $.process.run(p.sleep(Math.ceil(KILL_TERM_WAIT_MS / 1000)), { timeoutMs: 15_000 }).catch(() => undefined)
+    if (!(await same())) return
+    const force = p.force(t.pid)
+    await $.process.run([force.cmd, ...force.args], { timeoutMs: 10_000 }).catch(() => undefined)
+  })().catch(() => undefined)
+}
+
+// The ticker calls this while work runs; it does nothing unless 15 s have passed (5 s when Claude is near its limit) and no probe is still going.
+async function sampleGuard($: EngineInterface, at: number, running: number): Promise<void> {
+  const hot = isHot(mgClaude, limitNow(), mgKill === 'on')
+  if (mgBusy || !mgKind || at - mgSampleAt < (hot ? HOT_EVERY_MS : GUARD_EVERY_MS)) return
+  mgBusy = true
+  mgSampleAt = at
+  try {
+    const p = PROBES[mgKind]
+    const info = p.parseMachine(await probeOut($, p.machine))
+    if (info.freeBytes !== null) mgFreeBytes = info.freeBytes
+    if (at - mgProcsAt >= (hot ? HOT_EVERY_MS : p.procsEveryMs)) {
+      mgProcsAt = at
+      // A table that timed out or failed keeps the last measure, not the system-wide fallback.
+      const seq = mgLockSeq
+      // The read's age counts from the read itself, not from the free-RAM look before it (slow on Windows).
+      const readAt = await $.clock.now()
+      const procs = p.parseProcs(await probeOut($, p.procs))
+      if (procs.length) {
+        mgClaude = claudeBytes(procs)
+        mgClaudeLean = claudeBytes(procs, true)
+        await learnFromSample($, running, canLearn(mgLock !== null, seq, mgLockSeq))
+        await killIfOver($, procs, readAt)
+      }
+    }
+    await beatGuard($, at)
+    await syncGuard($, running)
+  } catch {
+    // A failed look changes nothing.
+  } finally {
+    mgBusy = false
+  }
+}
+// The crew in force: live agents the engine lists (running, pending, or waiting on work of
+// their own), plus a workflow's agents, which it does not list, until their row ends.
+async function crewCount($: EngineInterface): Promise<number> {
+  const ids = new Set((await $.agent.list()).filter(a => isLiveAgent(a.status)).map(a => a.id))
+  if (mgWorkflow.size) {
+    const at = await $.clock.now()
+    const rows = await read($, agents)
+    for (const [id, since] of mgWorkflow) {
+      const row = rows.find(a => a.id === id)
+      // No row yet: counted for a minute (the row is written just after the spawn).
+      if (row ? row.status !== 'running' : at - since >= 60_000) mgWorkflow.delete(id)
+      else if (!row?.isStuck) ids.add(id)
+    }
+  }
+  return ids.size
+}
+// The agent.spawn guard: a reason to refuse a NEW sub-agent, or none. A spawn let through is
+// held in mgPending (by its `at`) until it starts, so parallel calls cannot all slip in. Fails open.
+async function guardSpawn($: EngineInterface): Promise<{ deny?: string; at?: number }> {
+  const at = await $.clock.now()
+  await sampleGuard($, at, mgRunning)
+  await freshClaude($, FRESH_MS)
+  // The other sessions' crews are read fresh; they count against the same maximum.
+  await readPeers($, at)
+  // Counted after the (slow) look, then no await till the verdict: a spawn let through meanwhile is counted.
+  const listed = await crewCount($)
+  mgPending = mgPending.filter(t => at - t < 60_000)
+  const running = listed + mgPending.length
+  const g = guardInput(running)
+  const v = guardVerdict(g)
+  const r = noteTrip(mgWarned, 'agents', v?.kind === 'agents')
+  mgWarned = r.warned
+  if (r.toast && v) $.ui.toast(v.reason)
+  if (!v) {
+    mgPending.push(at)
+    // This session's crew, with the new agent in it, is written at once so the others see it.
+    mgWorking = true
+    mgOwnAgents = listed + mgPending.length
+    void publishSelf($, at)
+    return { at }
+  }
+  // A refusal for RAM tells the person once too (the sample may not have).
+  if (v.kind !== 'agents') await syncGuard($, running)
+  return { deny: v.reason }
+}
+// The spawn let through at `at` has started (or failed): it is listed now, no longer pending.
+function releaseSpawn(at: number | undefined): void {
+  const i = at === undefined ? -1 : mgPending.indexOf(at)
+  if (i >= 0) mgPending.splice(i, 1)
+}
+const guardRule = (now: number): string =>
+  ruleText(limitNow(), perAgentBytes(mgLearned), effectiveMax(mgMaxSetting, calibratedNow()), calibratedNow(), tightKind(guardInput(0)) !== null, {
+    sessions: mgPeers.length ? sessionCount(mgPeers) : 1,
+    killOn: mgKill === 'on',
+    stopped: killNoteLive(mgStopped, now),
+  })
+async function setKillSwitch($: EngineInterface, v: KillSwitch): Promise<void> {
+  mgKill = cleanKillSwitch(v)
+  await $.store.set('killSwitch', mgKill).catch(() => undefined)
+  await update($, settings, prev => ({ ...prev, killSwitch: mgKill }))
+  $.ui.toast(mgKill === 'on' ? '\u{1F52A} Kill switch on: Claude over its RAM limit has its biggest heavy command stopped' : '\u{1F52A} Kill switch off: Machine Guard only refuses new work')
+}
+async function setRamLimit($: EngineInterface, v: string): Promise<void> {
+  mgRam = cleanRamLimit(v)
+  await $.store.set('ramLimit', mgRam).catch(() => undefined)
+  await update($, settings, prev => ({ ...prev, ramLimit: mgRam }))
+  await syncGuard($, mgRunning)
+  $.ui.toast(limitToast(limitNow(), effectiveMax(mgMaxSetting, calibratedNow())))
+}
+async function setMaxAgents($: EngineInterface, n: number): Promise<void> {
+  mgMaxSetting = cleanMaxAgents(n)
+  await $.store.set('maxAgents', mgMaxSetting).catch(() => undefined)
+  await update($, settings, prev => ({ ...prev, maxAgents: mgMaxSetting }))
+  await syncGuard($, mgRunning)
+  $.ui.toast(limitToast(limitNow(), effectiveMax(mgMaxSetting, calibratedNow())))
+}
+// Settings' reset: forget what one agent was learned to cost; the default (0.5 GB) applies
+// until the learner measures again.
+async function resetAgentRam($: EngineInterface): Promise<void> {
+  mgLearned = null
+  await $.store.delete(AGENT_RAM_KEY).catch(() => undefined)
+  await syncGuard($, mgRunning)
+  $.ui.toast(`Machine Guard: back to ${perAgentLine(perAgentBytes(null), false)}. It learns again as agents run.`)
+}
+async function typeRamLimit($: EngineInterface, typed: string): Promise<void> {
+  const v = typedRamLimit(typed)
+  if (!v) {
+    $.ui.toast('Type an amount in GB, like 12')
+    return
+  }
+  await setRamLimit($, v)
+}
+async function typeMaxAgents($: EngineInterface, typed: string): Promise<void> {
+  const n = typedMaxAgents(typed)
+  if (!n) {
+    $.ui.toast('Type a whole number of agents, like 24')
+    return
+  }
+  await setMaxAgents($, n)
+}
+
+// The heavy-command lock: one type check, test run or build at a time, for everyone: the main loop,
+// every sub-agent, and every other live session. A second one WAITS here (up to LOCK_WAIT_MS), then
+// is refused. The wait is a short `sleep` process: a `$` call in flight is free of the hook's 10 s
+// budget, while $.clock.sleep would spend it. Where no sleep command runs, the second one is refused
+// at once. Returns a deny reason, or null when `owner` now holds the lock (and must call releaseHeavy).
+// Within this session `mgLock` orders the callers; across sessions the hold is a field of the session's
+// own store record: written, then read back, and the OLDEST hold wins.
+async function claimGlobal($: EngineInterface, label: string): Promise<Peer | null> {
+  let at = await $.clock.now()
+  await readPeers($, at)
+  const other = peerHeavy(mgPeers, at)
+  if (other) return other
+  at = await $.clock.now()
+  mgHold = { cmd: label, since: at }
+  mgWorking = true
+  await publishSelf($, at)
+  // With other sessions about, give a simultaneous claim a moment to land, then see who is oldest.
+  if (mgPeers.length) {
+    await $.process.run(mgKind === 'win' ? PROBES.win.sleep(1) : ['sleep', '0.3'], { timeoutMs: 5_000 }).catch(() => undefined)
+    const now = await $.clock.now()
+    await readPeers($, now)
+    if (!holdWins(await sessionKey($), at, mgPeers, now)) {
+      const winner = peerHeavy(mgPeers, now)
+      mgHold = null
+      await publishSelf($, now)
+      return winner
+    }
+  }
+  return null
+}
+async function takeHeavy($: EngineInterface, owner: string, label: string, signal: AbortSignal | undefined): Promise<string | null> {
+  const start = await $.clock.now()
+  await freshClaude($, FRESH_MS)
+  const ram = heavyRamVerdict(guardInput(mgRunning), label)
+  if (ram) return ram
+  const argv = PROBES[mgKind ?? 'unix'].sleep(3)
+  let blocked = label
+  let where = ''
+  let isLocal = false
+  for (let i = 0; i <= Math.ceil(LOCK_WAIT_MS / 3000); i++) {
+    const now = i === 0 ? start : await $.clock.now()
+    const held = lockTry(mgLock, owner, label, now)
+    mgLock = held.lock
+    if (held.got) {
+      if (!isLocal) mgLockSeq++
+      isLocal = true
+      const holder = await claimGlobal($, label).catch(() => null)
+      if (!holder) {
+        // Waited: the look at RAM is made again before it starts.
+        if (i > 0) await freshClaude($, 0)
+        const late = i > 0 ? heavyRamVerdict(guardInput(mgRunning), label) : null
+        if (!late) mgStopped = null
+        return late
+      }
+      blocked = holder.heavy?.cmd ?? label
+      where = holderWhere(holder)
+    } else {
+      blocked = mgLock?.label ?? label
+      where = ''
+    }
+    if (now - start >= LOCK_WAIT_MS || i >= Math.ceil(LOCK_WAIT_MS / 3000)) break
+    const ok = await $.process.run(argv, { timeoutMs: 8_000 }).then(r => r.exitCode === 0, () => false)
+    if (!ok || signal?.aborted) break
+  }
+  return lockDenyReason(blocked, where)
+}
+async function releaseHeavy($: EngineInterface, owner: string): Promise<void> {
+  mgLock = lockRelease(mgLock, owner)
+  mgLockSeq++
+  // The last local holder lets go of the global hold too, so another session can start.
+  if (mgLock === null && mgHold) {
+    mgHold = null
+    await publishSelf($, await $.clock.now())
+  }
 }
 
 // The daily soft cap (/tokens daily 2): the Token Manager warns at 80% and 100% of
@@ -453,7 +951,7 @@ const beepWav = (): string => {
 // The skin's alert: MaxTac's siren on the cyberpunk skins, the beeps elsewhere.
 async function playAlert($: EngineInterface): Promise<void> {
   if (!(await read($, settings)).sounds) return
-  await $.audio.play(eggOf() ? { asset: `${ADDON}/assets/maxtac.wav` } : { base64: beepWav(), mime: 'audio/wav' }).catch(() => undefined)
+  await $.audio.play(cyberOf() ? { asset: `${ADDON}/assets/maxtac.wav` } : { base64: beepWav(), mime: 'audio/wav' }).catch(() => undefined)
 }
 
 // Each tick: keep every budget current, then alert once per job at 80% and 100%, and
@@ -862,7 +1360,7 @@ const CRAB_SKIN: Skin = {
 const CYBER_SKIN: Skin = {
   id: 'cyberpunk-2077',
   cast: 'runners',
-  name: 'Cyberpunk 2077',
+  name: 'Cyberpunk Edgerunner',
   description: 'Night City HUD: neon yellow, hot red, electric cyan, cut corners, scanlines.',
   font: "Rajdhani,Orbitron,-apple-system,BlinkMacSystemFont,'SF Pro Display','Helvetica Neue',Bahnschrift,'Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
   corners: 'chamfer',
@@ -1030,7 +1528,79 @@ const SAMURAI_SKIN: Skin = {
   tabs: { mission: '♪ Mission Control', skins: '♪ Skins' },
 }
 
-const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN, SAMURAI_SKIN]
+// The Mentalist (fan homage): Jane and the CBI team. Jane's own colours: black, navy
+// and crisp white, his shirt's pale blue for the accent; a serif face, tea in the spinner.
+const MENTALIST_SKIN: Skin = {
+  id: 'mentalist',
+  cast: 'mentalist',
+  name: 'The Mentalist',
+  description: 'Fan homage: Jane and the CBI team in black, navy and crisp white.',
+  font: "'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,'Noto Serif',serif",
+  corners: 'round',
+  dark: true,
+  colors: {
+    accent: '#8DB4EA',
+    accent2: '#DCE6F5',
+    done: '#7CC9A0',
+    warn: '#E8C26A',
+    alert: '#E0605A',
+    meter: '#5E8BD6',
+    text: '#F2F5FA',
+    subtext: '#B4C0D3',
+    muted: '#93A0B5',
+    tile: '#0E1524',
+    track: '#18223A',
+    line: '#22304D',
+    grid: '#1B2740',
+  },
+  boss: ['#8DB4EA', '#F2F5FA', '#3E5F99', '#C9D6EA', '#8DB4EA'],
+  roles: ['#8DB4EA', '#E8EEF7', '#7CC9A0', '#E8C26A', '#B39DDB', '#6FC3D6'],
+  effects: { scanlines: false, glitch: false },
+  chat: true,
+  words: ['Reading the room', 'Cold reading', 'Brewing tea', 'Noticing', 'Connecting dots', 'Following a hunch', 'Checking the alibi'],
+  toolWords: { Read: 'Study', Edit: 'Amend', MultiEdit: 'Amend', Write: 'Note', Bash: 'Run', PowerShell: 'Run', Grep: 'Search', Glob: 'Sift', Agent: 'Brief', WebFetch: 'Look up', WebSearch: 'Canvass', ToolSearch: 'Ask around' },
+  backdrop: { fill: '#070B14', pattern: 'lines', ink: 'rgba(141,180,234,.05)' },
+  tabs: { mission: '🍵 Mission Control', skins: '🍵 Skins' },
+}
+
+// Red John: the hidden skin of The Mentalist. Red on near-black, a pixel smiley in the
+// band, Blake's public-domain "The Tyger" in the spinner. Not in the picker or the list:
+// `/skin red-john` finds it, or typing "tyger tyger" while wearing The Mentalist.
+const RED_JOHN_SKIN: Skin = {
+  id: 'red-john',
+  cast: 'redjohn',
+  hidden: true,
+  name: 'Red John',
+  description: 'The hidden one: red on near-black. He is watching.',
+  font: "'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,'Noto Serif',serif",
+  corners: 'round',
+  dark: true,
+  colors: {
+    accent: '#E0261F',
+    accent2: '#F2F5FA',
+    done: '#F2F5FA',
+    warn: '#F0B35A',
+    alert: '#FF6A62',
+    meter: '#C9332D',
+    text: '#F2F2F2',
+    subtext: '#BBAAAA',
+    muted: '#9A8888',
+    tile: '#0B0708',
+    track: '#221517',
+    line: '#3A1E20',
+    grid: '#1A0F11',
+  },
+  boss: ['#E0261F', '#F2F5FA', '#8A1612', '#F2F5FA', '#E0261F'],
+  roles: ['#E0261F', '#F2F5FA', '#C9332D', '#BBAAAA', '#FF6A62', '#9A8888'],
+  effects: { scanlines: false, glitch: false },
+  chat: true,
+  words: ['Tyger Tyger', 'Burning bright', 'In the forests of the night', 'Fearful symmetry', "He's watching", 'Smile'],
+  toolWords: { Read: 'Watch', Edit: 'Rearrange', MultiEdit: 'Rearrange', Write: 'Leave a mark', Bash: 'Do', PowerShell: 'Do', Grep: 'Follow', Glob: 'Trace', Agent: 'Send word', WebFetch: 'Fetch', WebSearch: 'Listen', ToolSearch: 'Ask around' },
+  backdrop: { fill: '#050304', pattern: 'lines', ink: 'rgba(224,38,31,.06)' },
+  tabs: { mission: '☺ Mission Control', skins: '☺ Skins' },
+}
+
+const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, MENTALIST_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN, SAMURAI_SKIN, RED_JOHN_SKIN]
 
 // Only plain colour and font values reach the drawings: a skin file cannot
 // smuggle markup into an Svg.
@@ -1084,7 +1654,9 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
 
 const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.id)
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
-const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, crewAlways: false, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, dailyUsd: 0, autopilot: false, keepWarm: false, budgetUsd: 0, tkOn: true, tkJobMin: 60, tkAgentMin: 20 })
+const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, crewAlways: false, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, dailyUsd: 0, autopilot: false, keepWarm: false, budgetUsd: 0, tkOn: true, tkJobMin: 60, tkAgentMin: 20, ramLimit: 'auto', maxAgents: 0, killSwitch: 'on' })
+// Machine Guard (hooks/machineguard.ts): what the Settings pane and the band draw. Written only when it changes.
+const guard = atom({ plugin: 'crab-progress', key: 'guard' } as const, { line: 'unknown machine', usedGb: -1, limitGb: 0, max: 4, calibrated: 4, autoLabel: 'Auto · 4 (machine unknown)', perAgent: '≈0.5 GB per agent (default)', isTight: false, others: 0, sessions: 1 })
 const cred = atom({ plugin: 'crab-progress', key: 'cred' } as const, BLANK_CRED)
 // Billing (hooks/billing.ts): which way Claude Code is paid for, and the Keychain key's
 // status. Never the key: the typed text lives in billing.ts's `draft`, in memory only.
@@ -1118,6 +1690,9 @@ const readSettings = async ($: EngineInterface) => {
     budgetUsd: Number(await $.store.get('budgetUsd').catch(() => 0)) || 0,
     // The timekeeper's settings, mirrored for the same reason (its alert marks change mid-turn).
     ...(await readTimekeeper($).then(t => ({ tkOn: t.on, tkJobMin: t.jobMin, tkAgentMin: t.agentMin }))),
+    ramLimit: cleanRamLimit(await $.store.get('ramLimit').catch(() => undefined)),
+    maxAgents: cleanMaxAgents(await $.store.get('maxAgents').catch(() => undefined)),
+    killSwitch: cleanKillSwitch(await $.store.get('killSwitch').catch(() => undefined)),
   }
 }
 
@@ -1271,12 +1846,15 @@ async function bumpCredNow($: EngineInterface, change: (c: Cred) => Cred, quiet:
   await update($, cred, () => next)
   const was = levelOf(before.xp)
   const now = levelOf(next.xp)
-  // Street Cred is a cyberpunk add-on: other skins keep counting quietly, with no cheer.
+  // Street Cred is a cyberpunk add-on (CBI Cred on the Mentalist skins): other skins keep counting quietly, with no cheer.
   if (!eggOf()) return false
-  if (now > was) $.ui.toast(`${eggOf() === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED'} ↑ ${now} · ${eggOf() === 'samurai' ? rockerRankOf(now) : rankOf(now)}`)
-  for (const b of fresh) $.ui.toast(`${b.icon} Badge unlocked: ${b.name}`)
+  if (now > was) $.ui.toast(isCaseEgg(eggOf()) ? cbiToast(now) : `${eggOf() === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED'} ↑ ${now} · ${eggOf() === 'samurai' ? rockerRankOf(now) : rankOf(now)}`)
+  for (const b0 of fresh) {
+    const b = isCaseEgg(eggOf()) ? (CBI_BADGES.find(x => x.id === b0.id) ?? b0) : b0
+    $.ui.toast(`${b.icon} Badge unlocked: ${b.name}`)
+  }
   const isCheer = now > was || fresh.length > 0
-  if (!quiet && isCheer) void play($, `${ADDON}/assets/levelup.wav`)
+  if (!quiet && isCheer) void play($, cyberOf() ? `${ADDON}/assets/levelup.wav` : 'assets/done.wav')
   return isCheer
 }
 // The next currency in the list; a custom rate is kept only for the one it was set on.
@@ -1286,6 +1864,13 @@ const setCurrency = async ($: EngineInterface, c: Currency) => {
   await update($, settings, prev => ({ ...prev, currency: c.code }))
 }
 const SKINS = new Map<string, Skin>(BUILT_IN_SKINS.map(k => [k.id, k]))
+// /skin takes an id or a name, any case, spaces or dashes; a skin's old name still finds it.
+const OLD_SKIN_NAMES: Record<string, string> = { 'cyberpunk 2077': 'cyberpunk-2077' }
+const plainWord = (t: string): string => t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+const skinByWord = (arg: string): Skin | undefined => {
+  const want = plainWord(arg)
+  return SKINS.get(arg) ?? SKINS.get(OLD_SKIN_NAMES[want] ?? '') ?? (want ? [...SKINS.values()].find(k => plainWord(k.id) === want || plainWord(k.name) === want) : undefined)
+}
 // The Cyberpunk Skins add-on: its skins (and their sounds) ship in addons/cyberpunk/.
 // Without that folder Mission Control is the core edition: default and Crab Classic.
 const ADDON = 'addons/cyberpunk'
@@ -1298,7 +1883,7 @@ const checkAddon = async ($: EngineInterface): Promise<boolean> => {
 }
 const isAddonSkin = (k: Skin): boolean => ADDON_CASTS.has(String(k.cast ?? ''))
 const canWear = (k: Skin): boolean => HAS_CYBER || !isAddonSkin(k)
-const ADDON_PITCH = `Cyberpunk Skins add-on: Cyberpunk 2077, Lucy · Edgerunners and Arasaka. Get it: ${ADDON_URL}`
+const ADDON_PITCH = `Cyberpunk Skins add-on: Cyberpunk Edgerunner, Lucy · Edgerunners and Arasaka. Get it: ${ADDON_URL}`
 let SKIN: Skin = CRAB_SKIN
 const SKINS_FOLDER = 'Custom Claude Skins'
 
@@ -1321,7 +1906,8 @@ async function loadSkins($: EngineInterface): Promise<{ folder: string; loaded: 
     })
     for (const f of files) {
       // Dotfiles are skipped: macOS leaves `._name.json` beside files copied from other disks.
-      if (f.kind !== 'file' || f.name.startsWith('.') || !f.name.toLowerCase().endsWith('.json')) continue
+      // skin.schema.json describes the format for editors: it is not a skin.
+      if (f.kind !== 'file' || f.name.startsWith('.') || !f.name.toLowerCase().endsWith('.json') || f.name.toLowerCase().endsWith('.schema.json')) continue
       try {
         const k = readSkin(parseJson(await $.fs.read(`${folder}/${f.name}`)), f.name.replace(/\.json$/i, '').toLowerCase())
         if (k) {
@@ -1348,6 +1934,16 @@ function applySkin(k: Skin): void {
   ROLE_PALETTE = k.roles
   MOOD_COLOR = [k.colors.done, k.colors.warn, k.colors.alert]
   PANE_CSS = paneCss(k)
+}
+
+// Found a hidden skin: the greeting and a badge for the finder. SAMURAI plays its add-on
+// chime; Red John (core) none.
+async function foundSecret($: EngineInterface, k: Skin): Promise<void> {
+  const isRedJohn = k.cast === 'redjohn'
+  $.ui.toast(isRedJohn ? GREETING.redjohn : GREETING.samurai)
+  if (!isRedJohn) void play($, `${ADDON}/assets/done-samurai.wav`)
+  // Quiet: the badge's chime would cut the band's own.
+  await bumpCred($, c => (c.samurai ? c : { ...c, samurai: true, xp: c.xp + 50 }), true).catch(() => false)
 }
 
 // An open pane behind another tab is not raised by a second ui.open: close it, then open it.
@@ -2022,7 +2618,14 @@ const fmtTokens = (n: number): string =>
   n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${Math.round(n)}`
 
 // The easter eggs' flavour: the cyberpunk skins' casts have them, the rest none.
-const eggOf = (): Egg | undefined => (SKIN.cast === 'runners' || SKIN.cast === 'netrun' || SKIN.cast === 'corpo' || SKIN.cast === 'samurai' ? SKIN.cast : undefined)
+// The Mentalist and its hidden Red John skin have eggs of their own; the cyberpunk
+// visuals (Breach, MaxTac, Sandevistan, skyline, glitch, eddies) are `cyberOf()` only.
+const eggOf = (): Egg | undefined => (SKIN.cast === 'runners' || SKIN.cast === 'netrun' || SKIN.cast === 'corpo' || SKIN.cast === 'samurai' || SKIN.cast === 'mentalist' || SKIN.cast === 'redjohn' ? SKIN.cast : undefined)
+const isCaseEgg = (e: Egg | undefined): boolean => e === 'mentalist' || e === 'redjohn'
+const cyberOf = (): CyberEgg | undefined => {
+  const e = eggOf()
+  return e && !isCaseEgg(e) ? (e as CyberEgg) : undefined
+}
 
 // The money a cost is shown in. Costs are counted in US dollars and converted at an
 // approximate rate (each one can be set with `/missioncontrol currency <code> <rate>`).
@@ -2049,7 +2652,7 @@ const currencyLabel = (c: Currency): string => (c.code === 'AUTO' ? 'Auto ($, or
 const currencyOptions = () => CURRENCIES.map(c => ({ value: c.code, label: currencyLabel(c.code === CURRENCY.code ? CURRENCY : c) }))
 
 const fmtCost = (usd: number): string => {
-  const c = CURRENCY.code === 'AUTO' ? (eggOf() ? (CURRENCIES[2] as Currency) : (CURRENCIES[1] as Currency)) : CURRENCY
+  const c = CURRENCY.code === 'AUTO' ? (cyberOf() ? (CURRENCIES[2] as Currency) : (CURRENCIES[1] as Currency)) : CURRENCY
   const v = usd * c.rate
   return `${c.symbol}${c.decimals === 0 ? Math.round(v).toLocaleString('en-US') : v < 10 ? v.toFixed(2) : v < 10_000 ? v.toFixed(1) : Math.round(v).toLocaleString('en-US')}`
 }
@@ -2868,7 +3471,10 @@ const rowInnerX = (r: TreeRow): number => r.depth * UNIT + (isBoxed(r) ? BOX_PAD
 const rowInnerW = (W: number, r: TreeRow): number => W - rowInnerX(r) - (isBoxed(r) ? BOX_PAD : 0)
 // A finished agent folds to a slim row until the person opens it again.
 const FOLD_H = 36
-const OPEN_W = 64
+// What the "Open ▸" button beside a folded row takes, in drawing units. The pane is drawn
+// at W ≈ columns × 10 and shrunk to the pane (≈ columns × 8 px), so a ~64 px button is
+// ≈ 80 units: the folded row then shrinks by the same factor as the cards above it.
+const OPEN_W = 80
 const isSlim = (r: TreeRow): boolean => r.kind === 'agent' && Boolean(r.folded || r.slim)
 const rowHeight = (r: TreeRow): number => (r.kind === 'role' ? ROLE_H : isSlim(r) ? FOLD_H : AGENT_H)
 // The desktop app refuses a drawing past 262,144 characters and leaves the pane
@@ -3690,7 +4296,7 @@ const orgSvg = (W: number, root: OrgNode, isLight = false): string => {
 <circle class="still" cx="${x}" cy="${y + h / 2 + 2}" r="${w * 0.62}" fill="none" stroke="url(#ring)" stroke-width="2"/><circle class="smil" cx="${x}" cy="${y + h / 2 + 2}" r="${w * 0.62}" fill="none" stroke="url(#ring)" stroke-width="2"><animateTransform attributeName="transform" type="rotate" from="0 ${x} ${y + h / 2 + 2}" to="360 ${x} ${y + h / 2 + 2}" dur="${isWorking ? 3 : 8}s" repeatCount="indefinite"/></circle>
 ${(() => {
   const figure = `${crab(left, y, 'boss', false, isWorking, sc)}${crown(left, y, sc)}`
-  const egg = eggOf()
+  const egg = cyberOf()
   if (!egg || !isWorking) return dancing(figure, isParty)
   // David's Sandevistan: the boss leaves afterimages while the job runs.
   const sv = sandevistan(figure, egg)
@@ -3746,7 +4352,7 @@ ${slot >= 46 ? `<text${isWorking ? ' class="t"' : ' class="s"'} x="${x}" y="${y 
     castGrow = 1
     figureDefs = null
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${FONT}">${PANE_CSS}${CRAB_CSS}${eggOf() ? `<style>${EGG_CSS}</style>` : ''}
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${FONT}">${PANE_CSS}${CRAB_CSS}${cyberOf() ? `<style>${EGG_CSS}</style>` : ''}
 <defs>${figureDefsMarkup(figures)}${isLight ? '' : orgMarks()}
 <radialGradient id="aura"><stop offset="0" stop-color="${SKIN.boss[0]}" stop-opacity=".45"/><stop offset=".6" stop-color="${SKIN.boss[0]}" stop-opacity=".12"/><stop offset="1" stop-color="${SKIN.boss[0]}" stop-opacity="0"/></radialGradient>
 <linearGradient id="ring" x1="0" x2="1"><stop offset="0" stop-color="${SKIN.boss[0]}"/><stop offset=".5" stop-color="${SKIN.boss[2]}" stop-opacity=".2"/><stop offset="1" stop-color="${SKIN.boss[3]}"/></linearGradient>
@@ -4475,8 +5081,9 @@ ${label(y3, 'COST')}
 
 const hudBandSvg = (OW: number, d: HudData): string => {
   const c = SKIN.colors
-  const egg = eggOf()
-  if (d.simple && !egg) return hudSimpleSvg(OW, d)
+  const any = eggOf()
+  const egg = cyberOf()
+  if (d.simple && !any) return hudSimpleSvg(OW, d)
   // The frame takes the whole box; the content sits inside it, padded.
   const OH = HUD_OUT_H
   const W = OW - HUD_PAD * 2
@@ -4528,7 +5135,7 @@ ${egg ? heatStars(rx + 178, 43, burnStars(d.burnPerMin), egg) : ''}
 .shine{animation:shine 2.2s ease-in-out infinite}@keyframes shine{from{transform:translateX(-30px);opacity:0}30%{opacity:1}to{transform:translateX(${Math.max(40, Math.round((barW * (pct ?? 0)) / 100))}px);opacity:0}}
 .cur{animation:cur 1.1s steps(1) infinite}@keyframes cur{50%{opacity:0}}
 @media (prefers-reduced-motion: reduce){.ekg,.hscan,.hedge,.beam,.brk,.shine,.cur{animation:none}}
-${egg ? EGG_CSS : ''}
+${egg ? EGG_CSS : isCaseEgg(any) ? MENT_CSS : ''}
 </style>`
   // A beam of light that crosses the card, clipped to its shape.
   const beam = `<defs><clipPath id="hudclip">${cardShape(0.5, 0.5, OW - 1, OH - 1, '', 10)}</clipPath>
@@ -4584,7 +5191,9 @@ ${hudLines(W, d)}
 </g>
 ${hudSpare(W)}
 </g>
-${egg && d.isParty ? celebration(OW, OH, egg, FONT, d.partyAt) : ''}`,
+${egg && d.isParty ? celebration(OW, OH, egg, FONT, d.partyAt) : ''}
+${isCaseEgg(any) && d.isParty ? caseClosed(OW, OH, FONT, c, d.partyAt) : ''}
+${any === 'mentalist' && (d.ctxPct >= 95 || (d.budget && d.budget.usedMs > d.budget.min * 60_000)) ? hiddenSmiley(OW, OH) : ''}`,
   )
 }
 
@@ -4593,7 +5202,9 @@ const hudHead = (W: number, d: HudData): string => {
   const c = SKIN.colors
   const y = 16
   const name = 'MISSION CONTROL'
-  const nameW = textWidth(name, 10.5) * 1.08 + 4
+  // The name's letter-spacing (.9 a letter) and its cursor (▮) take room too: a wide font
+  // (a serif skin) would otherwise run the name into the skin's chip.
+  const nameW = textWidth(name, 10.5) * 1.08 + name.length * 0.9 + textWidth('▮', 10.5) + 4
   const skin = SKIN.name.toUpperCase()
   const skinW = Math.round(textWidth(skin, 9.5) + 14)
   const sx = 24 + nameW + 8
@@ -4607,12 +5218,13 @@ const hudHead = (W: number, d: HudData): string => {
   const bgW = bgLabel ? Math.round(textWidth(bgLabel, 9.5) + 14) : 0
   const bx = cx + (crewW ? crewW + 8 : 0)
   const mx = bgW ? bx + bgW + 12 : cx + (crewW ? crewW + 12 : 4)
-  const egg = eggOf()
-  const psy = egg ? psychoChip(mx, y, d.ctxPct, FONT) : { svg: '', w: 0 }
+  const any = eggOf()
+  const egg = cyberOf()
+  const psy = egg ? psychoChip(mx, y, d.ctxPct, FONT) : isCaseEgg(any) ? teaChip(mx, y, d.ctxPct, c, FONT) : { svg: '', w: 0 }
   const mx2 = mx + (psy.w ? psy.w + 10 : 0)
   const model = [PROVIDER, d.model, d.effort].filter(Boolean).join(' · ')
   const clock = d.budget ? `⏱\uFE0E ${budgetLabel(d.budget.usedMs, d.budget.min)}` : d.taskMs > 0 ? `⏱\uFE0E ${fmtTime(d.taskMs)}` : ''
-  const parts = [egg ? `♪ ${radio(d.at)}` : '', d.folder ? `▤ ${d.folder}` : '', clock].filter(Boolean)
+  const parts = [egg ? `♪ ${radio(d.at)}` : isCaseEgg(any) ? episodeAt(d.at, any === 'redjohn') : '', d.folder ? `▤ ${d.folder}` : '', clock].filter(Boolean)
   const widthOf = (xs: string[]) => (xs.length ? textWidth(xs.join('   '), 11) + 8 : 0)
   while (parts.length > (clock ? 1 : 0) && W - 14 - widthOf(parts) < mx2 + 60) parts.shift()
   const right = parts.join('   ')
@@ -4620,17 +5232,20 @@ const hudHead = (W: number, d: HudData): string => {
   const done = d.steps.filter(st => st === 'done').length
   // The breach ticker takes the middle when there is room for it.
   const breachX = W - 14 - rightW - BREACH_W - 24
+  const coldX = W - 14 - rightW - COLD_W - 24
   const hasBreach = Boolean(egg) && breachX > mx2 + 120
-  return `<rect x="14" y="${y - 7}" width="5" height="5" fill="${c.accent2}" transform="rotate(45 16.5 ${y - 4.5})"/>
+  const hasCold = isCaseEgg(any) && coldX > mx2 + 120
+  return `${any === 'redjohn' ? smiley(10, y - 11, 11, 1, 'rjs') : `<rect x="14" y="${y - 7}" width="5" height="5" fill="${c.accent2}" transform="rotate(45 16.5 ${y - 4.5})"/>`}
 <text x="24" y="${y}" font-family="${FONT}" font-size="10.5" font-weight="800" letter-spacing=".9" fill="${c.accent2}">${name}<tspan class="cur">▮</tspan></text>
 ${egg ? `<text x="24" y="${y + 7}" font-family="${FONT.replace(/,?sans-serif$/, '')},${CJK_FONT}" font-size="7" letter-spacing="1.2" fill="${c.accent2}" fill-opacity=".5">${KATAKANA[egg]}</text>` : ''}
 ${hasBreach && egg ? breachTicker(breachX, y, d.isWorking, done, d.steps.length, egg, FONT) : ''}
+${hasCold ? coldTicker(coldX, y, d.isWorking, done, d.steps.length, c, FONT) : ''}
 ${psy.svg}
 ${hasSkinChip ? `<rect x="${sx}" y="${y - 10}" width="${skinW}" height="13" rx="2" fill="none" stroke="${c.accent2}" stroke-opacity=".55"/>
 <text x="${sx + skinW / 2}" y="${y - 0.5}" text-anchor="middle" font-family="${FONT}" font-size="9.5" font-weight="700" letter-spacing=".4" fill="${c.accent2}">${xml(skin)}</text>` : ''}
 ${crewW ? `<rect class="live" x="${cx}" y="${y - 10}" width="${crewW}" height="13" rx="2" fill="${c.accent}"/><text x="${cx + crewW / 2}" y="${y - 0.5}" text-anchor="middle" font-family="${FONT}" font-size="9.5" font-weight="800" letter-spacing=".4" fill="${inkOn(c.accent)}"><title>${xml(d.crewMode)}</title>${crewLabel}</text>` : ''}
 ${bgW ? `<rect x="${bx}" y="${y - 10}" width="${bgW}" height="13" rx="2" fill="none" stroke="${c.accent}" stroke-opacity=".8"/><text x="${bx + bgW / 2}" y="${y - 0.5}" text-anchor="middle" font-family="${FONT}" font-size="9.5" font-weight="800" letter-spacing=".4" fill="${c.accent}"><title>${d.bg} ${xml(tr().bgBand)}</title>${bgLabel}</text>` : ''}
-<text class="s" x="${mx2}" y="${y}" font-family="${FONT}" font-size="11">${xml(fitText(model, 11, Math.max(0, (hasBreach ? breachX : W - rightW - 14) - mx2 - 16)))}</text>
+<text class="s" x="${mx2}" y="${y}" font-family="${FONT}" font-size="11">${xml(fitText(model, 11, Math.max(0, (hasBreach ? breachX : hasCold ? coldX : W - rightW - 14) - mx2 - 16)))}</text>
 ${!d.budget && clock && d.taskFrom
   ? // The seconds tick inside the image: the band is not drawn again for them.
     liveText(W - 14, y, d.at, 11, `class="m" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums"`, t => [...parts.slice(0, -1), `⏱\uFE0E ${fmtTime(Math.max(0, t - (d.taskFrom ?? t)))}`].join('   '))
@@ -4898,7 +5513,8 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
   await $.store.set('legends', [legend, ...kept].slice(0, LEGENDS_KEPT)).catch(() => undefined)
   const egg = eggOf()
   // A long job makes a legend: the Afterlife names a drink after it.
-  if (egg && legend.ms >= 180_000) $.ui.toast(egg === 'corpo' ? `▣ Engram filed in Mikoshi: ${clip(legend.task, 40)}` : `🍸 The Afterlife named a drink after you: The ${clip(legend.task, 40)}`)
+  if (isCaseEgg(egg) && legend.ms >= 180_000) $.ui.toast(CLOSED_FILES_TOAST)
+  else if (egg && legend.ms >= 180_000) $.ui.toast(egg === 'corpo' ? `▣ Engram filed in Mikoshi: ${clip(legend.task, 40)}` : `🍸 The Afterlife named a drink after you: The ${clip(legend.task, 40)}`)
   $.ui.toast(`🎉 Done: ${clip(job.task, 60)}`)
   void $.ui.notify(`Claude finished: ${clip(job.task, 80)}`).catch(() => undefined)
   // Spoken status (opt-in): the crew, then what the job cost, after the chime.
@@ -4908,7 +5524,7 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
   }
   // One chime, not two cut short: the level-up's when the job earned one, else the skin's.
   const isCheer = await paid.catch(() => false)
-  void play($, !egg ? 'assets/done.wav' : isCheer ? `${ADDON}/assets/levelup.wav` : `${ADDON}/assets/done-${egg}.wav`)
+  void play($, !egg || isCaseEgg(egg) ? 'assets/done.wav' : isCheer ? `${ADDON}/assets/levelup.wav` : `${ADDON}/assets/done-${egg}.wav`)
 }
 
 // What everyone is doing right now, from each tool call: the live activity line,
@@ -5278,6 +5894,7 @@ export const register: Register = (on, options) => {
     await loadProvider($).catch(() => undefined)
     await refreshBilling($).catch(() => undefined)
     dailyCapUsd = Number(await $.store.get(DAILY_KEY).catch(() => 0)) || 0
+    void loadGuard($).catch(() => undefined)
     lang = await detectLang($, options.language)
     // One ticker for every drawing. `now` moves each second only while something on
     // screen moves (work, a crew, the party, the cache's last ten minutes), else once a
@@ -5296,6 +5913,9 @@ export const register: Register = (on, options) => {
         if (isEnvStale) await refreshEnv($)
         await keepTime($, at)
         await watchStop($, at, list, boss).catch(() => undefined)
+        // Free RAM is looked at only while work runs.
+        if (boss.isWorking || st.isBusy || isRunning) void sampleGuard($, at, list.filter(a => a.status === 'running').length)
+        else if (mgLive) void idleGuard($, at)
         // At rest only minute labels move: a look every few seconds is soon enough.
         if (isLive || ++restTicks % TICK_READ_EVERY === 0) await retick($, at, isLive, { boss, all: list, bg, sess: st }).catch(() => undefined)
         const due = CACHE_WARN_MIN.filter(m => left !== null && left > 0 && left <= m * 60)
@@ -5517,6 +6137,29 @@ export const register: Register = (on, options) => {
     }
   })
 
+  // Machine Guard's heavy-command lock: one type check, test run or build at a time across the
+  // main loop and every sub-agent. A second waits for the first (up to 5 minutes), then is refused;
+  // a new one is also refused while Claude is over its RAM limit. A command run in the background
+  // returns at once, so its lock is released at once: only its start is serialised, not its run.
+  // Anything that is not heavy goes straight through. Registered after the activity tracker, so a
+  // command waiting for the lock still shows as running (not as a quiet agent).
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const input = e as unknown as { command?: string; tool_use_id?: string }
+    const label = heavyCommand(input.command)
+    if (!label) return next(e)
+    const owner = `${input.tool_use_id ?? 'call'}:${e.agentId ?? 'main'}:${await $.clock.now()}`
+    const stoppedBefore = mgKillSeq
+    try {
+      const deny = await takeHeavy($, owner, label, next.signal)
+      if (deny) return { deny }
+      const done = await next(e)
+      // The kill switch stopped a process while this ran: the model reads why, so it does not just run it again.
+      return mgKillSeq !== stoppedBefore && 'result' in done ? { ...done, context: [...(done.context ?? []), killContext(label)] } : done
+    } finally {
+      await releaseHeavy($, owner)
+    }
+  })
+
   // The manager's task list, followed as the plan tool is called; wrap-up closes it.
   on('tool.call', { tool: PLAN_TOOL }, async ($, e, next) => {
     // Never in the way: a failure here must not block the plan tool itself.
@@ -5528,7 +6171,7 @@ export const register: Register = (on, options) => {
         isStep = completed(plan) > completed(prev.plan)
         return { ...prev, plan }
       }).catch(() => undefined)
-      if (isStep && eggOf()) void play($, `${ADDON}/assets/step.wav`)
+      if (isStep && cyberOf()) void play($, `${ADDON}/assets/step.wav`)
     }
     return next(e)
   })
@@ -5554,6 +6197,10 @@ export const register: Register = (on, options) => {
   })
 
   on('agent.spawn', async ($, e, next) => {
+    // Machine Guard: refuse a NEW sub-agent when the crew is full or RAM is short, before anything else
+    // counts it. A resumed agent is no new one. A guard that throws lets the agent start.
+    const gate: { deny?: string; at?: number } = e.resume ? {} : await guardSpawn($).catch(() => ({}))
+    if (gate.deny) return { deny: gate.deny }
     const isUnbriefed = isWorker(e.subagentType) && !e.prompt.includes(STEP_TOOL)
     const briefed = isUnbriefed ? { ...e, prompt: e.prompt + STEP_BRIEF } : e
     // Autopilot: read-only explorers go to Haiku, unless a model was chosen for them.
@@ -5566,7 +6213,9 @@ export const register: Register = (on, options) => {
     const ultraRule = matchUltra(ultraRules, e.subagentType, e.description)
     const routed0 = staff?.model ? { ...piloted, model: staff.model } : piloted
     const routed = ultraRule ? { ...routed0, prompt: withUltraBrief(routed0.prompt) } : routed0
-    const started = await next(routed)
+    const started = await next(routed).finally(() => releaseSpawn(gate.at))
+    // A workflow's agent is not in $.agent.list(): Machine Guard counts it from here.
+    if (e.workflow && started.agentId && started.deny === undefined) mgWorkflow.set(started.agentId, gate.at ?? 0)
     if (started.deny !== undefined) return started
     rememberTask(started.agentId, { prompt: e.prompt, description: e.description, subagentType: e.subagentType })
     if (ultraRule && started.agentId) {
@@ -5728,14 +6377,14 @@ export const register: Register = (on, options) => {
       const ctx = (await read($, env)).contextPct
       if (ctx >= 90 && !(await read($, cred)).chromed) await bumpCred($, c => (c.chromed ? c : { ...c, chromed: true, xp: c.xp + 20 })).catch(() => false)
       if (ctx < 90) sirenPlayed = false
-      else if (egg && ctx >= 95 && !sirenPlayed) {
+      else if (cyberOf() && ctx >= 95 && !sirenPlayed) {
         sirenPlayed = true
         void play($, `${ADDON}/assets/maxtac.wav`)
       }
       if (ctx < 80) psyWarned = false
       else if (egg && ctx >= 85 && !psyWarned) {
         psyWarned = true
-        $.ui.toast(`⚠ Cyberpsychosis risk: context ${ctx}%. Take your immunosuppressants: /compact`)
+        $.ui.toast(isCaseEgg(egg) ? TEA_WARNING(ctx) : `⚠ Cyberpsychosis risk: context ${ctx}%. Take your immunosuppressants: /compact`)
       }
       if (typeof e.effort === 'string') {
         const effort = e.effort
@@ -5843,6 +6492,7 @@ export const register: Register = (on, options) => {
   // /clear (or an in-process resume) goes on as another conversation: start clean.
   on('session.end', async ($, e, next) => {
     await saveTotals($)
+    await forgetSession($)
     if (e.reason === 'clear' || e.reason === 'resume') {
       pendingCommand = ''
       await update($, session, () => ({ ...BLANK_SESSION, costAtStart: 0 }))
@@ -5957,6 +6607,12 @@ export const register: Register = (on, options) => {
     // after the turn too: the same as the band.
     const bossCard: Manager = !boss.isWorking && running.length ? { ...boss, isWorking: true } : boss
     const quietCount = running.filter(isQuiet).length
+    // Machine Guard's one line: RAM and the crew while work runs, else what the machine allows.
+    // The guard atom is written only when what it draws changes.
+    const gd = await read($, guard)
+    const guardText = paneLine(gd.limitGb, gd.usedGb, allAgents.filter(a => a.status === 'running').length + gd.others, gd.max, isWorking, gd.sessions)
+    // The same pill as the One-shot chip, so the two sit side by side as one status row.
+    const guardChip = pillChip(guardText, gd.isTight ? SKIN.colors.alert : SKIN.colors.subtext, FONT, SKIN.colors.text, textWidth)
     // The pane's title says "Agents"; inside, only the flow's own name.
     const title = f && !f.isFinished ? f.title : ''
 
@@ -5970,7 +6626,13 @@ export const register: Register = (on, options) => {
     )
     // Settings and billing have a pane of their own (SETTINGS_PANE), so a dropdown there is
     // not redrawn away while this pane updates. One stable button leads to it, in every view.
-    const openSettings = <Button key="open-settings" label="⚙ Settings and billing ▸" plain onPress={() => void showPane($, SETTINGS_PANE, SETTINGS_TITLE)} />
+    // The skin picker sits right under it: one press to a new look, from every view too.
+    const settingsLinks = (
+      <Box key="settings-links" flexDirection="column" alignItems={isRtl() ? 'flex-end' : undefined}>
+        <Button key="open-settings" label="⚙ Settings and billing ▸" plain onPress={() => void showPane($, SETTINGS_PANE, SETTINGS_TITLE)} />
+        <Button key="open-skins" label="🎨 Change skin ▸" plain onPress={() => void showPane($, SKINS_PANE, SKIN.tabs.skins)} />
+      </Box>
+    )
     const toggleDone = (
       <Button
         key="done"
@@ -6005,6 +6667,13 @@ export const register: Register = (on, options) => {
 
       // In Hebrew the column hugs the right edge: section heads and buttons right-aligned.
       const align = isRtl() ? 'flex-end' : undefined
+      const guardRow = gd.isTight ? (
+        <Text key="guard" color={SKIN.colors.alert}>{guardText}</Text>
+      ) : SKIN.dark ? (
+        <Text key="guard" color={SKIN.colors.subtext}>{guardText}</Text>
+      ) : (
+        <Text key="guard" dimColor>{guardText}</Text>
+      )
       const orgPicture = (source: string) => (
         <Svg
           key="org"
@@ -6030,7 +6699,8 @@ export const register: Register = (on, options) => {
           )}
           {picture ? orgPicture(picture) : null}
           <Svg source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} />
-          {openSettings}
+          {guardRow}
+          {settingsLinks}
         </Box>
       )
       if (p.isCompact) return keep(compactView())
@@ -6050,7 +6720,7 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="boot" marginBottom={1}>
                 <Svg
-                  source={bootStrip(W, SKIN.colors, FONT, 'JACKING IN…', egg === 'corpo' ? 'ARASAKA NETWORK › IDENTITY VERIFIED › ACCESS GRANTED' : egg === 'samurai' ? 'WAKE UP, SAMURAI › AMPS ON › LIVE AT THE ATLANTIS' : egg === 'netrun' ? 'JACKED IN › DIVING THE NET › ICE BYPASSED' : 'LINK ESTABLISHED › NEURAL HANDSHAKE OK › ICE BYPASSED')}
+                  source={isCaseEgg(egg) ? bootStrip(W, SKIN.colors, FONT, ...(egg === 'redjohn' ? REDJOHN_BOOT : MENTALIST_BOOT) as [string, string]) : bootStrip(W, SKIN.colors, FONT, 'JACKING IN…', egg === 'corpo' ? 'ARASAKA NETWORK › IDENTITY VERIFIED › ACCESS GRANTED' : egg === 'samurai' ? 'WAKE UP, SAMURAI › AMPS ON › LIVE AT THE ATLANTIS' : egg === 'netrun' ? 'JACKED IN › DIVING THE NET › ICE BYPASSED' : 'LINK ESTABLISHED › NEURAL HANDSHAKE OK › ICE BYPASSED')}
                   alt="Mission Control online"
                 />
               </Box>
@@ -6070,8 +6740,8 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="cred" marginBottom={1}>
                 <Svg
-                  source={credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
-                  alt={`Level ${levelOf(streetCred.xp)} ${(egg === 'samurai' ? rockerRankOf : rankOf)(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
+                  source={isCaseEgg(egg) ? credCard(W, streetCred, SKIN.colors, FONT, cardShape, 'CBI CRED', '', cbiRankOf, CBI_WORDS) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
+                  alt={`Level ${levelOf(streetCred.xp)} ${(isCaseEgg(egg) ? cbiRankOf : egg === 'samurai' ? rockerRankOf : rankOf)(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
                 />
               </Box>
             ) : null}
@@ -6081,9 +6751,9 @@ export const register: Register = (on, options) => {
                 alt={`Workflow: ${steps.map(st => `${st.title} ${st.state}`).join(', ') || 'nothing running'}`}
               />
             </Box>
-            <Box key="oneshot" flexDirection="row" gap={2} marginBottom={1}>
-              <Svg source={shotChip.svg} alt={`Plan mode: ${oneShotWord(prefs.oneShot)}`} width={shotChip.W} height={24} />
-              <Button key="oneshot-open" label="Change ▸" plain onPress={() => void showPane($, SETTINGS_PANE, SETTINGS_TITLE)} />
+            <Box key="status" flexDirection="row" flexWrap="wrap" gap={2} marginBottom={1}>
+              <Svg source={shotChip.svg} alt={`Plan mode: ${oneShotChipWord(shotMode)}`} width={shotChip.W} height={24} />
+              <Svg source={guardChip.svg} alt={guardText} width={guardChip.W} height={24} />
             </Box>
             {bg.length > 0 && (
               <Box key="background" marginBottom={1}>
@@ -6093,8 +6763,8 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="breach" marginBottom={1}>
                 <Svg
-                  source={breachCard(W, steps.filter(st => st.state === 'done').length, steps.length, boss.isWorking, egg, FONT, cardShape)}
-                  alt={`Breach Protocol: ${steps.filter(st => st.state === 'done').length} of ${steps.length} steps`}
+                  source={isCaseEgg(egg) ? coldReadCard(W, boss.task, boss.isWorking, steps.filter(st => st.state === 'done').length, steps.length, SKIN.colors, FONT, cardShape, egg === 'redjohn') : breachCard(W, steps.filter(st => st.state === 'done').length, steps.length, boss.isWorking, egg, FONT, cardShape)}
+                  alt={isCaseEgg(egg) ? `Cold read: ${boss.isWorking ? 'reading' : 'waiting'}, ${steps.filter(st => st.state === 'done').length} of ${steps.length} steps` : `Breach Protocol: ${steps.filter(st => st.state === 'done').length} of ${steps.length} steps`}
                 />
               </Box>
             ) : null}
@@ -6102,14 +6772,14 @@ export const register: Register = (on, options) => {
               <Box key="legends" marginBottom={1}>
                 <Svg
                   source={legendsCard(W, legends, egg, FONT, fmtCost, cardShape)}
-                  alt={`${egg === 'corpo' ? 'Mikoshi engrams' : 'Afterlife drinks'}: ${legends.map(l => l.task).join(', ') || 'none yet'}`}
+                  alt={`${isCaseEgg(egg) ? 'Closed files' : egg === 'corpo' ? 'Mikoshi engrams' : 'Afterlife drinks'}: ${legends.map(l => l.task).join(', ') || 'none yet'}`}
                 />
               </Box>
             ) : null}
             {egg ? (
               <Box key="bd" flexDirection="column" marginBottom={1}>
                 <Svg
-                  source={braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
+                  source={isCaseEgg(egg) ? braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, 'CASE BOARD', undefined, ['CLUES', 'ALIBIS', 'TELLS'], 'REPLAY') : braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
                   alt={braindanceAlt(beats, pick)}
                 />
                 <Box flexDirection="row" gap={2}>
@@ -6161,12 +6831,18 @@ export const register: Register = (on, options) => {
                   {rescueRow($, r.a, ui)}
                 </Box>
               ) : r.folded ? (
+                // The drawing shrinks into what the button leaves (minWidth 0, as a card
+                // shrinks to the pane), the button never: both end at the pane's edge.
                 <Box key={r.key} flexDirection="row" alignItems="center">
-                  <Svg
-                    source={treeRowSvg(W - OPEN_W, r, drawn(`${lite ? 'lite-fold' : 'fold'}:${r.key}`, () => foldedSvg(rowInnerW(W - OPEN_W, r), r.a, at, lite)), lite)}
-                    alt={`${r.a.description}: ${r.a.status === 'failed' ? s.failed : r.a.status === 'stopped' ? s.stopped : s.isFinished}, ${fmtTokens(r.a.tokens)} tokens`}
-                  />
-                  <Button key={`open-${r.key}`} label="Open ▸" plain onPress={() => toggleOpen(r.a.id)} />
+                  <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                    <Svg
+                      source={treeRowSvg(W - OPEN_W, r, drawn(`${lite ? 'lite-fold' : 'fold'}:${r.key}`, () => foldedSvg(rowInnerW(W - OPEN_W, r), r.a, at, lite)), lite)}
+                      alt={`${r.a.description}: ${r.a.status === 'failed' ? s.failed : r.a.status === 'stopped' ? s.stopped : s.isFinished}, ${fmtTokens(r.a.tokens)} tokens`}
+                    />
+                  </Box>
+                  <Box flexShrink={0}>
+                    <Button key={`open-${r.key}`} label="Open ▸" plain onPress={() => toggleOpen(r.a.id)} />
+                  </Box>
                 </Box>
               ) : (
                 <Box key={r.key} flexDirection="column">
@@ -6186,7 +6862,7 @@ export const register: Register = (on, options) => {
             {orgPicture(picture)}
             {section('h-session', 'Memory')}
             <Svg key="session" source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} />
-            {openSettings}
+            {settingsLinks}
           </Box>
         </Box>
       )
@@ -6430,7 +7106,7 @@ export const register: Register = (on, options) => {
           </Box>
         )}
         <Box flexDirection="column" marginTop={1}>
-          {openSettings}
+          {settingsLinks}
         </Box>
         <Box flexDirection="column" marginTop={1}>
           <Text dimColor>Memory</Text>
@@ -6458,6 +7134,17 @@ export const register: Register = (on, options) => {
     if (isNote) await dropNotified($, e.text ?? '').catch(() => undefined)
     const asked = e.isMeta || e.command || !isPersons ? '' : e.text.trim()
     if (!e.isMeta) pendingCommand = isPersons && e.command ? `/${e.command.name}${e.command.args && !looksLikeKey(e.command.args) ? ` ${e.command.args}` : ''}` : '' // a pasted key never becomes a job's name
+    // The hidden skin: "tyger tyger" typed while wearing The Mentalist. The prompt goes on unchanged.
+    if (asked && SKIN.id === 'mentalist' && TYGER_RE.test(asked)) {
+      const found = SKINS.get('red-john')
+      if (found) {
+        applySkin(found)
+        await $.store.set('skin', found.id).catch(() => undefined)
+        await update($, skin, () => found.id)
+        await retitle($).catch(() => undefined)
+        await foundSecret($, found).catch(() => undefined)
+      }
+    }
     if (asked) await startJob($, asked)
     // A turn Claude starts on its own (a report to answer, a schedule, a peer) is work
     // in hand; a report read inside the running turn is answered there.
@@ -6493,6 +7180,7 @@ export const register: Register = (on, options) => {
     const sections = [...composed.sections]
     if (rules.length) sections.push({ id: 'crab-progress:memory', text: memoryText(rules), scope: 'session' as const })
     sections.push(...(await timekeeperSections($)))
+    sections.push({ id: 'crab-progress:machineguard', text: guardRule(await $.clock.now().catch(() => 0)), scope: 'session' as const })
     // Only the session that can spawn agents is told to: a worker never gets it.
     // Only the main loop is told: it can spawn agents and offers the most tools; a
     // worker, even one with the Agent tool, offers fewer.
@@ -6599,6 +7287,7 @@ export const register: Register = (on, options) => {
     const { Box, Text, Button } = ui
     const clockNow = await $.clock.now().catch(() => 0)
     const prefs = await read($, settings)
+    const gd = await read($, guard)
     const tkNow = { on: prefs.tkOn, jobMin: prefs.tkJobMin, agentMin: prefs.tkAgentMin }
     const sp = await read($, spendPick)
     const spendLedger = combineDays(cleanDays(await $.store.get('spendDays').catch(() => undefined)), cleanDays(await $.store.get('spendLog').catch(() => undefined)))
@@ -6695,39 +7384,139 @@ export const register: Register = (on, options) => {
         </Box>
       )
     })()
-    const head = (key: string, text: string) => (
-      <Box key={key} marginTop={1} marginBottom={1}>
-        {SKIN.dark ? <Text color={SKIN.colors.accent} bold>{`▍${text}`}</Text> : <Text dimColor>{text}</Text>}
+    // The layout: one card per subject, each with a heading in a colour of the skin's own
+    // palette, every option followed by one short muted line saying what it does. Pickers and
+    // their "…or type" fields share the card's left edge. A colour names a section, nothing else.
+    const c = SKIN.colors
+    const muted = (key: string, text: string) =>
+      SKIN.dark ? <Text key={key} color={c.muted} wrap="wrap">{text}</Text> : <Text key={key} dimColor wrap="wrap">{text}</Text>
+    // One option: its control (and a field to type into, if any), then its hint, indented.
+    const opt = (key: string, hintText: string, ...controls: unknown[]) => (
+      <Box key={key} flexDirection="column">
+        {controls.filter(Boolean) as never}
+        <Box paddingLeft={2}>{muted(`${key}-hint`, hintText)}</Box>
       </Box>
     )
-    return (
-      <Box flexDirection="column">
-        {head('h-billing', 'Billing')}
-        {billingBlock}
-        {head('h-settings', 'Settings')}
-        <Box key="settings" flexDirection="column">
-          <Button
-            key="set-open"
-            label={`${prefs.openOnStart ? '☑\uFE0E' : '☐'} Open Mission Control when Claude starts`}
-            plain
-            onPress={async () => {
-              const isOn = !(await read($, settings)).openOnStart
-              await $.store.set('openOnStart', isOn).catch(() => undefined)
-              await update($, settings, prev => ({ ...prev, openOnStart: isOn }))
-            }}
+    const card = (key: string, title: string, tone: string, ...rows: unknown[]) => (
+      <Box key={key} flexDirection="column" gap={1} paddingX={1} borderStyle="round" {...(SKIN.dark ? { borderColor: c.line } : { borderDimColor: true })}>
+        <Text color={tone} bold>{title}</Text>
+        {rows.filter(Boolean) as never}
+      </Box>
+    )
+    // A dropdown's value is always one of its options: a stray one shows the first.
+    const among = (value: string, options: readonly { value: string }[]): string => (options.some(o => o.value === value) ? value : options[0]?.value ?? value)
+    const box = (isOn: boolean) => (isOn ? '☑︎' : '☐')
+    const crewOptions = CREW_OPTIONS
+    const shotValue = cleanOneShot(prefs.oneShot)
+    const dailyOptions = stepOptions(DAILY_STEPS, prefs.dailyUsd, v => `${fmtCost(v)} a day`)
+    const budgetOptions = stepOptions(BUDGET_STEPS, prefs.budgetUsd, v => fmtCost(v))
+    const ramOptions = ramLimitOptions(prefs.ramLimit)
+    const agentOptions = maxAgentsOptions(gd.autoLabel, prefs.maxAgents)
+    const killChoices = killOptions()
+    const money = card(
+      'set-money',
+      '💰 Money',
+      c.done,
+      opt(
+        'opt-autopilot',
+        'Read-only explorer agents run on Haiku, the cheapest model.',
+        <Button key="set-autopilot" label={`${box(prefs.autopilot)} Autopilot`} plain onPress={async () => setAutopilot($, !(await read($, settings)).autopilot)} />,
+      ),
+      opt(
+        'opt-warm',
+        'Refreshes the prompt cache only when that costs less than letting it expire.',
+        <Button key="set-warm" label={`${box(prefs.keepWarm)} Keep-Warm`} plain onPress={async () => setKeepWarm($, !(await read($, settings)).keepWarm)} />,
+      ),
+      opt(
+        'opt-daily',
+        "Warns you at 80% and again when today's spend reaches it.",
+        Pick ? (
+          <Pick key="set-daily-pick" label="💵︎ Daily cap" value={among(String(prefs.dailyUsd), dailyOptions)} options={dailyOptions} onSelect={v => void setDailyCap($, Number(v) || 0)} />
+        ) : (
+          <Button key="set-daily" label={`💵︎ Daily cap: ${prefs.dailyUsd ? `${fmtCost(prefs.dailyUsd)} a day` : 'off'} ▸`} plain onPress={async () => setDailyCap($, nextStep(DAILY_STEPS, (await read($, settings)).dailyUsd))} />
+        ),
+        Field ? <Field key="set-daily-type" label="…or type a daily cap" placeholder={`${CURRENCY.symbol || '$'} amount, 0 = off`} value="" submitLabel="set" onSubmit={(v: string) => void typeMoney($, 'daily', v)} /> : null,
+      ),
+      opt(
+        'opt-budget',
+        "Warns you when one task's spend nears or passes it.",
+        Pick ? (
+          <Pick key="set-budget-pick" label="🎯︎ Budget per task" value={among(String(prefs.budgetUsd), budgetOptions)} options={budgetOptions} onSelect={v => void setBudget($, Number(v) || 0)} />
+        ) : (
+          <Button key="set-budget" label={`🎯︎ Budget per task: ${prefs.budgetUsd ? fmtCost(prefs.budgetUsd) : 'off'} ▸`} plain onPress={async () => setBudget($, nextStep(BUDGET_STEPS, (await read($, settings)).budgetUsd))} />
+        ),
+        Field ? <Field key="set-budget-type" label="…or type a budget" placeholder={`${CURRENCY.symbol || '$'} amount, 0 = off`} value="" submitLabel="set" onSubmit={(v: string) => void typeMoney($, 'budget', v)} /> : null,
+      ),
+      opt('opt-spend', 'Which days the spend card on the main pane adds up.', Pick && Field ? null : <Text key="set-spend-h" bold>{s.spend.period}</Text>, spendControls),
+    )
+    const machine = card(
+      'set-guard',
+      '🛡︎ Machine Guard',
+      c.meter,
+      opt('opt-machine', 'What Mission Control found on this computer.', <Text key="set-guard-machine" bold>{`🖥︎ ${gd.line}`}</Text>),
+      opt(
+        'opt-ram',
+        'How much memory Claude and all its agents may use together.',
+        Pick ? (
+          <Pick key="set-ram-pick" label="🧠︎ RAM Claude may use" value={among(cleanRamLimit(prefs.ramLimit), ramOptions)} options={ramOptions} onSelect={v => void setRamLimit($, v)} />
+        ) : (
+          <Button key="set-ram" label={`🧠︎ RAM Claude may use: ${ramOptions.find(o => o.value === cleanRamLimit(prefs.ramLimit))?.label ?? 'Auto'} ▸`} plain onPress={async () => {
+            const now = (await read($, settings)).ramLimit
+            const opts = ramLimitOptions(now)
+            const i = opts.findIndex(o => o.value === cleanRamLimit(now))
+            await setRamLimit($, (opts[(i + 1) % opts.length] ?? opts[0])?.value ?? 'auto')
+          }} />
+        ),
+        Field ? <Field key="set-ram-type" label="…or type a limit" placeholder="GB, like 12" value="" submitLabel="set" onSubmit={(v: string) => void typeRamLimit($, v)} /> : null,
+      ),
+      opt(
+        'opt-agents',
+        'How many agents may run at once. Auto works it out from the RAM limit.',
+        Pick ? (
+          <Pick key="set-agents-pick" label="👥︎ Max agents at once" value={among(String(cleanMaxAgents(prefs.maxAgents)), agentOptions)} options={agentOptions} onSelect={v => void setMaxAgents($, Number(v) || 0)} />
+        ) : (
+          <Button key="set-agents" label={`👥︎ Max agents at once: ${cleanMaxAgents(prefs.maxAgents) || gd.autoLabel} ▸`} plain onPress={async () => {
+            const now = cleanMaxAgents((await read($, settings)).maxAgents)
+            await setMaxAgents($, [0, ...MAX_AGENTS_STEPS].find(v => v > now) ?? 0)
+          }} />
+        ),
+        Field ? <Field key="set-agents-type" label="…or type a number" placeholder="agents, like 24" value="" submitLabel="set" onSubmit={(v: string) => void typeMaxAgents($, v)} /> : null,
+      ),
+      opt(
+        'opt-kill',
+        'If Claude goes over its RAM limit, stops its biggest heavy command (tsc, tests, builds).',
+        Pick ? (
+          <Pick key="set-kill-pick" label={'🔪\uFE0E Kill switch'} value={among(cleanKillSwitch(prefs.killSwitch), killChoices)} options={killChoices} onSelect={v => void setKillSwitch($, cleanKillSwitch(v))} />
+        ) : (
+          <Button key="set-kill" label={`🔪\uFE0E Kill switch: ${cleanKillSwitch(prefs.killSwitch) === 'on' ? 'On' : 'Off'} ▸`} plain onPress={async () => setKillSwitch($, cleanKillSwitch((await read($, settings)).killSwitch) === 'on' ? 'off' : 'on')} />
+        ),
+      ),
+      opt(
+        'opt-agent-ram',
+        'Learned by watching agents run. Reset it if the figure looks wrong.',
+        <Text key="set-agent-ram" bold>{`🧮︎ ${gd.perAgent}`}</Text>,
+        <Button key="set-agent-ram-reset" label="↺ Reset learned RAM per agent" plain onPress={() => resetAgentRam($)} />,
+      ),
+    )
+    const crewCard = card(
+      'set-crew-card',
+      '🦀︎ Crew',
+      c.accent,
+      opt(
+        'opt-crew',
+        'Splits work across helper agents: big jobs only, every job, or off.',
+        Pick ? (
+          <Pick
+            key="set-crew-pick"
+            label="🦀︎ Crew mode"
+            value={among(!prefs.crewMode ? 'off' : prefs.crewAlways ? 'every' : 'big', crewOptions)}
+            options={crewOptions}
+            onSelect={v => void setCrewChoice($, v === 'off' || v === 'every' ? v : 'big')}
           />
-          {Pick ? (
-            <Pick
-              key="set-crew-pick"
-              label="🦀\uFE0E Crew mode"
-              value={!prefs.crewMode ? 'off' : prefs.crewAlways ? 'every' : 'big'}
-              options={CREW_OPTIONS}
-              onSelect={v => void setCrewChoice($, v === 'off' || v === 'every' ? v : 'big')}
-            />
-          ) : (
+        ) : (
           <Button
             key="set-crew"
-            label={`${prefs.crewMode ? '☑\uFE0E' : '☐'} Crew mode: split ${prefs.crewAlways ? 'every job' : 'big jobs'} across sub-agents`}
+            label={`${box(prefs.crewMode)} Crew mode: ${prefs.crewAlways ? 'every job' : 'big jobs'}`}
             plain
             onPress={async () => {
               const auto = await readAutoCrew($)
@@ -6740,81 +7529,98 @@ export const register: Register = (on, options) => {
               await update($, settings, prev => ({ ...prev, crewMode: isOn, crewAlways: isOn && always }))
             }}
           />
-          )}
-          {Pick ? (
-            <Pick
-              key="set-currency-pick"
-              label="¤ Currency"
-              value={CURRENCY.code}
-              options={currencyOptions()}
-              onSelect={v => void setCurrency($, CURRENCIES.find(c => c.code === v) ?? CURRENCY)}
-            />
-          ) : (
+        ),
+      ),
+      opt(
+        'opt-oneshot',
+        'Once you approve a plan: do it all then report, one part at a time, or ask.',
+        Pick ? (
+          <Pick key="set-oneshot-pick" label="⏩︎ One-shot plans" value={among(shotValue, SHOT_OPTIONS)} options={SHOT_OPTIONS} onSelect={v => void setOneShot($, cleanOneShot(v))} />
+        ) : (
+          <Button key="set-oneshot" label={`⏩︎ One-shot plans: ${prefs.oneShot === 'on' ? 'on' : prefs.oneShot === 'off' ? 'off' : 'ask each time'} ▸`} plain onPress={async () => setOneShot($, nextOneShot(cleanOneShot((await read($, settings)).oneShot)))} />
+        ),
+      ),
+      opt(
+        'opt-staffing',
+        'Each agent gets the model and effort its job needs.',
+        <Button key="set-staffing" label={`${box(prefs.staffing)} Smart staffing`} plain onPress={async () => setFlag($, 'staffing', !(await read($, settings)).staffing)} />,
+      ),
+      opt(
+        'opt-timekeeper',
+        'A time budget for each job and each agent, with a nudge when one runs long.',
+        <Button
+          key="set-timekeeper"
+          label={`${box(tkNow.on)} ${tkStr().setting(tkNow.jobMin, tkNow.agentMin)}`}
+          plain
+          onPress={async () => {
+            await setTimekeeper($, { on: !(await read($, timekeeper)).on })
+          }}
+        />,
+      ),
+    )
+    const look = card(
+      'set-look',
+      '🎨 Look and feel',
+      c.accent2,
+      opt('opt-skin', `Now: ${SKIN.name}. Colours and style of this pane and the band.`, <Button key="set-skin" label="Change skin ▸" plain onPress={() => void showPane($, SKINS_PANE, SKIN.tabs.skins)} />),
+      opt(
+        'opt-currency',
+        'The currency costs are shown in.',
+        Pick ? (
+          <Pick key="set-currency-pick" label="¤ Currency" value={among(CURRENCY.code, currencyOptions())} options={currencyOptions()} onSelect={v => void setCurrency($, CURRENCIES.find(cur => cur.code === v) ?? CURRENCY)} />
+        ) : (
           <Button
             key="set-currency"
             label={`¤ Currency: ${currencyLabel(currencyOf(prefs.currency, CURRENCY.code === prefs.currency ? CURRENCY.rate : undefined))} ▸`}
             plain
             onPress={async () => {
-              const i = CURRENCIES.findIndex(c => c.code === CURRENCY.code)
+              const i = CURRENCIES.findIndex(cur => cur.code === CURRENCY.code)
               await setCurrency($, CURRENCIES[(i + 1) % CURRENCIES.length] as Currency)
             }}
           />
-          )}
-          <Button
-            key="set-sounds"
-            label={`${prefs.sounds ? '☑\uFE0E' : '☐'} ${eggOf() ? 'Sounds: chimes, blips and the MaxTac siren' : 'Sounds: job-done chime'}`}
-            plain
-            onPress={async () => {
-              const isOn = !(await read($, settings)).sounds
-              await $.store.set('sounds', isOn).catch(() => undefined)
-              await update($, settings, prev => ({ ...prev, sounds: isOn }))
-            }}
-          />
-          {SKIN.cast ? null : (
-            <Button key="set-simple" label={`${prefs.simple ? '☑\uFE0E' : '☐'} Simple band: 3 rows (what's happening, the crew, the cost)`} plain onPress={async () => setFlag($, 'simple', !(await read($, settings)).simple)} />
-          )}
-          <Button key="set-calm" label={`${prefs.calm ? '☑\uFE0E' : '☐'} Calm mode: one status line instead of the band`} plain onPress={async () => setFlag($, 'calm', !(await read($, settings)).calm)} />
-          <Button key="set-voice" label={`${prefs.voice ? '☑\uFE0E' : '☐'} Spoken status: say when a job is done and what it cost`} plain onPress={async () => setFlag($, 'voice', !(await read($, settings)).voice)} />
-          <Button key="set-staffing" label={`${prefs.staffing ? '☑\uFE0E' : '☐'} Smart staffing: each agent gets the model and effort its job needs`} plain onPress={async () => setFlag($, 'staffing', !(await read($, settings)).staffing)} />
-          {Pick ? (
-            <Pick key="set-oneshot-pick" label="⏩\uFE0E One-shot plans" value={cleanOneShot(prefs.oneShot)} options={SHOT_OPTIONS} onSelect={v => void setOneShot($, cleanOneShot(v))} />
-          ) : (
-            <Button key="set-oneshot" label={`⏩\uFE0E One-shot plans: ${prefs.oneShot === 'on' ? 'on, does the whole plan then reports' : prefs.oneShot === 'off' ? 'off, one part at a time' : 'asks you each time'} ▸`} plain onPress={async () => setOneShot($, nextOneShot(cleanOneShot((await read($, settings)).oneShot)))} />
-          )}
-          <Button
-            key="set-timekeeper"
-            label={`${tkNow.on ? '☑\uFE0E' : '☐'} ${tkStr().setting(tkNow.jobMin, tkNow.agentMin)}`}
-            plain
-            onPress={async () => {
-              await setTimekeeper($, { on: !(await read($, timekeeper)).on })
-            }}
-          />
-          <Button key="set-skin" label="Change skin ▸" plain onPress={() => void showPane($, SKINS_PANE, SKIN.tabs.skins)} />
-          <Text key="set-money-h" bold>
-            {'\n'}Money
-          </Text>
-          <Button key="set-autopilot" label={`${prefs.autopilot ? '☑\uFE0E' : '☐'} Autopilot: read-only explorers run on Haiku`} plain onPress={async () => setAutopilot($, !(await read($, settings)).autopilot)} />
-          <Button key="set-warm" label={`${prefs.keepWarm ? '☑\uFE0E' : '☐'} Keep-Warm: refresh the prompt cache when that saves more than it costs`} plain onPress={async () => setKeepWarm($, !(await read($, settings)).keepWarm)} />
-          {Pick ? (
-            <Pick key="set-daily-pick" label="💵\uFE0E Daily cap" value={String(prefs.dailyUsd)} options={stepOptions(DAILY_STEPS, prefs.dailyUsd, v => `${fmtCost(v)} a day`)} onSelect={v => void setDailyCap($, Number(v) || 0)} />
-          ) : (
-            <Button key="set-daily" label={`💵\uFE0E Daily cap: ${prefs.dailyUsd ? `${fmtCost(prefs.dailyUsd)} a day` : 'off'} ▸`} plain onPress={async () => setDailyCap($, nextStep(DAILY_STEPS, (await read($, settings)).dailyUsd))} />
-          )}
-          {Field ? (
-            <Field key="set-daily-type" label="   …or type a daily cap" placeholder={`${CURRENCY.symbol || '$'} amount, 0 = off`} value="" submitLabel="set" onSubmit={(v: string) => void typeMoney($, 'daily', v)} />
-          ) : null}
-          {Pick ? (
-            <Pick key="set-budget-pick" label="🎯\uFE0E Budget per task" value={String(prefs.budgetUsd)} options={stepOptions(BUDGET_STEPS, prefs.budgetUsd, v => fmtCost(v))} onSelect={v => void setBudget($, Number(v) || 0)} />
-          ) : (
-            <Button key="set-budget" label={`🎯\uFE0E Budget per task: ${prefs.budgetUsd ? fmtCost(prefs.budgetUsd) : 'off'} ▸`} plain onPress={async () => setBudget($, nextStep(BUDGET_STEPS, (await read($, settings)).budgetUsd))} />
-          )}
-          {Field ? (
-            <Field key="set-budget-type" label="   …or type a budget" placeholder={`${CURRENCY.symbol || '$'} amount, 0 = off`} value="" submitLabel="set" onSubmit={(v: string) => void typeMoney($, 'budget', v)} />
-          ) : null}
-        </Box>
-
-        {head('h-spend', 'Spend card period')}
-        {spendControls}
+        ),
+      ),
+      SKIN.cast
+        ? null
+        : opt('opt-simple', "The band shows 3 rows: what's happening, the crew, the cost.", <Button key="set-simple" label={`${box(prefs.simple)} Simple band`} plain onPress={async () => setFlag($, 'simple', !(await read($, settings)).simple)} />),
+      opt('opt-calm', 'One status line instead of the band.', <Button key="set-calm" label={`${box(prefs.calm)} Calm mode`} plain onPress={async () => setFlag($, 'calm', !(await read($, settings)).calm)} />),
+      opt(
+        'opt-sounds',
+        cyberOf() ? 'Chimes, blips and the MaxTac siren.' : 'A chime when a job is done.',
+        <Button
+          key="set-sounds"
+          label={`${box(prefs.sounds)} Sounds`}
+          plain
+          onPress={async () => {
+            const isOn = !(await read($, settings)).sounds
+            await $.store.set('sounds', isOn).catch(() => undefined)
+            await update($, settings, prev => ({ ...prev, sounds: isOn }))
+          }}
+        />,
+      ),
+      opt('opt-voice', 'Says out loud when a job is done and what it cost.', <Button key="set-voice" label={`${box(prefs.voice)} Spoken status`} plain onPress={async () => setFlag($, 'voice', !(await read($, settings)).voice)} />),
+      opt(
+        'opt-open',
+        'Opens Mission Control each time Claude starts.',
+        <Button
+          key="set-open"
+          label={`${box(prefs.openOnStart)} Open on start`}
+          plain
+          onPress={async () => {
+            const isOn = !(await read($, settings)).openOnStart
+            await $.store.set('openOnStart', isOn).catch(() => undefined)
+            await update($, settings, prev => ({ ...prev, openOnStart: isOn }))
+          }}
+        />,
+      ),
+    )
+    return (
+      <Box flexDirection="column" gap={1}>
+        {money}
+        {machine}
+        {crewCard}
+        {look}
+        {card('set-billing', '💳 Billing', c.warn, billingBlock)}
       </Box>
     )
     } catch (err) {
@@ -6851,21 +7657,15 @@ export const register: Register = (on, options) => {
       const folder = await $.store.get('skinsFolder').catch(() => undefined)
       return { text: typeof folder === 'string' ? `Skins folder: ${folder}` : `No "${SKINS_FOLDER}" folder found yet.` }
     }
-    if (!arg || arg === 'list') return { text: `Skins (▸ is on):\n${listing()}\nSwitch with /skin <id>.${HAS_CYBER ? '' : `\n\n${ADDON_PITCH}`}` }
-    const k = SKINS.get(arg === 'off' || arg === 'none' ? DEFAULT_SKIN.id : arg)
+    if (!arg || arg === 'list') return { text: `Skins (▸ is on):\n${listing()}\nSwitch with /skin <id or name>.${HAS_CYBER ? '' : `\n\n${ADDON_PITCH}`}` }
+    const k = arg === 'off' || arg === 'none' ? SKINS.get(DEFAULT_SKIN.id) : skinByWord(arg)
     if (!k) return { text: `No skin "${arg}".\n${listing()}` }
     if (!canWear(k)) return { text: `${k.hidden ? `No skin "${arg}".` : `${k.name} comes with the Cyberpunk Skins add-on.`}\n${ADDON_PITCH}` }
     applySkin(k)
     await $.store.set('skin', k.id)
     await update($, skin, () => k.id)
     await retitle($)
-    if (k.hidden) {
-      // Found the secret: a badge for the finder.
-      $.ui.toast(GREETING.samurai)
-      void play($, `${ADDON}/assets/done-samurai.wav`)
-      // Quiet: the badge's chime would cut the band's own.
-      await bumpCred($, c => (c.samurai ? c : { ...c, samurai: true, xp: c.xp + 50 }), true).catch(() => false)
-    }
+    if (k.hidden) await foundSecret($, k)
     return { text: `Skin: ${k.name}.` }
   })
 
@@ -7236,6 +8036,7 @@ export const register: Register = (on, options) => {
     const isDesktop = e.surface !== 'terminal' && 'Svg' in ui
     const band = bandView(await bandInput($, isDesktop), bandAt, e.props.isWorking)
     const { list, info, crew, isWorking, bgCount, waitingOn, idleText, tkBand } = band
+    const gd = await read($, guard)
     // Calm mode: the band steps aside for one line under the prompt.
     if ((await read($, settings)).calm) {
       const working = list.filter(a => a.status === 'running').length
@@ -7314,6 +8115,7 @@ export const register: Register = (on, options) => {
           <Text color={CLAY}>{isWorking ? '▣' : '□'}</Text>
           <Text color={gaugeColor(info.contextPct)}>◔ {info.contextPct}%</Text>
           {tkBand ? <Text color={budgetTone(tkBand.usedMs, tkBand.min) || undefined}>⏱ {budgetLabel(tkBand.usedMs, tkBand.min)}</Text> : null}
+          {isWorking && gd.usedGb >= 0 ? <Text color={gd.isTight ? SKIN.colors.alert : undefined} dimColor={!gd.isTight}>{paneLine(gd.limitGb, gd.usedGb, list.filter(a => a.status === 'running').length + gd.others, gd.max, true, gd.sessions)}</Text> : null}
           {bgLabel ? <Text color={ACCENT}>{bgLabel}</Text> : null}
           {crewButton}
           {dismiss}

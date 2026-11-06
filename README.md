@@ -37,7 +37,7 @@
     </td>
     <td align="center" width="50%" valign="top">
       <a href="https://github.com/Chinchuan24/MissionControl/releases/latest/download/mission-control-cyberpunk.zip">
-        <img src="docs/edition-cyberpunk.png" alt="Cyberpunk Skins: Cyberpunk 2077, Lucy Edgerunners, Arasaka and a hidden skin" width="100%">
+        <img src="docs/edition-cyberpunk.png" alt="Cyberpunk Skins: Cyberpunk Edgerunner, Lucy Edgerunners, Arasaka and a hidden skin" width="100%">
       </a>
     </td>
   </tr>
@@ -134,7 +134,7 @@ The add-on swaps the crabs for a pixel-art cast, moves the HUD to Night City and
 |---|:---:|:---:|
 | HUD band, pane, crew, Token Manager, crew mode, done chime, rich replies | ✓ | ✓ |
 | `default` and Crab Classic skins, custom JSON skins | ✓ | ✓ |
-| **Cyberpunk 2077**, **Lucy · Edgerunners**, **Arasaka** skins + a hidden one 🎸 | — | ✓ |
+| **Cyberpunk Edgerunner**, **Lucy · Edgerunners**, **Arasaka** skins + a hidden one 🎸 | — | ✓ |
 | Pixel-art cast: David, Lucy, Rebecca, Maine, Kiwi, Johnny… Saburo and Adam Smasher on Arasaka | — | ✓ |
 | **Street Cred**: XP per job, ranks NOBODY → LEGEND OF THE AFTERLIFE, 9 badges | — | ✓ |
 | **Braindance**: replay the session, every tool call a mark | — | ✓ |
@@ -152,7 +152,7 @@ Pick one with `/skins` (a live picker) or `/skin <id>`. Each skin restyles the b
 |---|---|---|
 | default | `default` | Keeps the app's own look. Just the data. |
 | 🦀 Crab Classic | `crab-classic` | The original. A working crab in costume for every role. |
-| 🟡 Cyberpunk 2077 | `cyberpunk-2077` | Neon yellow, cyan and hot red. David leads the crew. |
+| 🟡 Cyberpunk Edgerunner | `cyberpunk-2077` | Neon yellow, cyan and hot red. David leads the crew. |
 | 🌙 Lucy · Edgerunners | `lucy-edgerunners` | Rose-pink and cyan under the moon. Lucy runs the net. |
 | 🔴 Arasaka | `arasaka` | Corporate red and black. Saburo at the top, Smasher on call. |
 | 🎸 ??? | — | Not in the picker. Wake up… |
@@ -178,13 +178,13 @@ The app's own colours and fonts, with no costumes or effects. Just the data.
 </details>
 
 <details>
-<summary><b>🟡 Cyberpunk 2077</b> · add-on</summary>
+<summary><b>🟡 Cyberpunk Edgerunner</b> · add-on</summary>
 <br>
 
 Night City HUD: neon yellow, cyan and hot red, cut corners and scanlines. **David** leads. **Lucy, Rebecca, Maine, Dorio, Kiwi, Pilar, Falco and Johnny** take the roles; chooms and NPCs do the work.
 
-![Cyberpunk 2077 band](docs/band-cyberpunk-2077.png)
-![Cyberpunk 2077 crew](docs/crew-cyberpunk-2077.png)
+![Cyberpunk Edgerunner band](docs/band-cyberpunk-2077.png)
+![Cyberpunk Edgerunner crew](docs/crew-cyberpunk-2077.png)
 
 </details>
 
@@ -225,6 +225,24 @@ Copy an example, give it a new `id`, edit it, then run `/skin reload` and `/skin
 Or skip the editing: `/skin new ocean sunset` drafts one for you, and `/skin check <file>` checks one. See [`docs/SKINS.md`](docs/SKINS.md) for the guide, the schema and how to share a skin (Skin jam).
 
 </details>
+
+---
+
+## 🛡️ Machine Guard
+
+Stops a big crew from freezing your computer.
+
+- **You set the RAM Claude may use** (Auto 50%, 25/50/75%, or a typed GB). Max agents = that RAM ÷ RAM per agent (≈0.5 GB, learned on your machine). 15 GB means up to 30 agents; no cap of 8.
+- **Claude is told** the limit and the max in chat, and you get a toast when you change it.
+- **Watches RAM live.** Over the limit, it refuses *new* agents and new heavy commands.
+- **One budget across all your sessions.** Run 2 or 3 sessions and they share the same limit: the agent count adds up across them, and only one heavy command runs at a time on the whole computer.
+- **One heavy command at a time** (tsc, tests, builds): a second one waits, up to 5 minutes.
+- **🔪 Kill switch (On by default).** If Claude goes over its RAM limit, the guard stops the single biggest heavy process under Claude (a runaway `tsc`, a test run), then tells you and Claude. It never touches Claude itself, your apps, MCP servers or shells. Switch it off in Settings.
+- **Tune it** in ⚙ Settings: "RAM Claude may use", "Max agents at once" (Auto, a list, or a typed number) and "Kill switch".
+- **Claude's RAM counts every Claude process** on the computer: other sessions and the desktop app too.
+- **See it** in the desktop pane: "🛡 RAM 9.1/15 GB · 3/30 agents" while working, plus "· 2 sessions" when more than one is live.
+
+Details: [docs/MACHINE-GUARD.md](docs/MACHINE-GUARD.md)
 
 ---
 

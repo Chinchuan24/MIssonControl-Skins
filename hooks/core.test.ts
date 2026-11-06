@@ -24,3 +24,22 @@ test('core edition: without the add-on the cyberpunk skins are locked and pitche
   expect(await run('samurai')).toContain('No skin "samurai"')
   expect(await run('crab-classic')).toContain('Skin: Crab Classic')
 })
+
+// The Mentalist ships with the core edition: wearable without the add-on.
+test('core edition: The Mentalist and its CBI team need no add-on', async ($, on) => {
+  mock.clock(on, { now: Date.parse('2026-10-20T10:00:00Z') })
+  mock.env(on, { LANG: 'en_US.UTF-8' })
+  mock.store(on, {})
+  on('fs.exists', async () => ({ value: false }) as never)
+  on('settings.read', async () => ({ value: {} }) as never)
+  on('tool.register', async () => ({ value: undefined }) as never)
+  on('command.register', async () => ({ value: undefined }) as never)
+  on('ui.open', async () => ({ value: { isPlaced: true } }) as never)
+  on('ui.panes', async () => ({ value: [] }) as never)
+  on('session.start', async () => ({ cwd: '/repo' }) as never)
+  await $.session.start({ source: 'startup', cwd: '/repo', surface: 'desktop', isInteractive: true } as never)
+  const run = async (args: string) => String(((await $.command.run({ command: 'skin', args } as never)) as { text?: string }).text)
+  expect(await run('')).toContain('mentalist')
+  expect(await run('mentalist')).toContain('Skin: The Mentalist')
+  expect(await run('')).toContain('▸ mentalist')
+})

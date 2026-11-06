@@ -182,10 +182,10 @@ export function validateSkin(raw: unknown, opts: Opts = {}): Check {
       }
   }
 
-  // cast: the Cyberpunk add-on's characters
+  // cast: built-in characters (The Mentalist's, or the Cyberpunk add-on's)
   if (r.cast !== undefined) {
     if (typeof r.cast !== 'string' || !Object.hasOwn(CASTS, r.cast)) bad(`"cast" must be one of ${Object.keys(CASTS).join(', ')}.`)
-    else if (opts.strict) bad('"cast" belongs to the Cyberpunk Skins add-on: leave it out.')
+    else if (opts.strict) bad('"cast" picks the mod\'s own characters (built in, or from an add-on): a drafted skin leaves it out.')
   }
 
   if (opts.strict) {

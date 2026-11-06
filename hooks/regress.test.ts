@@ -19,7 +19,8 @@ const base = (on: On, opts: { now?: number; env?: Record<string, string>; store?
   for (const k of Object.keys(writes)) delete writes[k]
   on('process.run', async (_$, e) => {
     const argv = ((e as { argv?: string[] }).argv ?? []) as string[]
-    runs.push(argv)
+    // Machine Guard also spawns its probes; these tests count the language lookup only.
+    if (argv[0] === '/usr/bin/defaults') runs.push(argv)
     if (opts.defaults === 'throw') throw new Error('timed out')
     if (opts.defaults === 'fail') return { value: { exitCode: 1, stdout: '', stderr: 'does not exist', isStdoutTruncated: false, isStderrTruncated: false } } as never
     return { value: { exitCode: 0, stdout: '(\n    "he-IL",\n    "en-IL"\n)\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
@@ -127,7 +128,7 @@ test('mac lang: defaults failing or throwing falls through, session still starts
 
 // 5. Every Svg the desktop draws has an alt, across skins and odd crews
 // (blank descriptions, a big plan, a running agent with no steps).
-for (const skin of ['crab-classic', 'cyberpunk-2077', 'arasaka', 'lucy-edgerunners']) {
+for (const skin of ['crab-classic', 'mentalist', 'cyberpunk-2077', 'arasaka', 'lucy-edgerunners']) {
   test(`alt: no blank Svg alt in the pane or band (${skin})`, async ($, on) => {
     const clock = base(on, { store: { skin } })
     await start($)

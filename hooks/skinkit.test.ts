@@ -1,6 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
-import { EXAMPLE_SKIN, deniedBrand, extractJson, skinCheck, skinNew, validateSkin } from './skinkit'
+import { CASTS } from './cast'
+import { EXAMPLE_SKIN, contrast, deniedBrand, extractJson, skinCheck, skinNew, validateSkin } from './skinkit'
 
 const good = () => JSON.parse(JSON.stringify(EXAMPLE_SKIN)) as Record<string, any>
 
@@ -165,4 +166,25 @@ test('/skin check: finds the file in the skins folder and reports problems', asy
   expect(wrong).toContain('✗')
   expect(await skinCheck(f.$, 'missing.json', f.deps)).toContain('No file')
   expect(await skinCheck(f.$, '', f.deps)).toContain('Usage')
+})
+
+// The Mentalist's cast: every pixel letter has a colour (or is the tint), and every
+// figure stands about as tall as the rest of the mod's characters.
+test('mentalist cast: sprites are whole and about 46 pixels tall', () => {
+  const cb = CASTS.mentalist
+  expect(cb).toBeTruthy()
+  const all = [cb!.boss, ...Object.values(cb!.roles), ...cb!.crew]
+  for (const sp of all) {
+    expect(sp.rows.length).toBeGreaterThan(40)
+    expect(sp.rows.length).toBeLessThan(50)
+    for (const row of sp.rows) for (const ch of row) if (ch !== '.' && ch !== 't') expect(sp.pal[ch]).toBeTruthy()
+  }
+  // The CBI agents' vests take their role's colour.
+  expect(cb!.crew.every(sp => sp.rows.some(r => r.includes('t')))).toBe(true)
+})
+
+test('mentalist colours: white text reads on the navy card (4.5 or more)', () => {
+  expect(contrast('#F2F5FA', '#0E1524')!).toBeGreaterThan(4.5)
+  expect(contrast('#B4C0D3', '#0E1524')!).toBeGreaterThan(4.5)
+  expect(contrast('#93A0B5', '#0E1524')!).toBeGreaterThan(4.5)
 })

@@ -44,13 +44,26 @@ test('/skin cyberpunk-2077 repaints Mission Control: neon, cut corners, scanline
   base(on)
   await $.session.start({ source: 'startup', cwd: '/repo', surface: 'desktop', isInteractive: true } as never)
   expect(await drawn($)).not.toContain('#FCEE0A')
-  expect(await run($, 'cyberpunk-2077')).toContain('Skin: Cyberpunk 2077')
+  expect(await run($, 'cyberpunk-2077')).toContain('Skin: Cyberpunk Edgerunner')
   const after = await drawn($)
   expect(after).toContain('#FCEE0A')
   expect(after).toContain('url(#scan)')
   expect(after).toMatch(/<path d="M[\d.]+ [\d.]+H[\d.]+V[\d.]+L/)
   expect(await run($, 'off')).toContain('Skin: Default')
   expect(await drawn($)).not.toContain('url(#scan)')
+})
+
+test('/skin finds a skin by its name too, the new "Cyberpunk Edgerunner" and the old "Cyberpunk 2077"; the id stays', async ($, on) => {
+  base(on)
+  await $.session.start({ source: 'startup', cwd: '/repo', surface: 'desktop', isInteractive: true } as never)
+  expect(await run($, 'list')).toContain('cyberpunk-2077  Cyberpunk Edgerunner')
+  for (const word of ['Cyberpunk Edgerunner', 'cyberpunk 2077', 'Cyberpunk-2077']) {
+    expect(await run($, 'off')).toContain('Skin: Default')
+    expect(await run($, word)).toContain('Skin: Cyberpunk Edgerunner')
+    expect(await drawn($)).toContain('#FCEE0A')
+  }
+  expect(await run($, 'list')).toContain('▸ cyberpunk-2077')
+  expect(await run($, 'cyberpunk 2078')).toContain('No skin')
 })
 
 test('skins load from the folder; a bad value falls back and a broken file is skipped', async ($, on) => {
@@ -71,7 +84,7 @@ test('/skins opens a picker with every skin; Use puts one on', async ($, on) => 
   await $.command.run({ command: 'skins', args: '' } as never)
   const ui = await $.ui.mount({ plugin: 'crab-progress', surface: 'desktop', component: 'Pane', requestId: 'crab-skins', props: pane })
   const alts = (await ui.findAll({ type: 'Svg' })).map(el => String(el.props.alt))
-  for (const name of ['Default', 'Crab Classic', 'Cyberpunk 2077', 'Arasaka', 'Lucy · Edgerunners']) expect(alts.some(a => a.startsWith(name))).toBe(true)
+  for (const name of ['Default', 'Crab Classic', 'Cyberpunk Edgerunner', 'Arasaka', 'Lucy · Edgerunners']) expect(alts.some(a => a.startsWith(name))).toBe(true)
   await ui.press((await ui.find({ key: 'wear-arasaka' })) as never)
   await ui.unmount()
   expect(await drawn($)).toContain('#E3001B')

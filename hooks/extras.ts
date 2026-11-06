@@ -37,6 +37,8 @@ export const BADGES: Badge[] = [
 ]
 
 // The badges a cred has just earned, and the cred with them recorded.
+// The words a skin can swap on the card: its badges' names and the stat labels.
+export type CredWords = { badges: Badge[]; cases: string; long: string; all: string }
 export const award = (c: Cred): { cred: Cred; fresh: Badge[] } => {
   const fresh = BADGES.filter(b => !c.badges.includes(b.id) && b.progress(c) >= 1)
   return { cred: fresh.length ? { ...c, badges: [...c.badges, ...fresh.map(b => b.id)] } : c, fresh }
@@ -153,7 +155,8 @@ const credHead = (W: number): number => (W < NARROW ? 206 : 146)
 // (the medallion rows start a little lower, under the "NEXT" line)
 const credPer = (W: number): number => Math.max(1, Math.floor((W - 28) / 100))
 export const credHeight = (W: number): number => credHead(W) + 20 + Math.ceil(BADGES.length / credPer(W)) * 70
-export const credCard = (W: number, c: Cred, t: Theme, font: string, frame: Frame, title: string, kana = '', ranks: (level: number) => string = rankOf): string => {
+export const credCard = (W: number, c: Cred, t: Theme, font: string, frame: Frame, title: string, kana = '', ranks: (level: number) => string = rankOf, words?: CredWords): string => {
+  const badges = words?.badges ?? BADGES
   const H = credHeight(W)
   const head = credHead(W)
   const isNarrow = W < NARROW
@@ -193,8 +196,8 @@ ${segs}
   const stat = (x: number, y: number, slot: number, k: string, v: string) =>
     `<text x="${x.toFixed(1)}" y="${y}" font-family="${font}" font-size="9" font-weight="800" letter-spacing=".8" fill="${t.muted}">${esc(clipW(k, 9, slot - 6, 0.8))}</text><text x="${x.toFixed(1)}" y="${y + 13}" font-family="${font}" font-size="13" font-weight="800" fill="${v === '0' ? t.muted : t.text}" font-variant-numeric="tabular-nums">${v === '0' ? '—' : esc(clipW(v, 13, slot - 6))}</text>`
   const statList: [string, string][] = [
-    ['GIGS', `${c.jobs}`],
-    ['MAJOR GIGS', `${c.longJobs}`],
+    [words?.cases ?? 'GIGS', `${c.jobs}`],
+    [words?.long ?? 'MAJOR GIGS', `${c.longJobs}`],
     ['AGENTS', `${c.agents}`],
     ['BADGES', `${c.badges.length}/${BADGES.length}`],
   ]
@@ -214,7 +217,7 @@ ${segs}
   // The medallions: hexes with an icon; earned ones glow, locked ones are dark with a "?".
   const per = credPer(W)
   const cell = (W - 28) / per
-  const meds = BADGES.map((b, i) => {
+  const meds = badges.map((b, i) => {
     const on = c.badges.includes(b.id)
     const mx = 14 + (i % per) * cell + cell / 2
     const my = head + 40 + Math.floor(i / per) * 70
@@ -241,8 +244,8 @@ ${bar}
 ${stats}
 <line x1="14" y1="${head + 0.5}" x2="${W - 14}" y2="${head + 0.5}" stroke="${t.line}"/>
 ${(() => {
-  const next = BADGES.filter(b => !c.badges.includes(b.id)).sort((a, b2) => b2.progress(c) - a.progress(c))[0]
-  const line = next ? `NEXT: ${next.name} · ${next.how}` : 'ALL BADGES EARNED. PREEM.'
+  const next = badges.filter(b => !c.badges.includes(b.id)).sort((a, b2) => b2.progress(c) - a.progress(c))[0]
+  const line = next ? `NEXT: ${next.name} · ${next.how}` : words?.all ?? 'ALL BADGES EARNED. PREEM.'
   return `<text x="${W - 14}" y="${head + 12}" text-anchor="end" font-family="${font}" font-size="8.5" font-weight="800" letter-spacing=".8" fill="${t.muted}">${esc(clipW(line, 8.5, W - 28, 0.8))}</text>`
 })()}
 ${meds}
@@ -288,7 +291,9 @@ const bdRows = (beats: Beat[]): string[] => ['Manager', ...[...new Set(beats.map
 export const bdHeight = (beats: Beat[]): number => 91 + 17 * bdRows(beats).length
 // The tallest card (five lanes); the default room to keep for it.
 export const BD_H = 176
-export const braindanceCard = (W: number, beats: Beat[], pick: number, t: Theme, font: string, frame: Frame, title: string, _tone?: (k: string) => string): string => {
+// `names` relabel the three layer tabs and `play` the playback mark (a themed skin's words);
+// the layers themselves stay the same.
+export const braindanceCard = (W: number, beats: Beat[], pick: number, t: Theme, font: string, frame: Frame, title: string, _tone?: (k: string) => string, names: readonly [string, string, string] = ['VISUAL', 'AUDIO', 'THERMAL'], play = 'PLAYBACK'): string => {
   // The layers in the skin's colours; a caller may pass its own.
   const colors = layerColors(t)
   const tone = (k: string) => (_tone ? _tone(k) : colors[layerName(k)])
@@ -389,7 +394,7 @@ export const braindanceCard = (W: number, beats: Beat[], pick: number, t: Theme,
       const color = tone(name === 'VISUAL' ? 'read' : name === 'AUDIO' ? 'web' : 'edit')
       const x = W - 14 - (3 - i) * 74
       const on = name === active
-      return `<path d="M${x + 4} 10h64l-4 14h-64z" fill="${on ? color : 'none'}" fill-opacity="${on ? 0.9 : 0}" stroke="${color}" stroke-opacity="${on ? 1 : 0.55}"/><text x="${x + 34}" y="21" text-anchor="middle" font-family="${font}" font-size="9.5" font-weight="900" letter-spacing="1" fill="${on ? inkOn(color) : color}">${name}</text>`
+      return `<path d="M${x + 4} 10h64l-4 14h-64z" fill="${on ? color : 'none'}" fill-opacity="${on ? 0.9 : 0}" stroke="${color}" stroke-opacity="${on ? 1 : 0.55}"/><text x="${x + 34}" y="21" text-anchor="middle" font-family="${font}" font-size="9.5" font-weight="900" letter-spacing="1" fill="${on ? inkOn(color) : color}">${names[i]}</text>`
     })
     .join('')
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><style>.rec{animation:rec 1.2s steps(1) infinite}@keyframes rec{50%{opacity:.2}}@media (prefers-reduced-motion: reduce){.rec{animation:none}}</style>
@@ -397,7 +402,7 @@ export const braindanceCard = (W: number, beats: Beat[], pick: number, t: Theme,
 ${frame(0.5, 0.5, W - 1, H - 1, `fill="${t.tile}" stroke="${t.accent}" stroke-opacity=".35"`, 10)}
 <rect x="16" y="11" width="3" height="14" fill="${t.accent}"/>
 <text x="25" y="23" font-family="${font}" font-size="14" font-weight="800" letter-spacing=".8" fill="${t.text}">${esc(title)}</text>
-<text class="rec" x="${(25 + textW(title, 14, 0.8) + 12).toFixed(1)}" y="22.5" font-family="${font}" font-size="9" font-weight="900" letter-spacing="1" fill="${t.accent2}">▶\uFE0E PLAYBACK</text>
+<text class="rec" x="${(25 + textW(title, 14, 0.8) + 12).toFixed(1)}" y="22.5" font-family="${font}" font-size="9" font-weight="900" letter-spacing="1" fill="${t.accent2}">▶\uFE0E ${play}</text>
 ${W >= 520 && W - 236 > 25 + textW(title, 14, 0.8) + 100 ? legend : ''}
 ${ticks}
 ${lanes}${marks}${head}
