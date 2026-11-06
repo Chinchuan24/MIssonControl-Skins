@@ -3169,7 +3169,10 @@ const rowInnerX = (r: TreeRow): number => r.depth * UNIT + (isBoxed(r) ? BOX_PAD
 const rowInnerW = (W: number, r: TreeRow): number => W - rowInnerX(r) - (isBoxed(r) ? BOX_PAD : 0)
 // A finished agent folds to a slim row until the person opens it again.
 const FOLD_H = 36
-const OPEN_W = 64
+// What the "Open ▸" button beside a folded row takes, in drawing units. The pane is drawn
+// at W ≈ columns × 10 and shrunk to the pane (≈ columns × 8 px), so a ~64 px button is
+// ≈ 80 units: the folded row then shrinks by the same factor as the cards above it.
+const OPEN_W = 80
 const isSlim = (r: TreeRow): boolean => r.kind === 'agent' && Boolean(r.folded || r.slim)
 const rowHeight = (r: TreeRow): number => (r.kind === 'role' ? ROLE_H : isSlim(r) ? FOLD_H : AGENT_H)
 // The desktop app refuses a drawing past 262,144 characters and leaves the pane
@@ -6306,7 +6309,13 @@ export const register: Register = (on, options) => {
     )
     // Settings and billing have a pane of their own (SETTINGS_PANE), so a dropdown there is
     // not redrawn away while this pane updates. One stable button leads to it, in every view.
-    const openSettings = <Button key="open-settings" label="⚙ Settings and billing ▸" plain onPress={() => void showPane($, SETTINGS_PANE, SETTINGS_TITLE)} />
+    // The skin picker sits right under it: one press to a new look, from every view too.
+    const settingsLinks = (
+      <Box key="settings-links" flexDirection="column" alignItems={isRtl() ? 'flex-end' : undefined}>
+        <Button key="open-settings" label="⚙ Settings and billing ▸" plain onPress={() => void showPane($, SETTINGS_PANE, SETTINGS_TITLE)} />
+        <Button key="open-skins" label="🎨 Change skin ▸" plain onPress={() => void showPane($, SKINS_PANE, SKIN.tabs.skins)} />
+      </Box>
+    )
     const toggleDone = (
       <Button
         key="done"
@@ -6374,7 +6383,7 @@ export const register: Register = (on, options) => {
           {picture ? orgPicture(picture) : null}
           <Svg source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} />
           {guardRow}
-          {openSettings}
+          {settingsLinks}
         </Box>
       )
       if (p.isCompact) return keep(compactView())
@@ -6505,12 +6514,18 @@ export const register: Register = (on, options) => {
                   {rescueRow($, r.a, ui)}
                 </Box>
               ) : r.folded ? (
+                // The drawing shrinks into what the button leaves (minWidth 0, as a card
+                // shrinks to the pane), the button never: both end at the pane's edge.
                 <Box key={r.key} flexDirection="row" alignItems="center">
-                  <Svg
-                    source={treeRowSvg(W - OPEN_W, r, drawn(`${lite ? 'lite-fold' : 'fold'}:${r.key}`, () => foldedSvg(rowInnerW(W - OPEN_W, r), r.a, at, lite)), lite)}
-                    alt={`${r.a.description}: ${r.a.status === 'failed' ? s.failed : r.a.status === 'stopped' ? s.stopped : s.isFinished}, ${fmtTokens(r.a.tokens)} tokens`}
-                  />
-                  <Button key={`open-${r.key}`} label="Open ▸" plain onPress={() => toggleOpen(r.a.id)} />
+                  <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                    <Svg
+                      source={treeRowSvg(W - OPEN_W, r, drawn(`${lite ? 'lite-fold' : 'fold'}:${r.key}`, () => foldedSvg(rowInnerW(W - OPEN_W, r), r.a, at, lite)), lite)}
+                      alt={`${r.a.description}: ${r.a.status === 'failed' ? s.failed : r.a.status === 'stopped' ? s.stopped : s.isFinished}, ${fmtTokens(r.a.tokens)} tokens`}
+                    />
+                  </Box>
+                  <Box flexShrink={0}>
+                    <Button key={`open-${r.key}`} label="Open ▸" plain onPress={() => toggleOpen(r.a.id)} />
+                  </Box>
                 </Box>
               ) : (
                 <Box key={r.key} flexDirection="column">
@@ -6530,7 +6545,7 @@ export const register: Register = (on, options) => {
             {orgPicture(picture)}
             {section('h-session', 'Memory')}
             <Svg key="session" source={sessionSvg(W, info, rules, isWorking)} alt={sessionAlt(info, rules)} />
-            {openSettings}
+            {settingsLinks}
           </Box>
         </Box>
       )
@@ -6774,7 +6789,7 @@ export const register: Register = (on, options) => {
           </Box>
         )}
         <Box flexDirection="column" marginTop={1}>
-          {openSettings}
+          {settingsLinks}
         </Box>
         <Box flexDirection="column" marginTop={1}>
           <Text dimColor>Memory</Text>

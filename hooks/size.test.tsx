@@ -132,3 +132,42 @@ test('a finished crew opened card by card stays drawable, down to the short view
   fits(back)
   expect(back.alts.some(a => a.startsWith('Usage:'))).toBe(true)
 })
+
+// A folded (finished) row and its "Open ▸" button end at the pane's edge, as the running
+// card above them does: the row's drawing shrinks into what the button leaves, the button
+// never shrinks, and the drawing is the card's width less the button's share.
+for (const columns of [40, 60, 120, 140])
+  test(`finished rows and their Open button fit the pane at ${columns} columns`, async ($, on) => {
+    await crew($, on, 'default', 4)
+    for (const id of ['a1', 'a2']) await $.turn.complete({ agentId: id, reason: 'answer', answer: 'ok' } as never)
+    const ui = await mount($, columns)
+    const root = await ui.drawn()
+    await ui.unmount()
+    const W = Math.max(240, Math.min(1100, Math.round(columns * 10) - 8))
+    const widthOf = (n: Node) => Number(/^<svg[^>]*\swidth="(\d+(?:\.\d+)?)"/.exec(String(n.props?.source ?? ''))?.[1])
+    const nodes: Node[] = []
+    const walk = (x: unknown): void => {
+      if (Array.isArray(x)) return x.forEach(walk)
+      if (!x || typeof x !== 'object') return
+      nodes.push(x as Node)
+      for (const c of (x as Node).children ?? []) walk(c)
+    }
+    walk(root)
+    const kids = (n: Node) => (n.children ?? []).filter((c): c is Node => Boolean(c) && typeof c === 'object')
+    const isOpen = (n: Node) => n.type === 'Button' && String(n.props?.label) === 'Open ▸'
+    const rows = nodes.filter(n => n.type === 'Box' && kids(n).some(k => kids(k).some(isOpen)))
+    expect(rows.length).toBe(2)
+    const card = nodes.find(n => n.type === 'Svg' && /^Task number \d/.test(String(n.props?.alt)) && !String(n.props?.alt).includes('tokens'))
+    expect(card && widthOf(card)).toBe(W)
+    for (const row of rows) {
+      expect(row.props?.flexDirection).toBe('row')
+      const [pic, btn] = kids(row)
+      expect(pic?.props).toMatchObject({ flexGrow: 1, flexShrink: 1, minWidth: 0 })
+      expect(btn?.props).toMatchObject({ flexShrink: 0 })
+      const svg = kids(pic as Node)[0] as Node
+      expect(svg.type).toBe('Svg')
+      // No fixed width: the app shrinks it to its slot, as it does the card.
+      expect(svg.props?.width).toBeUndefined()
+      expect(widthOf(svg) + 80).toBe(W)
+    }
+  })

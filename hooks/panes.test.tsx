@@ -77,6 +77,29 @@ test('"⚙ Settings and billing ▸" opens the settings pane from the main pane;
   await ui.unmount()
 })
 
+test('"🎨 Change skin ▸" sits under the settings button and opens the skin picker, in the full, short and terminal views', async ($, on) => {
+  const calls = base(on)
+  await start($)
+  const press = async (ui: Awaited<ReturnType<Engine['ui']['mount']>>) => {
+    const buttons = (await ui.findAll({ type: 'Button' })).map(b => String(b.props.key))
+    expect(buttons.indexOf('open-skins')).toBe(buttons.indexOf('open-settings') + 1)
+    expect(String((await ui.find({ key: 'open-skins' }))?.props.label)).toBe('🎨 Change skin ▸')
+    calls.length = 0
+    await ui.press({ key: 'open-skins' })
+    await ui.drawn()
+    expect(calls.join(', ')).toContain('close crab-skins, open crab-skins')
+  }
+  const desk = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', requestId: 'crab-agents', props: pane } as never)
+  await press(desk)
+  await desk.press({ key: 'compact' })
+  await desk.drawn()
+  await press(desk)
+  await desk.unmount()
+  const term = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: 'crab-agents', props: pane } as never)
+  await press(term)
+  await term.unmount()
+})
+
 test("only the person's own prompts count as tasks, not a notification or a plugin's", async ($, on) => {
   base(on)
   await start($)
