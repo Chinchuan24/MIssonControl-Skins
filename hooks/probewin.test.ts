@@ -23,20 +23,23 @@ test('probewin: both commands run powershell.exe with the safe flags and one scr
     expect(c.cmd).toBe('powershell.exe')
     expect(c.args.slice(0, 3)).toEqual(['-NoProfile', '-NonInteractive', '-Command'])
     expect(c.args.length).toBe(4)
-    expect(c.args[3].includes('"')).toBe(false)
-    expect(c.args[3].includes('`')).toBe(false)
-    expect(c.args[3].toLowerCase().includes('wmic')).toBe(false)
+    const script = c.args[3] ?? ''
+    expect(script.includes('"')).toBe(false)
+    expect(script.includes('`')).toBe(false)
+    expect(script.toLowerCase().includes('wmic')).toBe(false)
   }
 })
 
 test('probewin: the scripts ask CIM for the right classes', () => {
-  expect(machineCmd.args[3].includes('Get-CimInstance Win32_OperatingSystem')).toBe(true)
-  expect(machineCmd.args[3].includes('TotalVisibleMemorySize')).toBe(true)
-  expect(machineCmd.args[3].includes('FreePhysicalMemory')).toBe(true)
-  expect(machineCmd.args[3].includes('ProcessorCount')).toBe(true)
-  expect(procsCmd.args[3].includes('Get-CimInstance Win32_Process')).toBe(true)
+  const machine = machineCmd.args[3] ?? ''
+  const procs = procsCmd.args[3] ?? ''
+  expect(machine.includes('Get-CimInstance Win32_OperatingSystem')).toBe(true)
+  expect(machine.includes('TotalVisibleMemorySize')).toBe(true)
+  expect(machine.includes('FreePhysicalMemory')).toBe(true)
+  expect(machine.includes('ProcessorCount')).toBe(true)
+  expect(procs.includes('Get-CimInstance Win32_Process')).toBe(true)
   for (const f of ['ProcessId', 'ParentProcessId', 'WorkingSetSize', 'Name']) {
-    expect(procsCmd.args[3].includes(f)).toBe(true)
+    expect(procs.includes(f)).toBe(true)
   }
 })
 
@@ -97,7 +100,7 @@ test('probewin: the process list reads pid, parent, bytes and names with spaces'
   expect(rows.length).toBe(6)
   expect(rows[0]).toEqual({ pid: 0, ppid: 0, rssBytes: 8192, name: 'System Idle Process' })
   expect(rows[2]).toEqual({ pid: 1204, ppid: 4, rssBytes: 52428800, name: 'claude.exe' })
-  expect(rows[4].name).toBe('Microsoft Edge WebView2.exe')
+  expect(rows[4]?.name).toBe('Microsoft Edge WebView2.exe')
   expect(rows[5]).toEqual({ pid: 6000, ppid: 5512, rssBytes: 2 * GB, name: 'Google Chrome Helper (Renderer).exe' })
 })
 

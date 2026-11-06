@@ -87,7 +87,7 @@ test('parseProcs converts KB to bytes and keeps names with spaces', () => {
   const rows = parseProcs(MAC_PS)
   expect(rows).toHaveLength(5)
   expect(rows[0]).toEqual({ pid: 1, ppid: 0, rssBytes: 22544 * 1024, name: '/sbin/launchd' })
-  expect(rows[2].name).toBe('Core Audio Driver (MSTeamsAudioDevice.driver)')
+  expect(rows[2]?.name).toBe('Core Audio Driver (MSTeamsAudioDevice.driver)')
   expect(rows[4]).toEqual({
     pid: 5001,
     ppid: 94,

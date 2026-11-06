@@ -68,8 +68,9 @@ export function parseProcs(out: string): ProcRow[] {
   try {
     for (const line of String(out ?? '').split(/\r?\n/)) {
       const m = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S.*?)\s*$/.exec(line)
-      if (!m) continue
-      rows.push({ pid: Number(m[1]), ppid: Number(m[2]), rssBytes: Number(m[3]) * 1024, name: m[4] })
+      const name = m?.[4]
+      if (!m || !name) continue
+      rows.push({ pid: Number(m[1]), ppid: Number(m[2]), rssBytes: Number(m[3]) * 1024, name })
     }
   } catch {
     return []

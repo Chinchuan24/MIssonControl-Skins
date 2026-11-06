@@ -50,8 +50,8 @@ export function parseMachine(out: string): MachineInfo {
     for (const raw of lines(out)) {
       const m = /^\s*([A-Za-z]+)\s*=\s*(.*?)\s*$/.exec(raw)
       if (!m) continue
-      const key = m[1].toLowerCase()
-      const val = m[2]
+      const key = (m[1] ?? '').toLowerCase()
+      const val = m[2] ?? ''
       if (key === 'os') {
         if (val.toLowerCase() === 'windows') info.os = 'windows'
       } else if (key === 'totalkb') {
@@ -75,15 +75,15 @@ export function parseProcs(out: string): ProcRow[] {
   const rows: ProcRow[] = []
   try {
     for (const raw of lines(out)) {
-      const parts = raw.split('\t')
-      if (parts.length < 4) continue
-      const pid = whole(parts[0].trim())
-      const ppid = whole(parts[1].trim())
+      const [pidRaw = '', ppidRaw = '', rssRaw = '', ...rest] = raw.split('\t')
+      if (rest.length < 1) continue
+      const pid = whole(pidRaw.trim())
+      const ppid = whole(ppidRaw.trim())
       if (pid === null || ppid === null) continue
-      const name = parts.slice(3).join('\t').trim()
+      const name = rest.join('\t').trim()
       if (!name) continue
       // WorkingSetSize is empty for System Idle Process and a few protected ones.
-      const rss = whole(parts[2].trim()) ?? 0
+      const rss = whole(rssRaw.trim()) ?? 0
       rows.push({ pid, ppid, rssBytes: rss, name })
     }
   } catch {
