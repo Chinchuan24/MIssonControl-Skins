@@ -23,7 +23,7 @@ Runs on first load and at each session start.
 |---|---|---|---|
 | macOS | `sysctl` | `vm_stat` | `sysctl` |
 | Windows | PowerShell `Get-CimInstance` | PowerShell `Get-CimInstance` | PowerShell `Get-CimInstance` |
-| Linux | `/proc/meminfo` | `/proc/meminfo` | `/proc/cpuinfo` |
+| Linux | `/proc/meminfo` | `/proc/meminfo` | local CPU count |
 
 If detection fails, it uses safe defaults and shows **"unknown machine"**. A failed check never blocks anything.
 
@@ -87,7 +87,7 @@ When RAM is tight, a stronger rule is added:
 - Only runs local system commands that read memory numbers and the process list.
 - Nothing leaves your machine.
 
-Note for maintainers: [PRIVACY.md](PRIVACY.md) should list these local commands (`sysctl`, `vm_stat`, `ps`, PowerShell `Get-CimInstance`, `/proc/meminfo`) in its "What it reads on your machine" table. It does not yet.
+Note for maintainers: [PRIVACY.md](PRIVACY.md) should list these local commands (`sysctl`, `vm_stat`, PowerShell `Get-CimInstance`, `/proc/meminfo`, and the process list) in its "What it reads on your machine" table. It does not yet.
 
 ## Windows notes
 
