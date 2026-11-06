@@ -14,7 +14,7 @@ import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, uni
 import { LIVE_N, glide, isNewReading, isSame, liveText, liveWidth, pin, steady, steadyTree, wallMinute } from './smooth'
 import { COLOR_RE, FONT_BAD_RE, ID_RE, TOOL_KEY_RE, skinCheck, skinNew } from './skinkit'
 import { WARM_PROMPT, WARM_TAG, isWarmDue, isWarmed, warmCall, warmLimitHit } from './warm'
-import { SPEND_KINDS, TODAY_PERIOD, exportSpend, isRescanDue, loadSpend, logSpendDay, monthLabel, monthOf, monthsWithData, parseSpendArgs, pickSpendKind, pickSpendMonth, readSpend, setSpendPeriod, shiftMonth, spendCard, typeSpendDay } from './spend'
+import { BLANK_SPEND, SPEND_KINDS, TODAY_PERIOD, exportSpend, isRescanDue, loadSpend, logSpendDay, monthLabel, monthOf, monthsWithData, parseSpendArgs, pickSpendKind, pickSpendMonth, readSpend, setSpendPeriod, shiftMonth, spendCard, typeSpendDay } from './spend'
 import type { SpendDirs, SpendIo, SpendKind, SpendRecord } from './spend'
 import type { AgentRun, AgentStatus, AllTime, Background, Billing, BillingMode, BgCron, BgTask, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Spend, Today, Watch } from '../types'
 import type { On } from 'claude-code'
@@ -54,7 +54,7 @@ const background = atom({ plugin: 'crab-progress', key: 'background' } as const,
 // Today and All-time as this session last read or wrote them in the store.
 const saved = atom({ plugin: 'crab-progress', key: 'saved' } as const, { today: BLANK_TODAY, allTime: { since: '', models: {} } as AllTime })
 // The spend card: today, this week, one month, or a custom range (hooks/spend.ts).
-const BLANK_SPEND: Spend = { period: TODAY_PERIOD, days: {}, status: 'idle', draft: { from: '', to: '' }, error: '' }
+// Same plugin and key as spendAtom in hooks/spend.ts, so both name one piece of state.
 const spend = atom({ plugin: 'crab-progress', key: 'spend' } as const, BLANK_SPEND)
 // Crew mode: a big job is split across sub-agents. On by default; `/autocrew` turns
 // it off or moves the context line. Kept in the store, so it holds across sessions.
@@ -1858,8 +1858,6 @@ const costOf = (model: string, u: Usage, isRequest: boolean): number => {
 // The spend card reads Claude Code's own transcripts (hooks/spend.ts) and prices each
 // message as the panel prices one request.
 const spendIo: SpendIo = {
-  get: $ => read($, spend),
-  patch: ($, change) => update($, spend, change).then(() => undefined),
   price: (r: SpendRecord) => costOf(r.model, { input_tokens: r.input, output_tokens: r.output, cache_read_input_tokens: r.cacheRead, cache_creation_input_tokens: r.cacheWrite }, true),
   badDay: v => tr().spend.badDay(v),
 }

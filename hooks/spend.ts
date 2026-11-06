@@ -3,6 +3,7 @@
 // labels, the transcript extractor's lines, the per-day ledger, the CSV), so it can
 // be tested without the engine. The engine part (reading the transcripts into the
 // store's ledger, the picks, the export) is at the end; register.tsx only wires it.
+import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 /** One local day's spend: estimated US dollars, and tokens (input, output, cache reads and writes). */
@@ -500,11 +501,14 @@ export type SpendState = {
 
 /** What register.tsx lends: the atom, the price of a message, the words. */
 export type SpendIo = {
-  get: ($: EngineInterface) => Promise<SpendState>
-  patch: ($: EngineInterface, change: (prev: SpendState) => SpendState) => Promise<void>
   price: (r: SpendRecord) => number
   badDay: (v: string) => string
 }
+
+// The spend card's state. It lives here, not in register.tsx: Claude Code's loader
+// does not let $ be handed to an object's method, so these read and write it directly.
+export const BLANK_SPEND: SpendState = { period: TODAY_PERIOD, days: {}, status: 'idle', draft: { from: '', to: '' }, error: '' }
+export const spendAtom = atom({ plugin: 'crab-progress', key: 'spend' } as const, BLANK_SPEND)
 
 /** Claude Code's configuration folder, and the person's home. */
 export type SpendDirs = { config: string; home: string }
@@ -631,14 +635,14 @@ async function extractMany($: EngineInterface, root: string, rels: string[], onB
   return { records: got.flat(), read, isMissing }
 }
 
-const setStatus = async ($: EngineInterface, io: SpendIo, status: SpendState['status']): Promise<void> => {
-  if ((await io.get($)).status !== status) await io.patch($, prev => ({ ...prev, status }))
+async function setStatus($: EngineInterface, io: SpendIo, status: SpendState['status']): Promise<void> {
+  if ((await read($, spendAtom)).status !== status) await update($, spendAtom, prev => ({ ...prev, status }))
 }
 
 /** The ledger and the log, read from the store and put together. */
 export async function refreshSpendDays($: EngineInterface, io: SpendIo): Promise<void> {
   const days = combineDays(cleanDays(await $.store.get('spendDays').catch(() => undefined)), cleanDays(await $.store.get('spendLog').catch(() => undefined)))
-  if (!same(days, (await io.get($)).days)) await io.patch($, prev => ({ ...prev, days }))
+  if (!same(days, (await read($, spendAtom)).days)) await update($, spendAtom, prev => ({ ...prev, days }))
 }
 
 /**
@@ -748,23 +752,24 @@ async function saveSpend($: EngineInterface, io: SpendIo, root: string, fresh: M
 /** The kept pick and ledger now, at the session start; the transcripts are read later. */
 export async function loadSpend($: EngineInterface, io: SpendIo): Promise<void> {
   const period = cleanPeriod(await $.store.get('spendPeriod').catch(() => undefined))
-  await io.patch($, prev => ({ ...prev, period, draft: period.kind === 'custom' ? { from: period.from, to: period.to } : prev.draft }))
+  await update($, spendAtom, prev => ({ ...prev, period, draft: period.kind === 'custom' ? { from: period.from, to: period.to } : prev.draft }))
   await refreshSpendDays($, io)
 }
 
 export async function setSpendPeriod($: EngineInterface, io: SpendIo, period: SpendPeriod): Promise<void> {
   await $.store.set('spendPeriod', period).catch(() => undefined)
-  await io.patch($, prev => ({ ...prev, period, error: '', draft: period.kind === 'custom' ? { from: period.from, to: period.to } : prev.draft }))
+  await update($, spendAtom, prev => ({ ...prev, period, error: '', draft: period.kind === 'custom' ? { from: period.from, to: period.to } : prev.draft }))
 }
 
 /** A month picked: the month itself, or the next/previous one from the buttons. */
-export const pickSpendMonth = ($: EngineInterface, io: SpendIo, month: string): Promise<void> =>
-  setSpendPeriod($, io, { ...TODAY_PERIOD, kind: 'month', month: isMonth(month) ? month : '' })
+export function pickSpendMonth($: EngineInterface, io: SpendIo, month: string): Promise<void> {
+  return setSpendPeriod($, io, { ...TODAY_PERIOD, kind: 'month', month: isMonth(month) ? month : '' })
+}
 
 /** A pick from the period list or its buttons. Custom starts from the days last typed, else the first of this month to today. */
 export async function pickSpendKind($: EngineInterface, io: SpendIo, kind: SpendKind): Promise<void> {
   const at = await $.clock.now()
-  const sp = await io.get($)
+  const sp = await read($, spendAtom)
   if (kind === sp.period.kind && kind !== 'month') return
   if (kind !== 'custom') return setSpendPeriod($, io, { ...TODAY_PERIOD, kind })
   const from = isDay(sp.draft.from) ? sp.draft.from : `${monthOf(at)}-01`
@@ -776,14 +781,14 @@ export async function pickSpendKind($: EngineInterface, io: SpendIo, kind: Spend
 export async function typeSpendDay($: EngineInterface, io: SpendIo, which: 'from' | 'to', value: string): Promise<void> {
   const v = value.trim()
   if (!isDay(v)) {
-    await io.patch($, prev => ({ ...prev, error: io.badDay(v) }))
+    await update($, spendAtom, prev => ({ ...prev, error: io.badDay(v) }))
     return
   }
-  const sp = await io.get($)
+  const sp = await read($, spendAtom)
   const draft = { ...sp.draft, [which]: v }
   const other = which === 'from' ? draft.to : draft.from
   if (!isDay(other)) {
-    await io.patch($, prev => ({ ...prev, draft, error: '' }))
+    await update($, spendAtom, prev => ({ ...prev, draft, error: '' }))
     return
   }
   const [from, to] = draft.from <= draft.to ? [draft.from, draft.to] : [draft.to, draft.from]
