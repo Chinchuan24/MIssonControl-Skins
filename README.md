@@ -228,6 +228,19 @@ Or skip the editing: `/skin new ocean sunset` drafts one for you, and `/skin che
 
 ---
 
+## 🛡️ Machine Guard
+
+Stops a big crew from freezing your computer.
+
+- **Checks your machine** (RAM and CPU cores) and picks a safe number of agents.
+- **Watches RAM live.** If it gets tight, it refuses to start *new* agents. Running ones are never killed.
+- **Tell Claude to go easy:** heavy commands (tests, builds) run one at a time.
+- **Tune it** in ⚙ Settings: "RAM Claude may use" and "Max agents at once".
+
+Details: [docs/MACHINE-GUARD.md](docs/MACHINE-GUARD.md)
+
+---
+
 ## 🔒 Privacy: nothing leaves your machine
 
 - **No network calls of its own.** Costs, the spend history and the crew view are all worked out locally, from Claude Code's own logs.
