@@ -1713,7 +1713,8 @@ async function loadSkins($: EngineInterface): Promise<{ folder: string; loaded: 
     })
     for (const f of files) {
       // Dotfiles are skipped: macOS leaves `._name.json` beside files copied from other disks.
-      if (f.kind !== 'file' || f.name.startsWith('.') || !f.name.toLowerCase().endsWith('.json')) continue
+      // skin.schema.json describes the format for editors: it is not a skin.
+      if (f.kind !== 'file' || f.name.startsWith('.') || !f.name.toLowerCase().endsWith('.json') || f.name.toLowerCase().endsWith('.schema.json')) continue
       try {
         const k = readSkin(parseJson(await $.fs.read(`${folder}/${f.name}`)), f.name.replace(/\.json$/i, '').toLowerCase())
         if (k) {
