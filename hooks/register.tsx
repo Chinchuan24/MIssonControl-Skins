@@ -1788,6 +1788,17 @@ type Staff = { model?: string; effort: 'low' | 'medium' | 'high'; why: string }
 const STAFF_KEY = 'smartStaffing'
 let smartStaffing = false
 const staffEffort = new Map<string, Staff['effort']>()
+// What Smart staffing saved: a staffed agent's requests priced at the model it would have
+// run on (the session's) less the model it ran on. Effort's savings are not counted.
+const STAFF_SAVED_KEY = 'staffSavedUsd'
+const staffBaseline = new Map<string, string>()
+let staffSaved = { session: 0, total: 0 }
+const savedWord = (usd: number): string => (usd >= 0 ? `saved ≈${fmtCost(usd)}` : `cost ≈${fmtCost(-usd)} more`)
+const staffSavedText = (): string =>
+  staffSaved.session === 0 && staffSaved.total === 0 ? '' : ` · ${savedWord(staffSaved.session)} this session, ${savedWord(staffSaved.total).replace(/^(saved|cost) /, '')} in all`
+// First run: the money savers that spend money or move work to other models stay off, so
+// the person is told once that they exist.
+const OFFER_KEY = 'saversOffered'
 // Per-agent Ultra: the role rules (kept in the store) and the mode for a plan's approval.
 let ultraRules: string[] = []
 let oneShotMode: OneShot = 'ask'
@@ -5201,6 +5212,7 @@ export const register: Register = (on, options) => {
     await startTimekeeper($).catch(() => undefined)
     const autopilot = (await $.store.get('autopilot').catch(() => false)) === true
     smartStaffing = (await $.store.get(STAFF_KEY).catch(() => false)) === true
+    staffSaved = { session: staffSaved.session, total: Number(await $.store.get(STAFF_SAVED_KEY).catch(() => 0)) || 0 }
     ultraRules = cleanUltraRules(await $.store.get(ULTRA_KEY).catch(() => undefined))
     oneShotMode = cleanOneShot(await $.store.get(ONESHOT_KEY).catch(() => undefined))
     const budget = Number(await $.store.get('budgetUsd').catch(() => 0)) || 0
@@ -5225,6 +5237,15 @@ export const register: Register = (on, options) => {
     const savedCred = cleanCred(await $.store.get('cred').catch(() => undefined))
     await update($, cred, () => savedCred)
     if (prefs.openOnStart && !isReload) void $.ui.open({ id: PANE, title: SKIN.tabs.mission }).catch(() => undefined)
+    // Asked once, ever: a failed read counts as asked, so nobody is nagged.
+    if (!isReload && !autopilot && !keepWarmOn && !smartStaffing && (await $.store.get(OFFER_KEY).catch(() => true)) !== true) {
+      await $.store.set(OFFER_KEY, true).catch(() => undefined)
+      $.ui.toast(
+        '💡 3 money savers are off until you turn them on: /tokens staffing on (the cheapest model that fits each agent), /tokens autopilot on (explorers on Haiku), /tokens warm on (keeps the prompt cache warm). Tab takes the first.',
+        { timeoutMs: 30000 },
+      )
+      void $.prompt.suggest({ text: '/tokens staffing on' }).catch(() => undefined)
+    }
     // The spend card: the kept pick and ledger now; the transcripts are read in the
     // background, never holding the start up.
     await loadSpend($, spendIo).catch(() => undefined)
@@ -5397,6 +5418,8 @@ export const register: Register = (on, options) => {
     }
     if (staff && started.agentId) {
       staffEffort.set(started.agentId, staff.effort)
+      const base = (await read($, env)).model || (await read($, session)).model
+      if (staff.model && base) staffBaseline.set(started.agentId, base)
       $.ui.toast(`Staffing: "${clip(e.description, 30)}" is ${staff.why}: ${staff.model ? `${staff.model[0]?.toUpperCase()}${staff.model.slice(1)}` : 'session model'} · ${staff.effort} effort`)
     }
 
@@ -5531,6 +5554,11 @@ export const register: Register = (on, options) => {
         await update($, env, prev => ({ ...prev, modelTokens: { ...(prev.modelTokens ?? {}), [model]: ((prev.modelTokens ?? {})[model] ?? 0) + burned } }))
         await update($, allTime, prev => ({ since: prev.since || new Date(stepAt).toISOString(), models: { ...prev.models, [model]: (prev.models[model] ?? 0) + burned } }))
       }
+      const base = agentId ? staffBaseline.get(agentId) : undefined
+      if (base && model) {
+        const usd = costOf(base, usage, true) - costOf(model, usage, true)
+        staffSaved = { session: staffSaved.session + usd, total: staffSaved.total + usd }
+      }
     }
     if (!agentId) {
       if (usage) {
@@ -5634,6 +5662,7 @@ export const register: Register = (on, options) => {
           }
         }),
       )
+      if (staffBaseline.delete(agentId)) await $.store.set(STAFF_SAVED_KEY, staffSaved.total).catch(() => undefined)
       // A background agent's report now waits on the main loop: not done until answered.
       if (reported && (await read($, manager)).task) await update($, manager, prev => (prev.doneAt ? prev : { ...prev, reportDue: at }))
       await update($, now, () => at)
@@ -6738,7 +6767,7 @@ export const register: Register = (on, options) => {
       text: [
         `Token Manager: ${MOOD_WORD[r.mood]}`,
         ...unpriced,
-        `Smart staffing ${smartStaffing ? 'on' : 'off (/tokens staffing on)'} · autopilot ${watched.autopilot ? 'on' : 'off'}`,
+        `Smart staffing ${smartStaffing ? `on${staffSavedText()}` : `off (/tokens staffing on)${staffSavedText()}`} · autopilot ${watched.autopilot ? 'on' : 'off'}`,
         ultraLine((await read($, agents)).filter(a => a.status === 'running' && a.isUltra).length, ultraRules.length),
         ...(isApiCredits(BILLING) ? [`${modeChip(BILLING)} · ${spendLine(API_SPEND, dayOf(at), fmtCost)}`] : []),
         `Burn ${fmtTokens(r.burnPerMin)}/min · this task ${fmtTokens(r.taskTokens)} (≈${fmtCost(r.taskCost)})${r.cachedPct === null ? '' : ` · ${r.cachedPct}% cached`}`,
