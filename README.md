@@ -338,10 +338,11 @@ Expand-Archive -Force "$env:USERPROFILE\Downloads\cyberpunk-skins-addon.zip" -De
 | `/missioncontrol` | Open Mission Control (Settings at the bottom) |
 | `/missioncontrol billing` | Pay with your own Claude API credits instead of the plan: 4 steps, key kept in the macOS Keychain ([security notes](docs/SECURITY-billing.md)) |
 | `/missioncontrol currency <code> [rate]` | Costs in `USD` (the default), `AUTO` (eddies on the cyberpunk skins), `EDDIES`, `EUR`, `GBP`, `JPY`, `MYR` or `SGD`; optional rate per US dollar |
+| `/missioncontrol oneshot <on\|off\|ask>` | Once you approve a plan: do it all and report once (`on`), one part at a time (`off`), or ask each time (`ask`) |
 | `/skins` | The skin picker, every skin as a live preview |
 | `/skin` | `/skin` to list, `/skin <id>` to switch, `/skin off`, `/skin reload` |
-| `/autocrew` | Crew mode: state, `on`, `off`, or `<context %>` to call the crew |
-| `/tokens` | Token Manager report, `budget <dollars\|off>`, `autopilot <on\|off>`, `warm <on\|off>` (Smart Keep-Warm), `spend today\|week\|month [YYYY-MM]\|<from> <to>`, `export [period]` (CSV in Downloads) |
+| `/autocrew` | Crew mode: state, `on` (big jobs only), `always` (every job, small ones too), `off`, or `<context %>` to call the crew |
+| `/tokens` | Token Manager report, `budget <dollars\|off>`, `autopilot <on\|off>`, `warm <on\|off>` (Smart Keep-Warm), `staffing <on\|off>` (cheapest model and effort per crew job), `ultra <add\|remove\|list\|off> [role]` (max effort and a deep check for a role; the card shows "max + Ultra"), `spend today\|week\|month [YYYY-MM]\|<from> <to>`, `export [period]` (CSV in Downloads) |
 | `/prefs` | How Claude should answer you, in every session: `add <rule>`, `remove <n>`, `clear` |
 
 ---

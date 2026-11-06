@@ -91,10 +91,15 @@ const SHOT_OPTIONS = [
 // A cap's dropdown: the usual steps, plus the value in force if it is not one of them.
 const stepOptions = (steps: readonly number[], now: number, word: (v: number) => string) =>
   [...new Set([...steps, now])].sort((a, b) => a - b).map(v => ({ value: String(v), label: v ? word(v) : 'Off' }))
+// Every-job mode set back to big jobs: its reason leaves the band now, not at the next prompt.
+async function dropEveryJob($: EngineInterface): Promise<void> {
+  if ((await read($, session)).crewMode === EVERY_JOB) await update($, session, prev => ({ ...prev, crewMode: '' }))
+}
 async function setCrewChoice($: EngineInterface, choice: CrewChoice): Promise<void> {
   const auto = await readAutoCrew($)
   await $.store.set('autoCrew', { ...auto, on: choice !== 'off', always: choice === 'every' }).catch(() => undefined)
   if (choice === 'off') await update($, session, prev => ({ ...prev, crewMode: '' }))
+  if (choice === 'big') await dropEveryJob($)
   await update($, settings, prev => ({ ...prev, crewMode: choice !== 'off', crewAlways: choice === 'every' }))
 }
 
@@ -2497,11 +2502,14 @@ const tierModel = (tier: string): string => {
   return m ? `${m[0]} · ${effortWord(m[1])}` : ''
 }
 
-// The effort a run works at: what its requests carried, else its tier's, else the default.
-const runEffort = (a: AgentRun): string => (a.isUltra ? 'max' : a.effort) ?? TIER_MODEL[tierOf(a.type)]?.[1] ?? 'default'
+// The effort a run works at: what its requests carried, else (an Ultra agent before its
+// first request) the max it will ask for, else its tier's, else the default.
+const runEffort = (a: AgentRun): string => a.effort ?? (a.isUltra ? 'max' : TIER_MODEL[tierOf(a.type)]?.[1]) ?? 'default'
+// The effort as read: "high", or "max + Ultra" for an Ultra agent.
+const effortLabel = (effort: string, isUltra = false): string => `${effortWord(effort)}${isUltra ? ' + Ultra' : ''}`
 
-// "Opus 5.5 · effort low" for a run.
-const runModel = (a: AgentRun): string => `${modelName(a.model)} · effort ${a.isUltra ? '⚡ ' : ''}${effortWord(runEffort(a))}`
+// "Opus 5.5 · effort low" for a run; "· effort max + Ultra" for an Ultra one.
+const runModel = (a: AgentRun): string => `${modelName(a.model)} · effort ${effortLabel(runEffort(a), a.isUltra)}`
 
 // USD per million tokens: input, output, cache read, cache write. The first row that
 // matches a model id wins, so a release sits above its family.
@@ -3121,6 +3129,8 @@ type Stat = {
   viz?: { kind: 'pips'; n: number } | { kind: 'ring'; pct: number }
   /** A value that moves each second (a clock): drawn as a strip that steps itself. */
   live?: { at: number; read: (t: number) => string }
+  /** A value too long for its tile shrinks (to 11), then leaves its picture out, before it is cut. */
+  shrink?: boolean
 }
 const STAT_COLS = 3
 const STAT_H = 40
@@ -3142,7 +3152,9 @@ const modelColor = (name: string): string => {
 
 const EFFORT_LEVEL: Record<string, number> = { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 }
 const PIP_COLORS = ['#5EC8D8', '#7FB6F0', '#B58BE5', '#E9B44C', '#E5675E']
-const effortStat = (effort: string, isUltra = false): Stat => ({ k: 'Effort', v: `${isUltra ? '⚡\uFE0E ' : ''}${effortWord(effort)}`, viz: { kind: 'pips', n: EFFORT_LEVEL[effort] ?? 0 } })
+// Ultra rides on the effort ("high + Ultra"). On a narrow card the value shrinks to its
+// tile ("medium" was cut to "medi…"), then leaves the bars out, before it is cut.
+const effortStat = (effort: string, isUltra = false): Stat => ({ k: 'Effort', v: effortLabel(effort, isUltra), viz: { kind: 'pips', n: EFFORT_LEVEL[effort] ?? 0 }, shrink: true })
 
 const statViz = (st: Stat, x: number, y: number): string => {
   if (st.viz?.kind === 'pips') {
@@ -3175,15 +3187,20 @@ const statGrid = (x: number, y: number, w: number, stats: Stat[]): string => {
     if (col > 0) out.push(`<line x1="${cx.toFixed(1)}" y1="${cy + 4}" x2="${cx.toFixed(1)}" y2="${cy + STAT_H - 4}" stroke="#8a8a86" stroke-opacity=".3"/>`)
     const vx = cx + pad
     const vizW = st.viz ? (st.viz.kind === 'pips' ? 36 : 18) : 0
-    const valueW = cw - pad - 10 - (vizW ? vizW + 8 : 0)
-    const value = fitText(st.v, 15.5, valueW)
+    const room = (hasViz: boolean) => cw - pad - 10 - (hasViz && vizW ? vizW + 8 : 0)
+    // A shrinking value: the largest size that fits beside its picture, else without it.
+    const sized = st.shrink
+      ? ([true, false].flatMap(hasViz => [15.5, 14, 12.5, 11].map(size => ({ hasViz, size }))).find(f => textWidth(st.v, f.size) <= room(f.hasViz)) ?? { hasViz: false, size: 11 })
+      : { hasViz: true, size: 15.5 }
+    const fs = sized.size
+    const value = fitText(st.v, fs, room(sized.hasViz))
     const head = `<text class="s" x="${vx.toFixed(1)}" y="${cy + 13}" font-family="${FONT}" font-size="11" letter-spacing=".2">${xml(st.k)}</text>`
     // A clock ticks inside the image: the card is drawn again once a minute, not each second.
     out.push(st.live
       ? `${head}\n${liveText(vx, cy + 33, st.live.at, 15.5, `font-family="${FONT}" font-size="15.5" font-weight="700" font-variant-numeric="tabular-nums"${st.color ? '' : ' class="t"'}`, st.live.read, st.color)}`
       : `${head}
-<text x="${vx.toFixed(1)}" y="${cy + 33}" font-family="${FONT}" font-size="15.5" font-weight="700" font-variant-numeric="tabular-nums"${st.color ? ` fill="${st.color}"` : ' class="t"'}>${xml(value)}</text>`)
-    if (st.viz) out.push(statViz(st, vx + textWidth(value, 15.5) + 9, cy + 23))
+<text x="${vx.toFixed(1)}" y="${cy + 33}" font-family="${FONT}" font-size="${fs}" font-weight="700" font-variant-numeric="tabular-nums"${st.color ? ` fill="${st.color}"` : ' class="t"'}>${xml(value)}</text>`)
+    if (st.viz && sized.hasViz) out.push(statViz(st, vx + textWidth(value, fs) + 9, cy + 23))
   })
   return out.join('\n')
 }
@@ -4189,7 +4206,7 @@ const orgTree = (all: AgentRun[], boss: Manager, at = 0, mood: 0 | 1 | 2 = 0): O
   const agentNode = (a: AgentRun, depth: number): OrgNode => ({
     id: a.id,
     // The role is drawn above it: "Designer: palette ideas" reads "palette ideas".
-    label: `${a.isUltra ? '⚡ ' : ''}${(a.description || a.type).replace(NAMED_ROLE_PREFIX, '')}`,
+    label: (a.description || a.type).replace(NAMED_ROLE_PREFIX, ''),
     color: runRoleColor(a),
     costume: costumeFor(a),
     isStuck: isQuiet(a) || isOver(a),
@@ -4487,7 +4504,7 @@ const receiptText = (boss: Manager, all: AgentRun[], info: Env, at: number): str
   const crew = crewOf(all, boss)
   const total = Math.max(0, info.costUsd - (boss.costAtStart ?? info.costUsd))
   const ms = boss.startedAt ? Math.max(0, (boss.doneAt ?? at) - boss.startedAt) : 0
-  const rows = [...crew].sort((x, y) => y.costUsd - x.costUsd).map(a => `| ${(a.description || a.type).replace(/\|/g, '/')} | ${modelName(a.model)} · ${effortWord(runEffort(a))} | ${fmtTokens(a.tokens)} | ≈${fmtCost(a.costUsd)} |`)
+  const rows = [...crew].sort((x, y) => y.costUsd - x.costUsd).map(a => `| ${(a.description || a.type).replace(/\|/g, '/')} | ${modelName(a.model)} · ${effortLabel(runEffort(a), a.isUltra)} | ${fmtTokens(a.tokens)} | ≈${fmtCost(a.costUsd)} |`)
   return [
     `**Claude Code receipt**${boss.task ? ` · ${clip(boss.task.replace(/\s+/g, ' '), 80)}` : ''}`,
     '',
@@ -6886,7 +6903,7 @@ export const register: Register = (on, options) => {
                   />
                   {r.a.status !== 'running' && <Button key={`close-${r.key}`} label="▴ Collapse" plain onPress={() => toggleOpen(r.a.id)} />}
                   {rescueRow($, r.a, ui)}
-                  {r.a.status === 'running' && <Button key={`ultra-${r.key}`} label={r.a.isUltra ? '⚡ Ultra on · tap to turn off' : '⚡ Ultra'} plain onPress={() => toggleUltra($, r.a.id)} />}
+                  {r.a.status === 'running' && <Button key={`ultra-${r.key}`} label={r.a.isUltra ? '⚡ Turn Ultra off' : '⚡ Turn Ultra on'} plain onPress={() => toggleUltra($, r.a.id)} />}
                 </Box>
               ),
             )}
@@ -6978,7 +6995,7 @@ export const register: Register = (on, options) => {
               {steps}{s.ctx} {ctx}% · {fmtTokens(a.contextTokens)} ≈{fmtCost(a.costUsd)} {fmtTime(elapsed(a, at))}
             </Text>
           </Text>
-          {a.status === 'running' && <Button key={`ultra-${a.id}`} label={a.isUltra ? '  ⚡ Ultra on · turn off' : '  ⚡ Ultra'} plain onPress={() => toggleUltra($, a.id)} />}
+          {a.status === 'running' && <Button key={`ultra-${a.id}`} label={a.isUltra ? '  ⚡ Turn Ultra off' : '  ⚡ Turn Ultra on'} plain onPress={() => toggleUltra($, a.id)} />}
         </Box>
       )
     }
@@ -7222,8 +7239,11 @@ export const register: Register = (on, options) => {
     if (e.tools.includes('Agent') && e.tools.length >= mostTools * 0.9) {
       const auto = await readAutoCrew($)
       let reason = auto.on ? (await read($, session)).crewMode ?? '' : ''
-      // Every-job mode turned off mid-job: its reason no longer holds.
-      if (reason === EVERY_JOB && !auto.always) reason = ''
+      // Every-job mode turned off mid-job: its reason no longer holds, in the band either.
+      if (reason === EVERY_JOB && !auto.always) {
+        reason = ''
+        await dropEveryJob($)
+      }
       if (auto.on && !reason) {
         // A plan that grew long, or a context that filled, calls the crew mid-task.
         const boss = await read($, manager)
@@ -7721,6 +7741,7 @@ export const register: Register = (on, options) => {
     if (next !== auto) await $.store.set('autoCrew', next).catch(() => undefined)
     await update($, settings, prev => ({ ...prev, crewMode: next.on, crewAlways: next.always === true }))
     if (!next.on) await update($, session, prev => ({ ...prev, crewMode: '' }))
+    else if (!next.always) await dropEveryJob($)
     return {
       text: next.always
         ? 'Crew mode on for every job: small ones go to a sub-agent too. /autocrew on goes back to big jobs only.'
