@@ -25,7 +25,7 @@ The one web address in the code is the skin schema's `$schema` label, written in
 
 ## Local commands Machine Guard runs
 
-[Machine Guard](MACHINE-GUARD.md) runs a few system commands on your machine, only while Claude works. Their output stays in the mod: nothing leaves the machine.
+[Machine Guard](MACHINE-GUARD.md) runs a few system commands on your machine: once at session start, then only while Claude works. Their output stays in the mod: nothing leaves the machine.
 
 | Command | What it reads or does |
 |---|---|

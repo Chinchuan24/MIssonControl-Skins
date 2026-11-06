@@ -245,6 +245,12 @@ test('heavyCommand: type checks, test runners and builds are heavy; nothing else
     ['docker build -t x .', 'docker build'],
     ['echo hi; npm test', 'npm test'],
     ['bash -c "npm run build"', 'npm run build'],
+    // A type check run by node itself, or a package binary run by yarn / pnpm / bun.
+    ['node node_modules/typescript/lib/tsc.js --noEmit', 'tsc'],
+    ['node --max-old-space-size=8192 ./node_modules/typescript/bin/tsc -p .', 'tsc'],
+    ['yarn tsc --noEmit', 'tsc'],
+    ['pnpm vitest run', 'vitest'],
+    ['bun run tsc', 'tsc'],
   ]
   for (const [cmd, label] of heavy) expect([cmd, heavyCommand(cmd)]).toEqual([cmd, label])
   const light = [
@@ -262,6 +268,10 @@ test('heavyCommand: type checks, test runners and builds are heavy; nothing else
     'docker ps',
     'cargo fmt',
     'go fmt ./...',
+    'node scripts/build-skins.js',
+    'node --version',
+    'yarn install',
+    'pnpm add -D typescript',
     '',
   ]
   for (const cmd of light) expect([cmd, heavyCommand(cmd)]).toEqual([cmd, null])

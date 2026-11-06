@@ -23,7 +23,7 @@ import { BLANK_PICK, BLANK_SPEND, SPEND_KINDS, TODAY_PERIOD, exportSpend, isResc
 import type { SpendDirs, SpendIo, SpendKind, SpendRecord } from './spend'
 import { minMove, noteSample, planProgress as stepProgress, stopSignal, stopText } from './stopsignal'
 import type { ProgressSample, StopSignal } from './stopsignal'
-import { FRESH_MS, HEARTBEAT_MS, HOT_EVERY_MS, KILL_TERM_WAIT_MS, LOCK_WAIT_MS, MAX_AGENTS_STEPS, SAMPLE_EVERY_MS as GUARD_EVERY_MS, SESSION_PREFIX, UNKNOWN_MACHINE, agentSample, autoMaxLabel, calibrate, canLearn, claudeBytes, cleanKillSwitch, cleanMaxAgents, cleanRamLimit, effectiveMax, gbOf, guardVerdict, heavyCommand, heavyRamVerdict, holdWins, holderWhere, isHot, isLiveAgent, killContext, killDecision, killNote, killNoteLive, killOptions, killToast, learnAgentBytes, limitToast, lockDenyReason, lockRelease, lockTry, machineLine, machineOf, maxAgentsOptions, noteTrip, othersSummary, paneLine, peerAgents, peerHeavy, peersOf, perAgentBytes, perAgentLine, ramLimitBytes, ramLimitOptions, ruleText, sessionCount, tightKind, typedMaxAgents, typedRamLimit, useGb, withArgs } from './machineguard'
+import { FRESH_MS, HEARTBEAT_MS, HOT_EVERY_MS, KILL_TERM_WAIT_MS, LOCK_STALE_MS, LOCK_WAIT_MS, MAX_AGENTS_STEPS, SAMPLE_EVERY_MS as GUARD_EVERY_MS, SESSION_PREFIX, UNKNOWN_MACHINE, agentSample, autoMaxLabel, calibrate, canLearn, claudeBytes, cleanKillSwitch, cleanMaxAgents, cleanRamLimit, effectiveMax, gbOf, guardVerdict, heavyCommand, heavyRamVerdict, holdWins, holderWhere, isHot, isLiveAgent, killContext, killDecision, killNote, killNoteLive, killOptions, killToast, learnAgentBytes, limitToast, lockDenyReason, lockRelease, lockTry, machineLine, machineOf, maxAgentsOptions, noteTrip, othersSummary, paneLine, peerAgents, peerHeavy, peersOf, perAgentBytes, perAgentLine, ramLimitBytes, ramLimitOptions, ruleText, sessionCount, tightKind, typedMaxAgents, typedRamLimit, useGb, withArgs } from './machineguard'
 import type { GuardInput, Hold, HeavyLock, KillSwitch, KillTarget, Machine, Peer, Proc, Warned } from './machineguard'
 import { argsOfCmd as unixArgsOf, forceCmd as unixForce, machineCmd as unixMachine, parseMachine as parseUnixMachine, parseProcs as parseUnixProcs, parseProcsArgs as parseUnixProcsArgs, procsArgsCmd as unixProcsArgs, procsCmd as unixProcs, termCmd as unixTerm } from './probeunix'
 import { argsOfCmd as winArgsOf, forceCmd as winForce, machineCmd as winMachine, parseMachine as parseWinMachine, parseProcs as parseWinProcs, parseProcsArgs as parseWinProcsArgs, procsArgsCmd as winProcsArgs, procsCmd as winProcs, termCmd as winTerm } from './probewin'
@@ -255,12 +255,18 @@ let mgBaseline: number | null = null
 let mgLock: HeavyLock | null = null
 // Counts lock changes: a process read that straddles one is not used for learning.
 let mgLockSeq = 0
+// A heavy command run in the background lets go of the lock at once but runs on: no learning till then.
+let mgNoLearnUntil = 0
 // Claude's tree without heavy tools' subtrees: what the learner measures.
 let mgClaudeLean: number | null = null
 let mgMachine: Machine = UNKNOWN_MACHINE
 let mgKind: ProbeKind | null = null
 let mgFreeBytes: number | null = null
 let mgClaude: number | null = null
+// Whether the last free-RAM look and the last process read worked. A failed one keeps the last
+// number for the chip, but nothing is refused on it: a probe that fails must never block work.
+let mgFreeOk = true
+let mgProcsOk = true
 let mgSampleAt = 0
 let mgProcsAt = 0
 let mgBusy = false
@@ -316,6 +322,8 @@ const guardInput = (running: number): GuardInput => ({
   freeBytes: mgFreeBytes,
   sessions: mgPeers.length ? { count: sessionCount(mgPeers), here: running, others: othersSummary(mgPeers) } : undefined,
 })
+// What refusals (and the prompt's tight line) go by: only numbers the last look really read.
+const trustedInput = (running: number): GuardInput => ({ ...guardInput(running), freeBytes: mgFreeOk ? mgFreeBytes : null, isClaudeUnread: !mgProcsOk })
 const round1 = (n: number): number => Math.round(n * 10) / 10
 // Redraws only when what is drawn changes.
 async function syncGuard($: EngineInterface, running: number): Promise<void> {
@@ -371,6 +379,7 @@ async function detectMachine($: EngineInterface): Promise<void> {
       mgKind = kind
       mgMachine = machineOf(info)
       mgFreeBytes = info.freeBytes
+      mgFreeOk = info.freeBytes !== null
       mgSampleAt = await $.clock.now()
       const saved = { os: mgMachine.os, totalBytes: mgMachine.totalBytes, cores: mgMachine.cores }
       if (JSON.stringify(await $.store.get(GUARD_KEY).catch(() => undefined)) !== JSON.stringify(saved)) await $.store.set(GUARD_KEY, saved).catch(() => undefined)
@@ -407,12 +416,14 @@ async function freshClaude($: EngineInterface, maxAgeMs: number): Promise<void> 
   mgProcsAt = at
   try {
     const procs = PROBES[mgKind].parseProcs(await probeOut($, PROBES[mgKind].procs))
+    mgProcsOk = procs.length > 0
     if (procs.length) {
       mgClaude = claudeBytes(procs)
       mgClaudeLean = claudeBytes(procs, true)
     }
   } catch {
-    // A failed look changes nothing.
+    // A failed look refuses nothing.
+    mgProcsOk = false
   } finally {
     mgBusy = false
   }
@@ -531,7 +542,8 @@ async function sampleGuard($: EngineInterface, at: number, running: number): Pro
   try {
     const p = PROBES[mgKind]
     const info = p.parseMachine(await probeOut($, p.machine))
-    if (info.freeBytes !== null) mgFreeBytes = info.freeBytes
+    mgFreeOk = info.freeBytes !== null
+    if (mgFreeOk) mgFreeBytes = info.freeBytes
     if (at - mgProcsAt >= (hot ? HOT_EVERY_MS : p.procsEveryMs)) {
       mgProcsAt = at
       // A table that timed out or failed keeps the last measure, not the system-wide fallback.
@@ -539,10 +551,13 @@ async function sampleGuard($: EngineInterface, at: number, running: number): Pro
       // The read's age counts from the read itself, not from the free-RAM look before it (slow on Windows).
       const readAt = await $.clock.now()
       const procs = p.parseProcs(await probeOut($, p.procs))
+      mgProcsOk = procs.length > 0
       if (procs.length) {
         mgClaude = claudeBytes(procs)
         mgClaudeLean = claudeBytes(procs, true)
-        await learnFromSample($, running, canLearn(mgLock !== null, seq, mgLockSeq))
+        // Another session's heavy command, or one of ours in the background, is in this read too.
+        const isHeavyAbout = mgLock !== null || at < mgNoLearnUntil || peerHeavy(await readPeers($, at), at) !== null
+        await learnFromSample($, running, canLearn(isHeavyAbout, seq, mgLockSeq))
         await killIfOver($, procs, readAt)
       }
     }
@@ -582,7 +597,7 @@ async function guardSpawn($: EngineInterface): Promise<{ deny?: string; at?: num
   const listed = await crewCount($)
   mgPending = mgPending.filter(t => at - t < 60_000)
   const running = listed + mgPending.length
-  const g = guardInput(running)
+  const g = trustedInput(running)
   const v = guardVerdict(g)
   const r = noteTrip(mgWarned, 'agents', v?.kind === 'agents')
   mgWarned = r.warned
@@ -605,7 +620,7 @@ function releaseSpawn(at: number | undefined): void {
   if (i >= 0) mgPending.splice(i, 1)
 }
 const guardRule = (now: number): string =>
-  ruleText(limitNow(), perAgentBytes(mgLearned), effectiveMax(mgMaxSetting, calibratedNow()), calibratedNow(), tightKind(guardInput(0)) !== null, {
+  ruleText(limitNow(), perAgentBytes(mgLearned), effectiveMax(mgMaxSetting, calibratedNow()), calibratedNow(), tightKind(trustedInput(0)) !== null, {
     sessions: mgPeers.length ? sessionCount(mgPeers) : 1,
     killOn: mgKill === 'on',
     stopped: killNoteLive(mgStopped, now),
@@ -688,7 +703,7 @@ async function claimGlobal($: EngineInterface, label: string): Promise<Peer | nu
 async function takeHeavy($: EngineInterface, owner: string, label: string, signal: AbortSignal | undefined): Promise<string | null> {
   const start = await $.clock.now()
   await freshClaude($, FRESH_MS)
-  const ram = heavyRamVerdict(guardInput(mgRunning), label)
+  const ram = heavyRamVerdict(trustedInput(mgRunning), label)
   if (ram) return ram
   const argv = PROBES[mgKind ?? 'unix'].sleep(3)
   let blocked = label
@@ -705,7 +720,7 @@ async function takeHeavy($: EngineInterface, owner: string, label: string, signa
       if (!holder) {
         // Waited: the look at RAM is made again before it starts.
         if (i > 0) await freshClaude($, 0)
-        const late = i > 0 ? heavyRamVerdict(guardInput(mgRunning), label) : null
+        const late = i > 0 ? heavyRamVerdict(trustedInput(mgRunning), label) : null
         if (!late) mgStopped = null
         return late
       }
@@ -6515,7 +6530,7 @@ export const register: Register = (on, options) => {
   // Anything that is not heavy goes straight through. Registered after the activity tracker, so a
   // command waiting for the lock still shows as running (not as a quiet agent).
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    const input = e as unknown as { command?: string; tool_use_id?: string }
+    const input = e as unknown as { command?: string; tool_use_id?: string; run_in_background?: boolean }
     const label = heavyCommand(input.command)
     if (!label) return next(e)
     const owner = `${input.tool_use_id ?? 'call'}:${e.agentId ?? 'main'}:${await $.clock.now()}`
@@ -6523,6 +6538,7 @@ export const register: Register = (on, options) => {
     try {
       const deny = await takeHeavy($, owner, label, next.signal)
       if (deny) return { deny }
+      if (input.run_in_background === true) mgNoLearnUntil = (await $.clock.now()) + LOCK_STALE_MS
       const done = await next(e)
       // The kill switch stopped a process while this ran: the model reads why, so it does not just run it again.
       return mgKillSeq !== stoppedBefore && 'result' in done ? { ...done, context: [...(done.context ?? []), killContext(label)] } : done
