@@ -2593,7 +2593,8 @@ const effortLabel = (effort: string, isUltra = false): string => `${effortWord(e
 const runModel = (a: AgentRun): string => `${modelName(a.model)} · effort ${effortLabel(runEffort(a), a.isUltra)}`
 
 // USD per million tokens: input, output, cache read, cache write. The first row that
-// matches a model id wins, so a release sits above its family.
+// matches a model id wins, so a release sits above its family. Anthropic's list prices
+// as of 2026-10-06; Bedrock and Vertex bill their own rates, so there it is a guide.
 // The engine reports tokens, not money, so the panel's cost is an estimate. It reports
 // one cache-write count with no split by lifetime; writes are priced at the 1-hour
 // rate (2x input), which is what Claude Code writes on a subscription.
@@ -2604,7 +2605,7 @@ const PRICES: [RegExp, Price][] = [
   [/fable|mythos/, [10, 50, 1, 20]],
   [/opus-5-5/, [4, 20, 0.2, 8]],
   [/opus/, [5, 25, 0.5, 10]],
-  [/sonnet-5-5/, [2, 10, 0.1, 4]],
+  [/sonnet-5-5/, [2, 10, 0.2, 4]],
   [/sonnet-5/, [2, 10, 0.2, 4]],
   [/sonnet/, [3, 15, 0.3, 6]],
   [/haiku-5-5/, [0.1, 0.5, 0.01, 0.2]],
@@ -7693,7 +7694,7 @@ export const register: Register = (on, options) => {
         {bill.note ? <Text dimColor wrap="wrap">{bill.note}</Text> : null}
         {bill.isMac && Field ? (
           <Box key="bill-form" flexDirection="column">
-            <Text dimColor wrap="wrap">The box shows your key while you type: it cannot hide it. Paste, press Enter, and the box clears. To type it hidden, run this in your own terminal: {terminalAlternative()}</Text>
+            <Text dimColor wrap="wrap">The box shows a dot for each character, never the key (a paste can show for a moment before it turns to dots). Paste, press Enter, and the box clears. To type it fully hidden, run this in your own terminal: {terminalAlternative()}</Text>
             <Field
               key={`bill-key-${bill.nonce}`}
               label="Claude API key"
