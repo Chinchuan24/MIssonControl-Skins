@@ -280,7 +280,7 @@ declare module 'claude-code' {
       /** The id of the skin Mission Control and the band are drawn in. */
       skin: string
       /** Mission Control's settings, mirrored from `$.store` so the pane redraws. */
-      settings: { openOnStart: boolean; crewMode: boolean; crewAlways?: boolean; currency: string; sounds: boolean; simple: boolean; calm: boolean; voice: boolean; staffing: boolean; oneShot: 'ask' | 'on' | 'off'; dailyUsd: number; autopilot: boolean; keepWarm: boolean; budgetUsd: number; tkOn: boolean; tkJobMin: number; tkAgentMin: number; ramLimit: string; maxAgents: number }
+      settings: { openOnStart: boolean; crewMode: boolean; crewAlways?: boolean; currency: string; sounds: boolean; simple: boolean; calm: boolean; voice: boolean; staffing: boolean; oneShot: 'ask' | 'on' | 'off'; dailyUsd: number; autopilot: boolean; keepWarm: boolean; budgetUsd: number; tkOn: boolean; tkJobMin: number; tkAgentMin: number; ramLimit: string; maxAgents: number; killSwitch: string }
       /** Machine Guard: the detected machine as one line and in two words ("48 GB Mac", '' unknown), RAM in use (%, -1 before the first sample), the crew size in force and the calibrated one, and whether RAM is tight. */
       guard: { line: string; short: string; ramPct: number; max: number; calibrated: number; isTight: boolean }
       /** Billing: the Keychain key's status and the apiKeyHelper mode. See hooks/billing.ts. */
