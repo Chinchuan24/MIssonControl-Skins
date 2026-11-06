@@ -16,7 +16,7 @@ export const COLOR_KEYS = ['accent', 'accent2', 'done', 'warn', 'alert', 'meter'
 const TOP_KEYS = ['$schema', 'id', 'name', 'description', 'font', 'corners', 'dark', 'colors', 'boss', 'roles', 'effects', 'backdrop', 'chat', 'words', 'toolWords', 'tabs', 'cast']
 const PATTERNS = ['dots', 'lines', 'stars', 'none']
 
-export const SCHEMA_URL = 'https://raw.githubusercontent.com/Chinchuan24/MIssonControl-Skins/main/skins/skin.schema.json'
+export const SCHEMA_URL = 'https://raw.githubusercontent.com/Chinchuan24/MissionControl/main/skins/skin.schema.json'
 export const SKIN_ID_MAX = 40
 
 // Another brand's name or logo is not ours to hand out. Short words must be whole

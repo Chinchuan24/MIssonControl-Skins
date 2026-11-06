@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Chinchuan24/MIssonControl-Skins/main/skins/skin.schema.json",
+  "$id": "https://raw.githubusercontent.com/Chinchuan24/MissionControl/main/skins/skin.schema.json",
   "title": "Mission Control custom skin",
   "description": "A custom skin file for the Mission Control mod. Nothing is required (the loader fills gaps from Crab Classic), but a good skin sets id, name and every color. Mirrors readSkin() in hooks/register.tsx and validateSkin() in hooks/skinkit.ts.",
   "type": "object",

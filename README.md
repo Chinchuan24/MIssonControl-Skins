@@ -31,12 +31,12 @@
 <table align="center">
   <tr>
     <td align="center" width="50%" valign="top">
-      <a href="https://github.com/Chinchuan24/MIssonControl-Skins/releases/latest/download/mission-control-core.zip">
+      <a href="https://github.com/Chinchuan24/MissionControl/releases/latest/download/mission-control-core.zip">
         <img src="docs/edition-core.png" alt="Mission Control Core: default and Crab Classic skins" width="100%">
       </a>
     </td>
     <td align="center" width="50%" valign="top">
-      <a href="https://github.com/Chinchuan24/MIssonControl-Skins/releases/latest/download/mission-control-cyberpunk.zip">
+      <a href="https://github.com/Chinchuan24/MissionControl/releases/latest/download/mission-control-cyberpunk.zip">
         <img src="docs/edition-cyberpunk.png" alt="Cyberpunk Skins: Cyberpunk 2077, Lucy Edgerunners, Arasaka and a hidden skin" width="100%">
       </a>
     </td>
@@ -51,15 +51,15 @@
   </tr>
   <tr>
     <td align="center" valign="top">
-      <a href="https://github.com/Chinchuan24/MIssonControl-Skins/releases/latest/download/mission-control-core.zip">
+      <a href="https://github.com/Chinchuan24/MissionControl/releases/latest/download/mission-control-core.zip">
         <img src="docs/btn-core.png" alt="Download Core" width="300">
       </a>
     </td>
     <td align="center" valign="top">
-      <a href="https://github.com/Chinchuan24/MIssonControl-Skins/releases/latest/download/mission-control-cyberpunk.zip">
+      <a href="https://github.com/Chinchuan24/MissionControl/releases/latest/download/mission-control-cyberpunk.zip">
         <img src="docs/btn-cyberpunk.png" alt="Download Core + Cyberpunk" width="300">
       </a><br>
-      <sub>Have Core already? <a href="https://github.com/Chinchuan24/MIssonControl-Skins/releases/latest/download/cyberpunk-skins-addon.zip">Get the add-on only</a>.</sub>
+      <sub>Have Core already? <a href="https://github.com/Chinchuan24/MissionControl/releases/latest/download/cyberpunk-skins-addon.zip">Get the add-on only</a>.</sub>
     </td>
   </tr>
 </table>
@@ -246,16 +246,16 @@ Details: [docs/PRIVACY.md](docs/PRIVACY.md)
 At the prompt of a terminal session:
 
 ```
-/plugin install crab-progress --marketplace Chinchuan24/MIssonControl-Skins
+/plugin install crab-progress --marketplace Chinchuan24/MissionControl
 ```
 
 Or from a shell:
 
 ```
-claude plugin install crab-progress --marketplace Chinchuan24/MIssonControl-Skins
+claude plugin install crab-progress --marketplace Chinchuan24/MissionControl
 ```
 
-Answer `y` to add the marketplace, then pick a scope (user is first). In the desktop app, where `/plugin` does not run: click **+** next to the prompt box, then **Plugins**, **Add marketplace** with `Chinchuan24/MIssonControl-Skins`, then **Add plugin**. This installs the full mod, Cyberpunk add-on included. Then run `/missioncontrol`.
+Answer `y` to add the marketplace, then pick a scope (user is first). In the desktop app, where `/plugin` does not run: click **+** next to the prompt box, then **Plugins**, **Add marketplace** with `Chinchuan24/MissionControl`, then **Add plugin**. This installs the full mod, Cyberpunk add-on included. Then run `/missioncontrol`.
 
 ### By hand, from a zip or a clone
 
@@ -264,9 +264,9 @@ Answer `y` to add the marketplace, then pick a scope (user is first). In the des
 - Download a zip above and unzip it anywhere. It holds one folder, `mission-control/` (the one with `.claude-plugin/` inside): that is the folder to point Claude Code at. Windows' "Extract All" may wrap it in a second folder; use the inner one. Or
 - clone the repo (this gets everything, add-on included):
   ```
-  git clone https://github.com/Chinchuan24/MIssonControl-Skins.git
+  git clone https://github.com/Chinchuan24/MissionControl.git
   ```
-  A clone has no `mission-control/` folder: point Claude Code at the cloned `MIssonControl-Skins/` folder itself (it holds `.claude-plugin/`).
+  A clone has no `mission-control/` folder: point Claude Code at the cloned `MissionControl/` folder itself (it holds `.claude-plugin/`).
 
 **2. Point Claude Code at the folder** in `~/.claude/settings.json` (Windows: `C:\Users\<you>\.claude\settings.json`):
 
@@ -291,7 +291,7 @@ Answer `y` to add the marketplace, then pick a scope (user is first). In the des
 <summary><b>Adding the Cyberpunk add-on to an existing Core install</b></summary>
 <br>
 
-Unzip [`cyberpunk-skins-addon.zip`](https://github.com/Chinchuan24/MIssonControl-Skins/releases/latest/download/cyberpunk-skins-addon.zip) **into** your Mission Control folder. It creates `addons/cyberpunk/`. Restart Claude Code, then pick a skin with `/skins`.
+Unzip [`cyberpunk-skins-addon.zip`](https://github.com/Chinchuan24/MissionControl/releases/latest/download/cyberpunk-skins-addon.zip) **into** your Mission Control folder. It creates `addons/cyberpunk/`. Restart Claude Code, then pick a skin with `/skins`.
 
 On a Mac, double-clicking the zip unzips it into a folder of its own, and dragging `addons/` onto your install in Finder replaces the folder instead of merging it. Unzip it from Terminal instead:
 
@@ -339,7 +339,7 @@ Expand-Archive -Force "$env:USERPROFILE\Downloads\cyberpunk-skins-addon.zip" -De
 - `hooks/warm.ts`: Smart Keep-Warm's arithmetic (when a refresh pays)
 - `hooks/billing.ts` and `scripts/anthropic-key-helper.sh`: the API key in the macOS Keychain and the `apiKeyHelper` link ([docs/SECURITY-billing.md](docs/SECURITY-billing.md))
 - `hooks/spend.ts`: the spend card's periods, the transcript reader and per-day ledger, the CSV export
-- Tests: `claude plugin test /path/to/MIssonControl-Skins` (and `claude plugin validate …`)
+- Tests: `claude plugin test /path/to/MissionControl` (and `claude plugin validate …`)
 - `.claude-plugin/types/` is generated on each machine by the CLI and is git-ignored.
 
 </details>

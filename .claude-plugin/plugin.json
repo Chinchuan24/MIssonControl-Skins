@@ -3,8 +3,8 @@
   "version": "0.4.0",
   "description": "Mission Control for Claude Code: a HUD band above the prompt, a live agents pane (/missioncontrol), skins, pixel-art casts and Night City easter eggs.",
   "author": { "name": "Chinchuan24", "url": "https://github.com/Chinchuan24" },
-  "homepage": "https://github.com/Chinchuan24/MIssonControl-Skins",
-  "repository": "https://github.com/Chinchuan24/MIssonControl-Skins",
+  "homepage": "https://github.com/Chinchuan24/MissionControl",
+  "repository": "https://github.com/Chinchuan24/MissionControl",
   "keywords": ["claude-code", "mod", "dashboard", "skins", "cyberpunk", "pixel-art"],
   "types": "./types/index.d.ts",
   "userConfig": {
