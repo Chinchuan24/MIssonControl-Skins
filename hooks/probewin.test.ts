@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { machineCmd, parseMachine, parseProcs, procsCmd } from './probewin'
+import { machineCmd, parseMachine, parseProcs, procsCmd, argsOfCmd, forceCmd, parseProcsArgs, procsArgsCmd, termCmd } from './probewin'
 
 // Machine Guard, Windows probe: the two PowerShell commands and the parsers for what they print.
 // Fixtures are hand-made copies of real PowerShell 5.1 output, with \r\n line endings.
@@ -136,4 +136,22 @@ test('probewin: processes give [] for empty, error-only and garbage input and ne
   expect(parseProcs('\u0000\u0001\t\t\t')).toEqual([])
   expect(parseProcs(undefined as unknown as string)).toEqual([])
   expect(parseProcs(null as unknown as string)).toEqual([])
+})
+
+test('probewin: the command-line list reads pid, parent, bytes and the whole command line', () => {
+  expect(procsArgsCmd.cmd).toBe('powershell.exe')
+  expect(procsArgsCmd.args.at(-1)).toContain('CommandLine')
+  const rows = parseProcsArgs('\uFEFF100\t4\t2048\tC:\\Claude\\claude.exe\r\n104\t100\t9000\t"C:\\node\\node.exe" C:\\r\\node_modules\\typescript\\lib\\tsc.js --noEmit\r\n105\t100\t5\t\r\njunk\r\n')
+  expect(rows).toEqual([
+    { pid: 100, ppid: 4, rssBytes: 2048, args: 'C:\\Claude\\claude.exe' },
+    { pid: 104, ppid: 100, rssBytes: 9000, args: '"C:\\node\\node.exe" C:\\r\\node_modules\\typescript\\lib\\tsc.js --noEmit' },
+  ])
+  expect(parseProcsArgs('')).toEqual([])
+})
+
+test('probewin: stopping a process is Stop-Process, then Stop-Process -Force; a bad pid does nothing', () => {
+  expect(termCmd(104).args.at(-1)).toBe('Stop-Process -Id 104')
+  expect(forceCmd(104).args.at(-1)).toBe('Stop-Process -Id 104 -Force')
+  expect(argsOfCmd(104).args.at(-1)).toContain("ProcessId=104")
+  for (const bad of [0, 4, -1, 2.5, Number.NaN]) for (const c of [argsOfCmd(bad), termCmd(bad), forceCmd(bad)]) expect(c.args.at(-1)).toBe('$null')
 })

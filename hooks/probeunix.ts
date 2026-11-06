@@ -9,6 +9,8 @@ export type MachineInfo = {
   cores: number | null
 }
 export type ProcRow = { pid: number; ppid: number; rssBytes: number; name: string }
+/** One process with its whole command line, for the kill switch (the name list above has no arguments). */
+export type ProcArgsRow = { pid: number; ppid: number; rssBytes: number; args: string }
 
 // Prints labelled lines: os=, total=, free=, cores= (bytes for total and free).
 // Mac: hw.memsize and hw.ncpu from sysctl; free = (free + inactive + speculative) pages
@@ -77,3 +79,31 @@ export function parseProcs(out: string): ProcRow[] {
   }
   return rows
 }
+
+// The kill switch's second look: the same table with whole command lines (args= last, it has spaces).
+// Read only when Claude is over its RAM limit, and merged with the name list by pid.
+export const procsArgsCmd: ProbeCmd = { cmd: 'ps', args: ['-Ao', 'pid=,ppid=,rss=,args='] }
+
+export function parseProcsArgs(out: string): ProcArgsRow[] {
+  const rows: ProcArgsRow[] = []
+  try {
+    for (const line of String(out ?? '').split(/\r?\n/)) {
+      const m = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S.*?)\s*$/.exec(line)
+      const args = m?.[4]
+      if (!m || !args) continue
+      rows.push({ pid: Number(m[1]), ppid: Number(m[2]), rssBytes: Number(m[3]) * 1024, args })
+    }
+  } catch {
+    return []
+  }
+  return rows
+}
+
+// Stopping one process by pid: the command line it has now (to check it is still the one
+// chosen: a pid can be reused), a polite stop, then a forced one. A pid that is not a whole
+// number above 1 gives a command that does nothing (never `kill 0`, which is a whole process group).
+const NOTHING: ProbeCmd = { cmd: 'true', args: [] }
+const okPid = (pid: number): boolean => Number.isInteger(pid) && pid > 1
+export const argsOfCmd = (pid: number): ProbeCmd => (okPid(pid) ? { cmd: 'ps', args: ['-p', String(pid), '-o', 'args='] } : NOTHING)
+export const termCmd = (pid: number): ProbeCmd => (okPid(pid) ? { cmd: 'kill', args: ['-TERM', String(pid)] } : NOTHING)
+export const forceCmd = (pid: number): ProbeCmd => (okPid(pid) ? { cmd: 'kill', args: ['-KILL', String(pid)] } : NOTHING)

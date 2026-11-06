@@ -10,6 +10,8 @@ export type MachineInfo = {
   cores: number | null
 }
 export type ProcRow = { pid: number; ppid: number; rssBytes: number; name: string }
+/** One process with its whole command line, for the kill switch. */
+export type ProcArgsRow = { pid: number; ppid: number; rssBytes: number; args: string }
 
 const PS_FLAGS = ['-NoProfile', '-NonInteractive', '-Command']
 
@@ -91,3 +93,41 @@ export function parseProcs(out: string): ProcRow[] {
   }
   return rows
 }
+
+// The kill switch's second look: pid TAB ppid TAB workingSetBytes TAB commandLine. Read only
+// when Claude is over its RAM limit. CommandLine is empty for protected processes (they are skipped).
+const PROCS_ARGS_SCRIPT =
+  "$ErrorActionPreference='SilentlyContinue';" +
+  'Get-CimInstance Win32_Process | ForEach-Object {' +
+  '($_.ProcessId,$_.ParentProcessId,$_.WorkingSetSize,$_.CommandLine) -join [char]9' +
+  '}'
+export const procsArgsCmd: ProbeCmd = { cmd: 'powershell.exe', args: [...PS_FLAGS, PROCS_ARGS_SCRIPT] }
+
+export function parseProcsArgs(out: string): ProcArgsRow[] {
+  const rows: ProcArgsRow[] = []
+  try {
+    for (const raw of lines(out)) {
+      const [pidRaw = '', ppidRaw = '', rssRaw = '', ...rest] = raw.split('\t')
+      if (rest.length < 1) continue
+      const pid = whole(pidRaw.trim())
+      const ppid = whole(ppidRaw.trim())
+      if (pid === null || ppid === null) continue
+      const args = rest.join('\t').trim()
+      if (!args) continue
+      rows.push({ pid, ppid, rssBytes: whole(rssRaw.trim()) ?? 0, args })
+    }
+  } catch {
+    return []
+  }
+  return rows
+}
+
+// Stopping one process by pid: its command line now (to check it is still the one chosen),
+// a polite stop, then a forced one. A pid that is not a whole number above 4 (0 and 4 are
+// System) gives a command that does nothing.
+const NOTHING: ProbeCmd = { cmd: 'powershell.exe', args: [...PS_FLAGS, '$null'] }
+const okPid = (pid: number): boolean => Number.isInteger(pid) && pid > 4
+const ps = (pid: number, script: string): ProbeCmd => (okPid(pid) ? { cmd: 'powershell.exe', args: [...PS_FLAGS, script] } : NOTHING)
+export const argsOfCmd = (pid: number): ProbeCmd => ps(pid, `$ErrorActionPreference='SilentlyContinue';(Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').CommandLine`)
+export const termCmd = (pid: number): ProbeCmd => ps(pid, `Stop-Process -Id ${pid}`)
+export const forceCmd = (pid: number): ProbeCmd => ps(pid, `Stop-Process -Id ${pid} -Force`)

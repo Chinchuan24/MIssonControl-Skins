@@ -234,11 +234,13 @@ Stops a big crew from freezing your computer.
 
 - **You set the RAM Claude may use** (Auto 50%, 25/50/75%, or a typed GB). Max agents = that RAM ÷ RAM per agent (≈0.5 GB, learned on your machine). 15 GB means up to 30 agents; no cap of 8.
 - **Claude is told** the limit and the max in chat, and you get a toast when you change it.
-- **Watches RAM live.** Over the limit, it refuses *new* agents and new heavy commands. Running ones are never killed.
-- **One heavy command at a time** (tsc, tests, builds), across the main loop and all sub-agents: a second one waits, up to 5 minutes.
-- **Tune it** in ⚙ Settings: "RAM Claude may use" and "Max agents at once" (Auto, a list, or a typed number).
+- **Watches RAM live.** Over the limit, it refuses *new* agents and new heavy commands.
+- **One budget across all your sessions.** Run 2 or 3 sessions and they share the same limit: the agent count adds up across them, and only one heavy command runs at a time on the whole computer.
+- **One heavy command at a time** (tsc, tests, builds): a second one waits, up to 5 minutes.
+- **🔪 Kill switch (On by default).** If Claude goes over its RAM limit, the guard stops the single biggest heavy process under Claude (a runaway `tsc`, a test run), then tells you and Claude. It never touches Claude itself, your apps, MCP servers or shells. Switch it off in Settings.
+- **Tune it** in ⚙ Settings: "RAM Claude may use", "Max agents at once" (Auto, a list, or a typed number) and "Kill switch".
 - **Claude's RAM counts every Claude process** on the computer: other sessions and the desktop app too.
-- **See it** in the desktop pane: "🛡 RAM 9.1/15 GB · 3/30 agents" while working.
+- **See it** in the desktop pane: "🛡 RAM 9.1/15 GB · 3/30 agents" while working, plus "· 2 sessions" when more than one is live.
 
 Details: [docs/MACHINE-GUARD.md](docs/MACHINE-GUARD.md)
 

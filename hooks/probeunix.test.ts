@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { machineCmd, parseMachine, parseProcs, procsCmd } from './probeunix'
+import { argsOfCmd, forceCmd, machineCmd, parseMachine, parseProcs, parseProcsArgs, procsArgsCmd, procsCmd, termCmd } from './probeunix'
 
 // Machine Guard unix probe: the two commands and their parsers, on real macOS output
 // (captured on a 48 GB, 14-core Mac), a hand-written Linux fixture, and garbage.
@@ -112,4 +112,25 @@ test('parseProcs skips partial and garbage lines and survives blanks', () => {
   expect(rows).toEqual([{ pid: 7, ppid: 1, rssBytes: 102400, name: 'bash' }])
   expect(() => parseProcs(undefined as unknown as string)).not.toThrow()
   expect(parseProcs(undefined as unknown as string)).toEqual([])
+})
+
+test('procsArgsCmd lists pid, ppid, rss and the whole command line; parseProcsArgs reads it', () => {
+  expect(procsArgsCmd).toEqual({ cmd: 'ps', args: ['-Ao', 'pid=,ppid=,rss=,args='] })
+  const rows = parseProcsArgs('  100     1  2048 /Applications/Claude.app/Contents/MacOS/Claude\n  104   100 20171776 node /repo/node_modules/typescript/lib/tsc.js --noEmit -p .\nbad line\n  7 1 x nope\n')
+  expect(rows).toEqual([
+    { pid: 100, ppid: 1, rssBytes: 2048 * 1024, args: '/Applications/Claude.app/Contents/MacOS/Claude' },
+    { pid: 104, ppid: 100, rssBytes: 20171776 * 1024, args: 'node /repo/node_modules/typescript/lib/tsc.js --noEmit -p .' },
+  ])
+  expect(parseProcsArgs('')).toEqual([])
+  expect(parseProcsArgs(undefined as unknown as string)).toEqual([])
+})
+
+test('stopping a process: check its command line, kill -TERM, then kill -KILL; a bad pid does nothing', () => {
+  expect(argsOfCmd(104)).toEqual({ cmd: 'ps', args: ['-p', '104', '-o', 'args='] })
+  expect(termCmd(104)).toEqual({ cmd: 'kill', args: ['-TERM', '104'] })
+  expect(forceCmd(104)).toEqual({ cmd: 'kill', args: ['-KILL', '104'] })
+  // Never `kill 0` (a whole process group) or `kill 1`, whatever the pid is.
+  for (const bad of [0, 1, -1, -9, 1.5, Number.NaN, Infinity]) {
+    for (const c of [argsOfCmd(bad), termCmd(bad), forceCmd(bad)]) expect(c).toEqual({ cmd: 'true', args: [] })
+  }
 })

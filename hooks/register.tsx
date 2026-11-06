@@ -19,10 +19,10 @@ import { BLANK_PICK, BLANK_SPEND, SPEND_KINDS, TODAY_PERIOD, exportSpend, isResc
 import type { SpendDirs, SpendIo, SpendKind, SpendRecord } from './spend'
 import { minMove, noteSample, planProgress as stepProgress, stopSignal, stopText } from './stopsignal'
 import type { ProgressSample, StopSignal } from './stopsignal'
-import { FRESH_MS, LOCK_WAIT_MS, MAX_AGENTS_STEPS, SAMPLE_EVERY_MS as GUARD_EVERY_MS, UNKNOWN_MACHINE, agentSample, autoMaxLabel, calibrate, canLearn, claudeBytes, cleanMaxAgents, cleanRamLimit, effectiveMax, gbOf, guardVerdict, heavyCommand, heavyRamVerdict, isLiveAgent, learnAgentBytes, limitToast, lockDenyReason, lockRelease, lockTry, machineLine, machineOf, maxAgentsOptions, noteTrip, paneLine, perAgentBytes, perAgentLine, ramLimitBytes, ramLimitOptions, ruleText, tightKind, typedMaxAgents, typedRamLimit, useGb } from './machineguard'
-import type { GuardInput, HeavyLock, Machine, Warned } from './machineguard'
-import { machineCmd as unixMachine, parseMachine as parseUnixMachine, parseProcs as parseUnixProcs, procsCmd as unixProcs } from './probeunix'
-import { machineCmd as winMachine, parseMachine as parseWinMachine, parseProcs as parseWinProcs, procsCmd as winProcs } from './probewin'
+import { FRESH_MS, HEARTBEAT_MS, HOT_EVERY_MS, KILL_TERM_WAIT_MS, LOCK_WAIT_MS, MAX_AGENTS_STEPS, SAMPLE_EVERY_MS as GUARD_EVERY_MS, SESSION_PREFIX, UNKNOWN_MACHINE, agentSample, autoMaxLabel, calibrate, canLearn, claudeBytes, cleanKillSwitch, cleanMaxAgents, cleanRamLimit, effectiveMax, gbOf, guardVerdict, heavyCommand, heavyRamVerdict, holdWins, holderWhere, isHot, isLiveAgent, killContext, killDecision, killNote, killNoteLive, killOptions, killToast, learnAgentBytes, limitToast, lockDenyReason, lockRelease, lockTry, machineLine, machineOf, maxAgentsOptions, noteTrip, othersSummary, paneLine, peerAgents, peerHeavy, peersOf, perAgentBytes, perAgentLine, ramLimitBytes, ramLimitOptions, ruleText, sessionCount, tightKind, typedMaxAgents, typedRamLimit, useGb, withArgs } from './machineguard'
+import type { GuardInput, Hold, HeavyLock, KillSwitch, KillTarget, Machine, Peer, Proc, Warned } from './machineguard'
+import { argsOfCmd as unixArgsOf, forceCmd as unixForce, machineCmd as unixMachine, parseMachine as parseUnixMachine, parseProcs as parseUnixProcs, parseProcsArgs as parseUnixProcsArgs, procsArgsCmd as unixProcsArgs, procsCmd as unixProcs, termCmd as unixTerm } from './probeunix'
+import { argsOfCmd as winArgsOf, forceCmd as winForce, machineCmd as winMachine, parseMachine as parseWinMachine, parseProcs as parseWinProcs, parseProcsArgs as parseWinProcsArgs, procsArgsCmd as winProcsArgs, procsCmd as winProcs, termCmd as winTerm } from './probewin'
 import type { AgentRun, AgentStatus, AllTime, Background, Billing, BillingMode, BgCron, BgTask, Env, Flow, Manager, Panel, Phase, PlanStep, PlannedTask, SessionStats, Spend, Today, Watch } from '../types'
 import type { On } from 'claude-code'
 import type { Timekeeper } from '../types'
@@ -221,8 +221,8 @@ async function watchStop($: EngineInterface, at: number, list: AgentRun[], boss:
 // process table, and only while work runs, one at a time, every GUARD_EVERY_MS.
 type ProbeKind = 'unix' | 'win'
 const PROBES = {
-  unix: { machine: unixMachine, parseMachine: parseUnixMachine, procs: unixProcs, parseProcs: parseUnixProcs, procsEveryMs: 30_000 },
-  win: { machine: winMachine, parseMachine: parseWinMachine, procs: winProcs, parseProcs: parseWinProcs, procsEveryMs: 45_000 },
+  unix: { machine: unixMachine, parseMachine: parseUnixMachine, procs: unixProcs, parseProcs: parseUnixProcs, procsEveryMs: 30_000, procsArgs: unixProcsArgs, parseProcsArgs: parseUnixProcsArgs, argsOf: unixArgsOf, term: unixTerm, force: unixForce, sleep: (sec: number) => ['sleep', String(sec)] },
+  win: { machine: winMachine, parseMachine: parseWinMachine, procs: winProcs, parseProcs: parseWinProcs, procsEveryMs: 45_000, procsArgs: winProcsArgs, parseProcsArgs: parseWinProcsArgs, argsOf: winArgsOf, term: winTerm, force: winForce, sleep: (sec: number) => ['powershell', '-NoProfile', '-Command', `Start-Sleep -Seconds ${sec}`] },
 }
 const GUARD_KEY = 'machineGuard'
 // What one agent costs on this machine, learned: an EMA kept in the store, and the baseline
@@ -252,6 +252,27 @@ let mgRunning = 0
 let mgPending: number[] = []
 // A workflow's agents, which $.agent.list() leaves out: id → when it started.
 const mgWorkflow = new Map<string, number>()
+// One budget across every live session of the mod. Each session writes only its own key in the
+// store (`mg.s.<sessionId>`: its agents, its heavy hold, a heartbeat), so writes never race, and
+// reads the others' only while work runs: at spawn time, at heavy-command time, on the heartbeat.
+let mgSid = ''
+let mgName = ''
+// The other live sessions, as of the last read.
+let mgPeers: Peer[] = []
+// The heavy command this session holds the global lock for, and this session's own crew, as last published.
+let mgHold: Hold | null = null
+let mgOwnAgents = 0
+let mgWorking = false
+// A record that says "working" or "has agents" is in the store: one idle write retires it.
+let mgLive = false
+let mgPubAt = 0
+// Writes of the session's record go one after another, each built when its turn comes.
+let mgPubQ: Promise<void> = Promise.resolve()
+// The kill switch: its setting, when it last stopped a process, how many it has stopped, and the note Claude reads.
+let mgKill: KillSwitch = 'on'
+let mgKillAt: number | null = null
+let mgKillSeq = 0
+let mgStopped: { text: string; at: number } | null = null
 
 // The output of a command, or '' when it cannot start, fails or takes over 10 s (PowerShell's first run can take 3).
 async function probeOut($: EngineInterface, cmd: { cmd: string; args: string[] }): Promise<string> {
@@ -263,14 +284,16 @@ async function probeOut($: EngineInterface, cmd: { cmd: string; args: string[] }
 }
 const limitNow = (): number | null => ramLimitBytes(mgRam, mgMachine.totalBytes)
 const calibratedNow = (): number => calibrate(limitNow(), perAgentBytes(mgLearned))
+// `running` is this session's crew; the crews of the other live sessions are added to it.
 const guardInput = (running: number): GuardInput => ({
   machine: mgMachine,
-  running,
+  running: running + peerAgents(mgPeers),
   maxAgents: effectiveMax(mgMaxSetting, calibratedNow()),
   perAgentBytes: perAgentBytes(mgLearned),
   limitBytes: limitNow(),
   claudeBytes: mgClaude,
   freeBytes: mgFreeBytes,
+  sessions: mgPeers.length ? { count: sessionCount(mgPeers), here: running, others: othersSummary(mgPeers) } : undefined,
 })
 const round1 = (n: number): number => Math.round(n * 10) / 10
 // Redraws only when what is drawn changes.
@@ -283,7 +306,7 @@ async function syncGuard($: EngineInterface, running: number): Promise<void> {
     mgWarned = r.warned
     if (r.toast) $.ui.toast(guardVerdict({ ...g, running: 0 })?.reason ?? 'Machine Guard: RAM is tight')
   }
-  if (running < g.maxAgents) mgWarned = noteTrip(mgWarned, 'agents', false).warned
+  if (g.running < g.maxAgents) mgWarned = noteTrip(mgWarned, 'agents', false).warned
   const used = useGb(g)
   const per = perAgentBytes(mgLearned)
   const next = {
@@ -295,6 +318,8 @@ async function syncGuard($: EngineInterface, running: number): Promise<void> {
     autoLabel: autoMaxLabel(calibratedNow(), g.limitBytes, per),
     perAgent: perAgentLine(per, mgLearned !== null),
     isTight: tight !== null,
+    others: peerAgents(mgPeers),
+    sessions: sessionCount(mgPeers),
   }
   const was = await read($, guard)
   if (JSON.stringify(was) !== JSON.stringify(next)) await update($, guard, () => next)
@@ -303,6 +328,7 @@ async function syncGuard($: EngineInterface, running: number): Promise<void> {
 async function loadGuard($: EngineInterface): Promise<void> {
   mgRam = cleanRamLimit(await $.store.get('ramLimit').catch(() => undefined))
   mgMaxSetting = cleanMaxAgents(await $.store.get('maxAgents').catch(() => undefined))
+  mgKill = cleanKillSwitch(await $.store.get('killSwitch').catch(() => undefined))
   const learned = (await $.store.get(AGENT_RAM_KEY).catch(() => undefined)) as number | undefined
   mgLearned = typeof learned === 'number' && learned > 0 ? learned : null
   const saved = (await $.store.get(GUARD_KEY).catch(() => undefined)) as { os?: Machine['os']; totalBytes?: number; cores?: number } | undefined
@@ -368,16 +394,122 @@ async function freshClaude($: EngineInterface, maxAgeMs: number): Promise<void> 
     mgBusy = false
   }
 }
-// The ticker calls this while work runs; it does nothing unless 15 s have passed and no probe is still going.
+// ---- one budget across sessions: this session's record, and the others' ----
+// The session's id; if the engine cannot say, a random one for this process.
+async function sessionKey($: EngineInterface): Promise<string> {
+  try {
+    const id = String(await $.session.id())
+    if (id) mgSid = id
+  } catch {
+    // keep the last one
+  }
+  if (!mgSid) mgSid = `p${Math.random().toString(36).slice(2, 10)}`
+  return mgSid
+}
+// The project folder's name, so a refusal can say which session holds what.
+async function sessionName($: EngineInterface): Promise<string> {
+  if (!mgName) mgName = await $.session.root().then(r => r.split(/[\\/]/).filter(Boolean).pop() ?? '', () => '')
+  return mgName
+}
+// The other live sessions: every `mg.s.*` key but this session's, fresh ones only. Old records are deleted here.
+async function readPeers($: EngineInterface, now: number): Promise<Peer[]> {
+  try {
+    const sid = await sessionKey($)
+    const entries: Record<string, unknown> = {}
+    for (const k of (await $.store.keys()).filter(key => key.startsWith(SESSION_PREFIX))) entries[k.slice(SESSION_PREFIX.length)] = await $.store.get(k)
+    const { peers, drop } = peersOf(entries, sid, now)
+    for (const id of drop) await $.store.delete(SESSION_PREFIX + id).catch(() => undefined)
+    mgPeers = peers
+  } catch {
+    // The last list stays.
+  }
+  return mgPeers
+}
+// Writes this session's record: its crew, its heavy hold, whether it works, and when. One write at a time.
+function publishSelf($: EngineInterface, now: number): Promise<void> {
+  mgPubQ = mgPubQ
+    .then(async () => {
+      const rec = { agents: mgOwnAgents, busy: mgWorking, heavy: mgHold, at: now, name: await sessionName($) }
+      mgLive = rec.agents > 0 || rec.busy || rec.heavy !== null
+      mgPubAt = now
+      await $.store.set(SESSION_PREFIX + (await sessionKey($)), rec)
+    })
+    .catch(() => undefined)
+  return mgPubQ
+}
+// Work runs: every HEARTBEAT_MS the others are read and this session's record is renewed.
+async function beatGuard($: EngineInterface, at: number): Promise<void> {
+  if (at - mgPubAt < HEARTBEAT_MS - 1000) return
+  mgWorking = true
+  mgOwnAgents = await crewCount($)
+  await readPeers($, at)
+  await publishSelf($, at)
+}
+// Work has stopped: one write retires the record, so the others stop counting this session at once.
+async function idleGuard($: EngineInterface, at: number): Promise<void> {
+  if (!mgLive || mgHold) return
+  mgWorking = false
+  mgOwnAgents = 0
+  mgPeers = []
+  await publishSelf($, at)
+  await syncGuard($, mgRunning)
+}
+async function forgetSession($: EngineInterface): Promise<void> {
+  mgWorking = false
+  mgOwnAgents = 0
+  mgHold = null
+  mgLive = false
+  mgPeers = []
+  await $.store.delete(SESSION_PREFIX + (await sessionKey($))).catch(() => undefined)
+}
+
+// ---- the kill switch ----
+// Claude is over its limit on a FRESH look: stop the biggest heavy process under it, one at a time.
+// The process table with command lines is read only then, and merged with the names by pid.
+async function killIfOver($: EngineInterface, procs: Proc[], readAt: number): Promise<void> {
+  if (mgKill !== 'on' || !mgKind) return
+  const limit = limitNow()
+  const used = claudeBytes(procs)
+  if (limit === null || used === null || used <= limit) return
+  const p = PROBES[mgKind]
+  const rows = p.parseProcsArgs(await probeOut($, p.procsArgs))
+  if (!rows.length) return
+  const now = await $.clock.now()
+  const d = killDecision({ enabled: true, limitBytes: limit, procs: withArgs(procs, rows), readAgeMs: now - readAt, sinceKillMs: mgKillAt === null ? null : now - mgKillAt })
+  if ('kill' in d) await stopProcess($, d.kill, d.claudeBytes, limit, now)
+}
+// Stops ONE process: first checks its command line is still the one chosen (a pid can be reused),
+// then a polite stop, and a forced one 5 s later if it is still there. The wait does not hold the sampler.
+async function stopProcess($: EngineInterface, t: KillTarget, used: number, limit: number, now: number): Promise<void> {
+  if (!mgKind) return
+  const p = PROBES[mgKind]
+  const same = async () => (await probeOut($, p.argsOf(t.pid))).trim() === t.args.trim()
+  if (!(await same())) return
+  mgKillAt = now
+  mgKillSeq++
+  const term = p.term(t.pid)
+  await $.process.run([term.cmd, ...term.args], { timeoutMs: 10_000 }).catch(() => undefined)
+  mgStopped = { text: killNote(t, used, limit), at: now }
+  $.ui.toast(killToast(t, used, limit))
+  void (async () => {
+    await $.process.run(p.sleep(Math.ceil(KILL_TERM_WAIT_MS / 1000)), { timeoutMs: 15_000 }).catch(() => undefined)
+    if (!(await same())) return
+    const force = p.force(t.pid)
+    await $.process.run([force.cmd, ...force.args], { timeoutMs: 10_000 }).catch(() => undefined)
+  })().catch(() => undefined)
+}
+
+// The ticker calls this while work runs; it does nothing unless 15 s have passed (5 s when Claude is near its limit) and no probe is still going.
 async function sampleGuard($: EngineInterface, at: number, running: number): Promise<void> {
-  if (mgBusy || !mgKind || at - mgSampleAt < GUARD_EVERY_MS) return
+  const hot = isHot(mgClaude, limitNow(), mgKill === 'on')
+  if (mgBusy || !mgKind || at - mgSampleAt < (hot ? HOT_EVERY_MS : GUARD_EVERY_MS)) return
   mgBusy = true
   mgSampleAt = at
   try {
     const p = PROBES[mgKind]
     const info = p.parseMachine(await probeOut($, p.machine))
     if (info.freeBytes !== null) mgFreeBytes = info.freeBytes
-    if (at - mgProcsAt >= p.procsEveryMs) {
+    if (at - mgProcsAt >= (hot ? HOT_EVERY_MS : p.procsEveryMs)) {
       mgProcsAt = at
       // A table that timed out or failed keeps the last measure, not the system-wide fallback.
       const seq = mgLockSeq
@@ -386,8 +518,10 @@ async function sampleGuard($: EngineInterface, at: number, running: number): Pro
         mgClaude = claudeBytes(procs)
         mgClaudeLean = claudeBytes(procs, true)
         await learnFromSample($, running, canLearn(mgLock !== null, seq, mgLockSeq))
+        await killIfOver($, procs, at)
       }
     }
+    await beatGuard($, at)
     await syncGuard($, running)
   } catch {
     // A failed look changes nothing.
@@ -417,6 +551,8 @@ async function guardSpawn($: EngineInterface): Promise<{ deny?: string; at?: num
   const at = await $.clock.now()
   await sampleGuard($, at, mgRunning)
   await freshClaude($, FRESH_MS)
+  // The other sessions' crews are read fresh; they count against the same maximum.
+  await readPeers($, at)
   // Counted after the (slow) look, then no await till the verdict: a spawn let through meanwhile is counted.
   const listed = await crewCount($)
   mgPending = mgPending.filter(t => at - t < 60_000)
@@ -428,6 +564,10 @@ async function guardSpawn($: EngineInterface): Promise<{ deny?: string; at?: num
   if (r.toast && v) $.ui.toast(v.reason)
   if (!v) {
     mgPending.push(at)
+    // This session's crew, with the new agent in it, is written at once so the others see it.
+    mgWorking = true
+    mgOwnAgents = listed + mgPending.length
+    void publishSelf($, at)
     return { at }
   }
   // A refusal for RAM tells the person once too (the sample may not have).
@@ -439,7 +579,18 @@ function releaseSpawn(at: number | undefined): void {
   const i = at === undefined ? -1 : mgPending.indexOf(at)
   if (i >= 0) mgPending.splice(i, 1)
 }
-const guardRule = (): string => ruleText(limitNow(), perAgentBytes(mgLearned), effectiveMax(mgMaxSetting, calibratedNow()), calibratedNow(), tightKind(guardInput(0)) !== null)
+const guardRule = (now: number): string =>
+  ruleText(limitNow(), perAgentBytes(mgLearned), effectiveMax(mgMaxSetting, calibratedNow()), calibratedNow(), tightKind(guardInput(0)) !== null, {
+    sessions: mgPeers.length ? sessionCount(mgPeers) : 1,
+    killOn: mgKill === 'on',
+    stopped: killNoteLive(mgStopped, now),
+  })
+async function setKillSwitch($: EngineInterface, v: KillSwitch): Promise<void> {
+  mgKill = cleanKillSwitch(v)
+  await $.store.set('killSwitch', mgKill).catch(() => undefined)
+  await update($, settings, prev => ({ ...prev, killSwitch: mgKill }))
+  $.ui.toast(mgKill === 'on' ? '\u{1F52A} Kill switch on: Claude over its RAM limit has its biggest heavy command stopped' : '\u{1F52A} Kill switch off: Machine Guard only refuses new work')
+}
 async function setRamLimit($: EngineInterface, v: string): Promise<void> {
   mgRam = cleanRamLimit(v)
   await $.store.set('ramLimit', mgRam).catch(() => undefined)
@@ -479,41 +630,80 @@ async function typeMaxAgents($: EngineInterface, typed: string): Promise<void> {
   await setMaxAgents($, n)
 }
 
-// The heavy-command lock: one type check, test run or build at a time, for everyone. A second
-// one WAITS here (up to LOCK_WAIT_MS), then is refused. The wait is a short `sleep` process:
-// a `$` call in flight is free of the hook's 10 s budget, while $.clock.sleep would spend it.
-// Where no sleep command runs, the second one is refused at once. Returns a deny reason, or
-// null when `owner` now holds the lock (and must call releaseHeavy).
+// The heavy-command lock: one type check, test run or build at a time, for everyone: the main loop,
+// every sub-agent, and every other live session. A second one WAITS here (up to LOCK_WAIT_MS), then
+// is refused. The wait is a short `sleep` process: a `$` call in flight is free of the hook's 10 s
+// budget, while $.clock.sleep would spend it. Where no sleep command runs, the second one is refused
+// at once. Returns a deny reason, or null when `owner` now holds the lock (and must call releaseHeavy).
+// Within this session `mgLock` orders the callers; across sessions the hold is a field of the session's
+// own store record: written, then read back, and the OLDEST hold wins.
+async function claimGlobal($: EngineInterface, label: string): Promise<Peer | null> {
+  let at = await $.clock.now()
+  await readPeers($, at)
+  const other = peerHeavy(mgPeers, at)
+  if (other) return other
+  at = await $.clock.now()
+  mgHold = { cmd: label, since: at }
+  mgWorking = true
+  await publishSelf($, at)
+  // With other sessions about, give a simultaneous claim a moment to land, then see who is oldest.
+  if (mgPeers.length) {
+    await $.process.run(mgKind === 'win' ? PROBES.win.sleep(1) : ['sleep', '0.3'], { timeoutMs: 5_000 }).catch(() => undefined)
+    const now = await $.clock.now()
+    await readPeers($, now)
+    if (!holdWins(await sessionKey($), at, mgPeers, now)) {
+      const winner = peerHeavy(mgPeers, now)
+      mgHold = null
+      await publishSelf($, now)
+      return winner
+    }
+  }
+  return null
+}
 async function takeHeavy($: EngineInterface, owner: string, label: string, signal: AbortSignal | undefined): Promise<string | null> {
   const start = await $.clock.now()
   await freshClaude($, FRESH_MS)
   const ram = heavyRamVerdict(guardInput(mgRunning), label)
   if (ram) return ram
-  let held = lockTry(mgLock, owner, label, start)
-  mgLock = held.lock
-  if (held.got) {
-    mgLockSeq++
-    return null
-  }
-  const argv = mgKind === 'win' ? ['powershell', '-NoProfile', '-Command', 'Start-Sleep -Seconds 3'] : ['sleep', '3']
-  for (let i = 0; i < Math.ceil(LOCK_WAIT_MS / 3000); i++) {
-    const ok = await $.process.run(argv, { timeoutMs: 8_000 }).then(r => r.exitCode === 0, () => false)
-    if (!ok || signal?.aborted) break
-    const now = await $.clock.now()
-    held = lockTry(mgLock, owner, label, now)
+  const argv = PROBES[mgKind ?? 'unix'].sleep(3)
+  let blocked = label
+  let where = ''
+  let isLocal = false
+  for (let i = 0; i <= Math.ceil(LOCK_WAIT_MS / 3000); i++) {
+    const now = i === 0 ? start : await $.clock.now()
+    const held = lockTry(mgLock, owner, label, now)
     mgLock = held.lock
     if (held.got) {
-      mgLockSeq++
-      await freshClaude($, 0)
-      return heavyRamVerdict(guardInput(mgRunning), label)
+      if (!isLocal) mgLockSeq++
+      isLocal = true
+      const holder = await claimGlobal($, label).catch(() => null)
+      if (!holder) {
+        // Waited: the look at RAM is made again before it starts.
+        if (i > 0) await freshClaude($, 0)
+        const late = i > 0 ? heavyRamVerdict(guardInput(mgRunning), label) : null
+        if (!late) mgStopped = null
+        return late
+      }
+      blocked = holder.heavy?.cmd ?? label
+      where = holderWhere(holder)
+    } else {
+      blocked = mgLock?.label ?? label
+      where = ''
     }
-    if (now - start >= LOCK_WAIT_MS) break
+    if (now - start >= LOCK_WAIT_MS || i >= Math.ceil(LOCK_WAIT_MS / 3000)) break
+    const ok = await $.process.run(argv, { timeoutMs: 8_000 }).then(r => r.exitCode === 0, () => false)
+    if (!ok || signal?.aborted) break
   }
-  return lockDenyReason(mgLock?.label ?? label)
+  return lockDenyReason(blocked, where)
 }
-function releaseHeavy(owner: string): void {
+async function releaseHeavy($: EngineInterface, owner: string): Promise<void> {
   mgLock = lockRelease(mgLock, owner)
   mgLockSeq++
+  // The last local holder lets go of the global hold too, so another session can start.
+  if (mgLock === null && mgHold) {
+    mgHold = null
+    await publishSelf($, await $.clock.now())
+  }
 }
 
 // The daily soft cap (/tokens daily 2): the Token Manager warns at 80% and 100% of
@@ -1462,9 +1652,9 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
 
 const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.id)
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
-const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, crewAlways: false, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, dailyUsd: 0, autopilot: false, keepWarm: false, budgetUsd: 0, tkOn: true, tkJobMin: 60, tkAgentMin: 20, ramLimit: 'auto', maxAgents: 0 })
+const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, crewAlways: false, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, dailyUsd: 0, autopilot: false, keepWarm: false, budgetUsd: 0, tkOn: true, tkJobMin: 60, tkAgentMin: 20, ramLimit: 'auto', maxAgents: 0, killSwitch: 'on' })
 // Machine Guard (hooks/machineguard.ts): what the Settings pane and the band draw. Written only when it changes.
-const guard = atom({ plugin: 'crab-progress', key: 'guard' } as const, { line: 'unknown machine', usedGb: -1, limitGb: 0, max: 4, calibrated: 4, autoLabel: 'Auto · 4 (machine unknown)', perAgent: '≈0.5 GB per agent (default)', isTight: false })
+const guard = atom({ plugin: 'crab-progress', key: 'guard' } as const, { line: 'unknown machine', usedGb: -1, limitGb: 0, max: 4, calibrated: 4, autoLabel: 'Auto · 4 (machine unknown)', perAgent: '≈0.5 GB per agent (default)', isTight: false, others: 0, sessions: 1 })
 const cred = atom({ plugin: 'crab-progress', key: 'cred' } as const, BLANK_CRED)
 // Billing (hooks/billing.ts): which way Claude Code is paid for, and the Keychain key's
 // status. Never the key: the typed text lives in billing.ts's `draft`, in memory only.
@@ -1500,6 +1690,7 @@ const readSettings = async ($: EngineInterface) => {
     ...(await readTimekeeper($).then(t => ({ tkOn: t.on, tkJobMin: t.jobMin, tkAgentMin: t.agentMin }))),
     ramLimit: cleanRamLimit(await $.store.get('ramLimit').catch(() => undefined)),
     maxAgents: cleanMaxAgents(await $.store.get('maxAgents').catch(() => undefined)),
+    killSwitch: cleanKillSwitch(await $.store.get('killSwitch').catch(() => undefined)),
   }
 }
 
@@ -5722,6 +5913,7 @@ export const register: Register = (on, options) => {
         await watchStop($, at, list, boss).catch(() => undefined)
         // Free RAM is looked at only while work runs.
         if (boss.isWorking || st.isBusy || isRunning) void sampleGuard($, at, list.filter(a => a.status === 'running').length)
+        else if (mgLive) void idleGuard($, at)
         // At rest only minute labels move: a look every few seconds is soon enough.
         if (isLive || ++restTicks % TICK_READ_EVERY === 0) await retick($, at, isLive, { boss, all: list, bg, sess: st }).catch(() => undefined)
         const due = CACHE_WARN_MIN.filter(m => left !== null && left > 0 && left <= m * 60)
@@ -5954,12 +6146,15 @@ export const register: Register = (on, options) => {
     const label = heavyCommand(input.command)
     if (!label) return next(e)
     const owner = `${input.tool_use_id ?? 'call'}:${e.agentId ?? 'main'}:${await $.clock.now()}`
+    const stoppedBefore = mgKillSeq
     try {
       const deny = await takeHeavy($, owner, label, next.signal)
       if (deny) return { deny }
-      return await next(e)
+      const done = await next(e)
+      // The kill switch stopped a process while this ran: the model reads why, so it does not just run it again.
+      return mgKillSeq !== stoppedBefore && 'result' in done ? { ...done, context: [...(done.context ?? []), killContext(label)] } : done
     } finally {
-      releaseHeavy(owner)
+      await releaseHeavy($, owner)
     }
   })
 
@@ -6295,6 +6490,7 @@ export const register: Register = (on, options) => {
   // /clear (or an in-process resume) goes on as another conversation: start clean.
   on('session.end', async ($, e, next) => {
     await saveTotals($)
+    await forgetSession($)
     if (e.reason === 'clear' || e.reason === 'resume') {
       pendingCommand = ''
       await update($, session, () => ({ ...BLANK_SESSION, costAtStart: 0 }))
@@ -6412,7 +6608,7 @@ export const register: Register = (on, options) => {
     // Machine Guard's one line: RAM and the crew while work runs, else what the machine allows.
     // The guard atom is written only when what it draws changes.
     const gd = await read($, guard)
-    const guardText = paneLine(gd.limitGb, gd.usedGb, allAgents.filter(a => a.status === 'running').length, gd.max, isWorking)
+    const guardText = paneLine(gd.limitGb, gd.usedGb, allAgents.filter(a => a.status === 'running').length + gd.others, gd.max, isWorking, gd.sessions)
     // The same pill as the One-shot chip, so the two sit side by side as one status row.
     const guardChip = pillChip(guardText, gd.isTight ? SKIN.colors.alert : SKIN.colors.subtext, FONT, SKIN.colors.text, textWidth)
     // The pane's title says "Agents"; inside, only the flow's own name.
@@ -6982,7 +7178,7 @@ export const register: Register = (on, options) => {
     const sections = [...composed.sections]
     if (rules.length) sections.push({ id: 'crab-progress:memory', text: memoryText(rules), scope: 'session' as const })
     sections.push(...(await timekeeperSections($)))
-    sections.push({ id: 'crab-progress:machineguard', text: guardRule(), scope: 'session' as const })
+    sections.push({ id: 'crab-progress:machineguard', text: guardRule(await $.clock.now().catch(() => 0)), scope: 'session' as const })
     // Only the session that can spawn agents is told to: a worker never gets it.
     // Only the main loop is told: it can spawn agents and offers the most tools; a
     // worker, even one with the Agent tool, offers fewer.
@@ -7214,6 +7410,7 @@ export const register: Register = (on, options) => {
     const budgetOptions = stepOptions(BUDGET_STEPS, prefs.budgetUsd, v => fmtCost(v))
     const ramOptions = ramLimitOptions(prefs.ramLimit)
     const agentOptions = maxAgentsOptions(gd.autoLabel, prefs.maxAgents)
+    const killChoices = killOptions()
     const money = card(
       'set-money',
       '💰 Money',
@@ -7282,6 +7479,15 @@ export const register: Register = (on, options) => {
           }} />
         ),
         Field ? <Field key="set-agents-type" label="…or type a number" placeholder="agents, like 24" value="" submitLabel="set" onSubmit={(v: string) => void typeMaxAgents($, v)} /> : null,
+      ),
+      opt(
+        'opt-kill',
+        'If Claude goes over its RAM limit, stops its biggest heavy command (tsc, tests, builds).',
+        Pick ? (
+          <Pick key="set-kill-pick" label="🔪\uFE0E Kill switch" value={among(cleanKillSwitch(prefs.killSwitch), killChoices)} options={killChoices} onSelect={v => void setKillSwitch($, cleanKillSwitch(v))} />
+        ) : (
+          <Button key="set-kill" label={`🔪\uFE0E Kill switch: ${cleanKillSwitch(prefs.killSwitch) === 'on' ? 'On' : 'Off'} ▸`} plain onPress={async () => setKillSwitch($, cleanKillSwitch((await read($, settings)).killSwitch) === 'on' ? 'off' : 'on')} />
+        ),
       ),
       opt(
         'opt-agent-ram',
@@ -7907,7 +8113,7 @@ export const register: Register = (on, options) => {
           <Text color={CLAY}>{isWorking ? '▣' : '□'}</Text>
           <Text color={gaugeColor(info.contextPct)}>◔ {info.contextPct}%</Text>
           {tkBand ? <Text color={budgetTone(tkBand.usedMs, tkBand.min) || undefined}>⏱ {budgetLabel(tkBand.usedMs, tkBand.min)}</Text> : null}
-          {isWorking && gd.usedGb >= 0 ? <Text color={gd.isTight ? SKIN.colors.alert : undefined} dimColor={!gd.isTight}>{paneLine(gd.limitGb, gd.usedGb, list.filter(a => a.status === 'running').length, gd.max, true)}</Text> : null}
+          {isWorking && gd.usedGb >= 0 ? <Text color={gd.isTight ? SKIN.colors.alert : undefined} dimColor={!gd.isTight}>{paneLine(gd.limitGb, gd.usedGb, list.filter(a => a.status === 'running').length + gd.others, gd.max, true, gd.sessions)}</Text> : null}
           {bgLabel ? <Text color={ACCENT}>{bgLabel}</Text> : null}
           {crewButton}
           {dismiss}

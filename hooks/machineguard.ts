@@ -11,7 +11,7 @@ export type Machine = { os: 'mac' | 'windows' | 'linux' | 'unknown'; totalBytes:
 /** The probe's raw answer: nulls where a number could not be read. */
 export type RawMachine = { os: Machine['os']; totalBytes: number | null; freeBytes: number | null; cores: number | null }
 /** One process of the machine, as the probes list them. */
-export type Proc = { pid: number; ppid: number; rssBytes: number; name: string }
+export type Proc = { pid: number; ppid: number; rssBytes: number; name: string; /** The whole command line, when the kill switch looked for it. */ args?: string }
 
 /** Agents the crew may run at once when the machine is unknown: modest, never a trap. */
 export const UNKNOWN_MAX_AGENTS = 4
@@ -231,6 +231,8 @@ export type GuardInput = {
   claudeBytes: number | null
   /** Free RAM as of the last sample; null before the first one. */
   freeBytes: number | null
+  /** More than one live session shares the budget: `running` counts them all; `here` is this session's own. `others` says where the rest are. */
+  sessions?: { count: number; here: number; others: string }
 }
 
 export const usedBytes = (g: GuardInput): number | null => (g.machine.totalBytes && g.freeBytes !== null ? Math.max(0, g.machine.totalBytes - g.freeBytes) : null)
@@ -256,7 +258,8 @@ const basisOf = (g: GuardInput): string =>
 export function guardVerdict(g: GuardInput): { kind: Kind; reason: string } | null {
   const here = g.machine.totalBytes ? `on this ${Math.round(gbOf(g.machine.totalBytes))} GB ${osName(g.machine.os)}` : 'on this machine'
   if (g.running >= g.maxAgents) {
-    return { kind: 'agents', reason: `Machine Guard: ${g.running} of ${g.maxAgents} agents running ${basisOf(g)}. Wait for one to finish, or raise the limit in Settings.` }
+    const shared = g.sessions && g.sessions.count > 1 ? ` across ${g.sessions.count} sessions (${g.sessions.here} here${g.sessions.others ? `, ${g.sessions.others}` : ''})` : ''
+    return { kind: 'agents', reason: `Machine Guard: ${g.running} of ${g.maxAgents} agents running${shared} ${basisOf(g)}. Wait for one to finish, or raise the limit in Settings.` }
   }
   const tight = tightKind(g)
   if (tight === 'free') {
@@ -272,7 +275,7 @@ export function guardVerdict(g: GuardInput): { kind: Kind; reason: string } | nu
  * The Machine Guard rule in the system prompt: the limit and what it allows, in one line
  * Claude cannot misread; a stronger line when RAM is tight.
  */
-export function ruleText(limitBytes: number | null, perAgent: number, max: number, calibrated: number, isTight: boolean): string {
+export function ruleText(limitBytes: number | null, perAgent: number, max: number, calibrated: number, isTight: boolean, shared: RuleExtras = {}): string {
   const crew = `${max} agent${max === 1 ? '' : 's'}`
   const head =
     limitBytes === null
@@ -282,8 +285,13 @@ export function ruleText(limitBytes: number | null, perAgent: number, max: numbe
         : `Machine Guard: Claude may use ${fmtGbBytes(limitBytes)} GB of RAM, and the person set the crew to at most ${crew} at once.`
   const lines = [head, 'Run heavy commands (test suites, type checks, builds) one at a time; the guard makes a second one wait.']
   if (isTight) lines.push('RAM is tight: run no new agents and no heavy commands until it frees up.')
+  if (shared.sessions && shared.sessions > 1) lines.push(`${shared.sessions} Claude sessions are running and share that budget: the agent count and the one heavy command at a time are across all of them.`)
+  if (shared.killOn) lines.push('If Claude goes over its RAM limit the guard stops the biggest heavy command it finds (tsc, a test run, a build); prefer smaller scopes so it never has to.')
+  if (shared.stopped) lines.push(shared.stopped)
   return lines.join(' ')
 }
+/** Extra lines for ruleText: how many live sessions share the budget, whether the kill switch is on, and the note about a command it stopped. */
+export type RuleExtras = { sessions?: number; killOn?: boolean; stopped?: string | null }
 
 // ---- warn once, re-arm on recovery -------------------------------------------------
 
@@ -310,17 +318,17 @@ export const useGb = (g: GuardInput): number | null => {
   return m === null ? null : gbOf(m)
 }
 /** The band's line: "RAM 9.1/15 GB · 3/30 agents". A null `usedGb` (no sample yet) shows "?"; a null limit is left out. */
-export const hudLine = (usedGb: number | null, limitGb: number | null, running: number, max: number): string =>
-  `RAM ${usedGb === null ? '?' : fmtGb(usedGb)}${limitGb === null ? ' GB' : `/${fmtGb(limitGb)} GB`} \u00b7 ${running}/${max} agents`
-export const hudText = (g: GuardInput): string => hudLine(useGb(g), g.limitBytes === null ? null : gbOf(g.limitBytes), g.running, g.maxAgents)
+export const hudLine = (usedGb: number | null, limitGb: number | null, running: number, max: number, sessions = 1): string =>
+  `RAM ${usedGb === null ? '?' : fmtGb(usedGb)}${limitGb === null ? ' GB' : `/${fmtGb(limitGb)} GB`} \u00b7 ${running}/${max} agents${sessions > 1 ? ` \u00b7 ${sessions} sessions` : ''}`
+export const hudText = (g: GuardInput): string => hudLine(useGb(g), g.limitBytes === null ? null : gbOf(g.limitBytes), g.running, g.maxAgents, g.sessions?.count ?? 1)
 /** The machine in two words: "48 GB Mac"; '' when unknown. */
 export const shortMachine = (m: Machine): string => (m.totalBytes ? `${Math.round(gbOf(m.totalBytes))} GB ${osName(m.os)}` : '')
 /**
  * The one Machine Guard line of the desktop pane and the band: "RAM 9.1/15 GB · 3/30 agents"
  * while work runs, else "15 GB limit · up to 30 agents". Negative numbers mean unknown.
  */
-export function paneLine(limitGb: number, usedGb: number, running: number, max: number, isWorking: boolean): string {
-  if (isWorking) return `\u{1F6E1}\uFE0E ${hudLine(usedGb >= 0 ? usedGb : null, limitGb > 0 ? limitGb : null, running, max)}`
+export function paneLine(limitGb: number, usedGb: number, running: number, max: number, isWorking: boolean, sessions = 1): string {
+  if (isWorking) return `\u{1F6E1}\uFE0E ${hudLine(usedGb >= 0 ? usedGb : null, limitGb > 0 ? limitGb : null, running, max, sessions)}`
   return `\u{1F6E1}\uFE0E ${limitGb > 0 ? `${fmtGb(limitGb)} GB limit \u00b7 ` : ''}up to ${max} agent${max === 1 ? '' : 's'}`
 }
 /** An agent the crew counts: started or about to, and not ended or idle between turns. */
@@ -414,7 +422,7 @@ export function lockTry(lock: HeavyLock | null, owner: string, label: string, no
 export const lockRelease = (lock: HeavyLock | null, owner: string): HeavyLock | null => (lock && lock.owner === owner ? null : lock)
 
 /** Why a heavy command waits no longer. */
-export const lockDenyReason = (label: string): string => `Machine Guard: another heavy command (${label}) is running; retry when it finishes.`
+export const lockDenyReason = (label: string, where = ''): string => `Machine Guard: another heavy command (${label}) is running${where ? ` ${where}` : ''}; retry when it finishes.`
 
 /** Why a NEW heavy command is refused while Claude is over its RAM limit, or null. */
 export function heavyRamVerdict(g: GuardInput, label: string): string | null {
@@ -429,3 +437,259 @@ export function heavyRamVerdict(g: GuardInput, label: string): string | null {
 export const canLearn = (isLockHeld: boolean, seqBefore: number, seqNow: number): boolean => !isLockHeld && seqBefore === seqNow
 /** A process read older than this is not trusted to refuse anything. */
 export const FRESH_MS = 5_000
+
+// ---- one budget across every live session ------------------------------------------
+// Each session of the mod writes ONE key of its own in the plugin's store (`mg.s.<sessionId>`), so
+// writes never race: `$.store` is a JSON file every session reads fresh. Peers are read only while
+// work runs, at spawn time and at heavy-command time. A record older than PEER_FRESH_MS is a
+// session that ended or crashed and is ignored; a heavy hold older than LOCK_STALE_MS is broken.
+
+export const SESSION_PREFIX = 'mg.s.'
+/** A session's record counts for this long after its last write. */
+export const PEER_FRESH_MS = 60_000
+/** A working session rewrites its record this often. */
+export const HEARTBEAT_MS = 15_000
+/** A record this old is deleted when a session reads the store. */
+export const PEER_DROP_MS = 10 * 60_000
+
+/** The heavy command a session runs: what it is, and when (the clock's ms) it got the hold. */
+export type Hold = { cmd: string; since: number }
+/** What a session writes about itself. */
+export type SessionRec = { agents: number; busy: boolean; heavy: Hold | null; at: number; name: string }
+export type Peer = SessionRec & { id: string }
+
+const wholeNum = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : null)
+
+/** A stored record cleaned, or null when it is not one. */
+export function cleanSessionRec(v: unknown): SessionRec | null {
+  if (!v || typeof v !== 'object') return null
+  const r = v as Record<string, unknown>
+  const at = wholeNum(r.at)
+  const agents = wholeNum(r.agents)
+  if (at === null || agents === null) return null
+  const h = r.heavy as Record<string, unknown> | null | undefined
+  const since = h && typeof h === 'object' ? wholeNum(h.since) : null
+  const heavy: Hold | null = h && typeof h === 'object' && since !== null && typeof h.cmd === 'string' ? { cmd: h.cmd.slice(0, 60), since } : null
+  return { agents, busy: r.busy === true, heavy, at, name: typeof r.name === 'string' ? r.name.slice(0, 40) : '' }
+}
+
+/**
+ * The other live sessions in the store's `mg.s.*` entries (id → raw value), and the ids whose
+ * record is old enough to delete. A peer counts when it is fresh and has something going on:
+ * agents, a heavy hold, or work in the main loop. `self` is left out.
+ */
+export function peersOf(entries: Readonly<Record<string, unknown>>, self: string, now: number): { peers: Peer[]; drop: string[] } {
+  const peers: Peer[] = []
+  const drop: string[] = []
+  for (const [id, raw] of Object.entries(entries)) {
+    if (id === self) continue
+    const rec = cleanSessionRec(raw)
+    if (!rec || now - rec.at >= PEER_DROP_MS) {
+      drop.push(id)
+      continue
+    }
+    // A clock far ahead of ours is not trusted either.
+    if (now - rec.at >= PEER_FRESH_MS || rec.at - now >= PEER_FRESH_MS) continue
+    if (rec.agents > 0 || rec.busy || rec.heavy) peers.push({ ...rec, id })
+  }
+  return { peers: peers.sort((a, b) => a.id.localeCompare(b.id)), drop }
+}
+
+export const peerAgents = (peers: readonly Peer[]): number => peers.reduce((n, p) => n + p.agents, 0)
+export const sessionCount = (peers: readonly Peer[]): number => peers.length + 1
+/** Where the other agents are: "11 in claude mod, 3 in notes"; '' when the others run none. */
+export function othersSummary(peers: readonly Peer[]): string {
+  const parts = peers.filter(p => p.agents > 0).map(p => `${p.agents} in ${p.name || 'another session'}`)
+  return parts.join(', ')
+}
+
+/** The peer holding the heavy-command lock: the earliest hold that is not stale (ties go to the lower id). */
+export function peerHeavy(peers: readonly Peer[], now: number): Peer | null {
+  let best: Peer | null = null
+  for (const p of peers) {
+    if (!p.heavy || now - p.heavy.since >= LOCK_STALE_MS) continue
+    if (!best || !best.heavy || p.heavy.since < best.heavy.since || (p.heavy.since === best.heavy.since && p.id < best.id)) best = p
+  }
+  return best
+}
+/** After writing its own hold, whether this session still wins: no other session's hold is older (ties go to the lower id). */
+export function holdWins(self: string, since: number, peers: readonly Peer[], now: number): boolean {
+  const other = peerHeavy(peers, now)
+  if (!other || !other.heavy) return true
+  return since < other.heavy.since || (since === other.heavy.since && self < other.id)
+}
+/** Where a refused heavy command's holder is: "in claude mod" or "in another session". */
+export const holderWhere = (p: Peer | null): string => (p ? `in ${p.name ? `"${p.name}"` : 'another session'}` : '')
+
+// ---- the kill switch ---------------------------------------------------------------
+// When a FRESH look shows Claude over its RAM limit, stop the biggest heavy process that runs
+// under a Claude process, one at a time. Never a Claude process, an app, an MCP server, a
+// shell, or anything outside a Claude tree.
+
+export type KillSwitch = 'on' | 'off'
+/** The kill switch setting: on unless it was set to 'off'. */
+export const cleanKillSwitch = (v: unknown): KillSwitch => (v === 'off' || v === false ? 'off' : 'on')
+export const killOptions = (): { value: string; label: string }[] => [
+  { value: 'on', label: 'On' },
+  { value: 'off', label: 'Off' },
+]
+/** One process is stopped at a time, then this long passes before the next look may stop another. */
+export const KILL_COOLDOWN_MS = 20_000
+/** A heavy process under this size is left alone: stopping it would not bring Claude under the limit. */
+export const KILL_MIN_BYTES = 256 * 1024 * 1024
+/** After a polite stop, how long before a forced one. */
+export const KILL_TERM_WAIT_MS = 5_000
+/** How long Claude is told about a command that was stopped. */
+export const KILL_NOTE_MS = 15 * 60_000
+/** Claude at this share of its limit (or more) is looked at every HOT_EVERY_MS, not every SAMPLE_EVERY_MS. */
+export const HOT_SHARE = 0.7
+export const HOT_EVERY_MS = 5_000
+/** Whether Claude is close enough to its limit to look often. */
+export const isHot = (claude: number | null, limitBytes: number | null, enabled: boolean): boolean => enabled && claude !== null && limitBytes !== null && limitBytes > 0 && claude >= limitBytes * HOT_SHARE
+
+export type KillTarget = { pid: number; name: string; args: string; label: string; rssBytes: number }
+
+const base = (s: string): string => (s.split(/[\\/]/).pop() ?? '').replace(/\.(exe|js|mjs|cjs|ts)$/i, '').trim().toLowerCase()
+const INTERPRETERS = /^(node|nodejs|bun|deno|tsx|ts-node|python[0-9.]*|ruby|java)$/
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'fish', 'dash', 'ksh', 'tcsh', 'csh', 'login', 'sudo', 'su', 'tmux', 'screen', 'powershell', 'pwsh', 'cmd', 'conhost'])
+// Programs a person runs themselves and expects to stay: never stopped even if a pattern matched.
+const PROTECTED = /(^|[\\/ ])(code|cursor|windsurf|zed|idea|webstorm|pycharm|xcode|docker|dockerd|ollama|postgres|mysqld|redis-server|mongod|ss[h]|sshd|nginx|launchd|windowserver|finder|dock|explorer|svchost)(\s|$)/i
+const MCP = /mcp|modelcontextprotocol/i
+
+/** The heavy tool a whole command line (as `ps` shows it) runs: `tsc`, `jest`... Also when a script runs it: `node .../bin/tsc`. */
+export function heavyArgs(args: unknown): string | null {
+  if (typeof args !== 'string' || !args.trim()) return null
+  const direct = heavyCommand(args)
+  if (direct) return direct
+  const toks = args.trim().split(/\s+/)
+  if (!INTERPRETERS.test(base(toks[0] ?? ''))) return null
+  const rest = toks.slice(1)
+  const mIdx = rest.indexOf('-m')
+  if (mIdx >= 0) {
+    const mod = base(rest[mIdx + 1] ?? '')
+    return HEAVY_TOOLS.has(mod) ? mod : null
+  }
+  // The script is the first thing that is not a flag. A path with spaces in it ("/Users/me/My Projects/x/node_modules/.bin/tsc")
+  // arrives as several words, so a later word that is itself a path counts too, up to the first flag after the script.
+  let seenScript = false
+  for (const t of rest) {
+    if (t.startsWith('-')) {
+      if (seenScript) break
+      continue
+    }
+    const name = base(t)
+    if (HEAVY_TOOLS.has(name) && (!seenScript || /[\\/]/.test(t))) return name
+    seenScript = true
+  }
+  return null
+}
+
+/** The processes under Claude: every descendant of a Claude root (a process called claude whose parent is not one). */
+function claudeTree(procs: readonly Proc[]): Proc[] {
+  const isClaude = (p: Proc) => base(p.name) === 'claude'
+  const byPid = new Map(procs.map(p => [p.pid, p]))
+  const kids = new Map<number, Proc[]>()
+  for (const p of procs) kids.set(p.ppid, [...(kids.get(p.ppid) ?? []), p])
+  const out: Proc[] = []
+  const seen = new Set<number>()
+  const walk = (p: Proc) => {
+    if (seen.has(p.pid)) return
+    seen.add(p.pid)
+    out.push(p)
+    for (const c of kids.get(p.pid) ?? []) walk(c)
+  }
+  for (const r of procs) if (isClaude(r) && !(byPid.has(r.ppid) && isClaude(byPid.get(r.ppid) as Proc))) walk(r)
+  return out
+}
+
+/** Whether a process must never be stopped, whatever it runs. */
+export function neverKill(p: Proc): boolean {
+  const name = p.name || ''
+  const args = p.args ?? ''
+  const exe = base(name) || base(args.split(/\s+/)[0] ?? '')
+  if (!Number.isInteger(p.pid) || p.pid <= 4) return true
+  // Claude itself, its desktop app and helpers: "claude", "Claude", "Claude Helper (Renderer)"...
+  const lastSeg = (x: string): string => x.split(/[\\/]/).pop() ?? ''
+  if (/claude/i.test(lastSeg(name)) || /claude/i.test(lastSeg(args.split(/\s+/)[0] ?? ''))) return true
+  // Apps (macOS bundles), shells, MCP servers, the user's own tools.
+  if (/\.app[\\/]/i.test(name) || /\.app[\\/]/i.test(args.split(/\s+/)[0] ?? '')) return true
+  if (SHELLS.has(exe) || /^-/.test(name)) return true
+  if (MCP.test(args) || MCP.test(name)) return true
+  if (PROTECTED.test(name) || PROTECTED.test(args.split(/\s+/)[0] ?? '')) return true
+  return false
+}
+
+/**
+ * The one process to stop: the biggest heavy process under a Claude process. A heavy process
+ * with a heavy process of its own below it is a wrapper (npm test around jest): only the one
+ * at the bottom is picked, never the parent. Under `minBytes` is left alone.
+ */
+export function killPick(procs: readonly Proc[], minBytes = KILL_MIN_BYTES): KillTarget | null {
+  const tree = claudeTree(procs)
+  const heavy = new Map<number, string>()
+  for (const p of tree) {
+    const label = p.args ? heavyArgs(p.args) : null
+    if (label && !neverKill(p)) heavy.set(p.pid, label)
+  }
+  if (!heavy.size) return null
+  const byPid = new Map(tree.map(p => [p.pid, p]))
+  const hasHeavyBelow = new Set<number>()
+  for (const pid of heavy.keys()) {
+    const seen = new Set<number>([pid])
+    let up = byPid.get(byPid.get(pid)?.ppid ?? -1)
+    while (up && !seen.has(up.pid)) {
+      seen.add(up.pid)
+      hasHeavyBelow.add(up.pid)
+      up = byPid.get(up.ppid)
+    }
+  }
+  let best: KillTarget | null = null
+  for (const [pid, label] of heavy) {
+    const p = byPid.get(pid) as Proc
+    if (hasHeavyBelow.has(pid) || p.rssBytes < minBytes) continue
+    if (!best || p.rssBytes > best.rssBytes || (p.rssBytes === best.rssBytes && p.pid < best.pid)) best = { pid: p.pid, name: p.name, args: p.args ?? '', label, rssBytes: p.rssBytes }
+  }
+  return best
+}
+
+export type KillSkip = 'off' | 'unknown' | 'under' | 'stale' | 'cooldown' | 'none'
+export type KillInput = {
+  enabled: boolean
+  limitBytes: number | null
+  /** The process table as read just now, with command lines. */
+  procs: readonly Proc[]
+  /** How old that read is, in ms. */
+  readAgeMs: number
+  /** Time since the last process was stopped; null when none was. */
+  sinceKillMs: number | null
+  minBytes?: number
+}
+/** Whether to stop a process now, and which. Only on a fresh read that shows Claude over its limit, once per cooldown. */
+export function killDecision(i: KillInput): { kill: KillTarget; claudeBytes: number } | { skip: KillSkip } {
+  if (!i.enabled) return { skip: 'off' }
+  const used = claudeBytes(i.procs)
+  if (i.limitBytes === null || !(i.limitBytes > 0) || used === null) return { skip: 'unknown' }
+  if (!(used > i.limitBytes)) return { skip: 'under' }
+  if (!(i.readAgeMs >= 0 && i.readAgeMs <= FRESH_MS)) return { skip: 'stale' }
+  if (i.sinceKillMs !== null && i.sinceKillMs < KILL_COOLDOWN_MS) return { skip: 'cooldown' }
+  const kill = killPick(i.procs, i.minBytes)
+  return kill ? { kill, claudeBytes: used } : { skip: 'none' }
+}
+
+/** Process rows from the name list with their command lines from the second list, matched by pid. A row with no command line stays as it was. */
+export function withArgs(procs: readonly Proc[], argRows: readonly { pid: number; args: string }[]): Proc[] {
+  const byPid = new Map(argRows.map(r => [r.pid, r.args]))
+  return procs.map(p => (byPid.has(p.pid) ? { ...p, args: byPid.get(p.pid) } : p))
+}
+
+const gbText = (bytes: number): string => fmtGb(roundGb(bytes))
+/** The toast: "🔪 Machine Guard stopped `tsc` (19.7 GB): Claude was at 24/20 GB". */
+export const killToast = (t: KillTarget, claude: number, limitBytes: number): string => `\u{1F52A} Machine Guard stopped \`${t.label}\` (${gbText(t.rssBytes)} GB): Claude was at ${gbText(claude)}/${gbText(limitBytes)} GB`
+/** The line Claude reads in its next prompt, so it does not just run the command again. */
+export const killNote = (t: KillTarget, claude: number, limitBytes: number): string =>
+  `Machine Guard stopped \`${t.label}\` (${gbText(t.rssBytes)} GB) because Claude was using ${gbText(claude)} GB, over its ${gbText(limitBytes)} GB RAM limit. Do not just re-run it: re-run only when RAM is under the limit, and prefer smaller scopes (one folder, one test file).`
+/** What the stopped command's own tool result is followed by. */
+export const killContext = (label: string): string =>
+  `Machine Guard stopped \`${label}\` because Claude's RAM use went over its limit. Re-run only when RAM is under the limit; prefer smaller scopes (one folder, one test file).`
+/** The note while it is fresh, else null. */
+export const killNoteLive = (note: { text: string; at: number } | null, now: number): string | null => (note && now - note.at < KILL_NOTE_MS ? note.text : null)
