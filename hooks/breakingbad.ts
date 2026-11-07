@@ -31,8 +31,9 @@ export const BB_CSS = `.bbp{animation:bbp 1.2s steps(1) infinite}@keyframes bbp{
 .bbrv{opacity:0;animation:bbrv 2.6s steps(1) both}@keyframes bbrv{0%,50%{opacity:0}55%,82%{opacity:.85}86%,100%{opacity:0}}
 .bbhat{animation:bbhat 4s ease-in-out infinite}@keyframes bbhat{50%{opacity:.12}}
 .bbchip{animation:bbchip 1.6s ease-in-out infinite}@keyframes bbchip{50%{opacity:.62}}
+.bbright{transform-box:fill-box;transform-origin:left center;animation:bbright .45s cubic-bezier(.2,.9,.3,1.25) both}@keyframes bbright{0%{opacity:0;transform:scale(1.35)}55%{opacity:1}100%{opacity:1;transform:scale(1)}}
 .onair{animation:onair 1.4s ease-in-out infinite}@keyframes onair{50%{opacity:.3}}
-@media (prefers-reduced-motion: reduce){.bbp,.bbs,.bbsp,.bbg,.bbt,.bbheat,.bbwin,.bbcheer,.bbhat,.bbchip,.onair{animation:none}.bbh{animation:none;opacity:0}.bbrv{animation:none;opacity:.5}.bbsp{opacity:.5}.bbg{opacity:.5}}`
+@media (prefers-reduced-motion: reduce){.bbp,.bbs,.bbsp,.bbg,.bbt,.bbheat,.bbwin,.bbcheer,.bbhat,.bbchip,.bbright,.onair{animation:none}.bbh{animation:none;opacity:0}.bbrv{animation:none;opacity:.5}.bbsp{opacity:.5}.bbg{opacity:.5}}`
 
 // --- Pixel drawing: rows of letters, runs merged into one path per colour ---
 const pixels = (rows: string[], pal: Record<string, string>, x: number, y: number, px: number, opacity = 1, cls = ''): string => {
@@ -219,6 +220,15 @@ export const BB_GREETING = 'Mr. White is in the lab. Class is in session.'
 export const BB_BOOT = ['OPENING THE LAB…', 'ALBUQUERQUE · NEW MEXICO · CLASS IS IN SESSION']
 export const HEIS_BOOT = ['SAY MY NAME…', 'HEISENBERG · BLUE SKY · NO HALF MEASURES']
 export const HEIS_GREETING = 'Say my name… Heisenberg.'
+// The line that lands when the phrase turns Breaking Bad into Heisenberg: a toast, then a chip on the band for 6 s.
+export const BB_RIGHT = "You're goddamn right!"
+export const BB_REVEAL_MS = 6000
 export const BATCH_TOAST = (task: string): string => `On the honor roll: ${task}`
 // Typing this (with the Breaking Bad skin on) wakes the hidden skin.
-export const SAY_MY_NAME_RE = /say\s+my\s+name/i
+// The Heisenberg unlock phrases: "say my name", or "what's my name" (also whats / wats / wat's / what is, straight or curly
+// apostrophe, any spacing). Whole words only, so "somewhat's my name" or "what's my names" do not count; surrounding
+// punctuation ("?", "!", quotes) is fine.
+export const SAY_MY_NAME_RE = /(?<![a-z0-9])(?:say\s+my\s+name|wh?at(?:\s*['\u2018\u2019\u02BC`\u00B4]?\s*s|\s+is)\s+my\s+name)(?![a-z0-9])/i
+export function isSayMyName(text: string): boolean {
+  return SAY_MY_NAME_RE.test(text)
+}

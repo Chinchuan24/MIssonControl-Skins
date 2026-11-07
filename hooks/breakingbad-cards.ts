@@ -10,7 +10,8 @@
 import { BADGES, levelOf, xpFor } from './extras'
 import type { Beat, Cred, Frame } from './extras'
 import type { Legend } from './eggs'
-import { BB_TOOLS, ELEMENTS, empireRankOf } from './breakingbad'
+import { BB_RIGHT, BB_REVEAL_MS, BB_TOOLS, ELEMENTS, empireRankOf } from './breakingbad'
+import { pin } from './smooth'
 import { BB_HEIS_BUST, BB_WALT_BUST, spriteMarkup } from './cast'
 import type { Sprite } from './cast'
 
@@ -510,6 +511,23 @@ export const bbChip = (x: number, y: number, ctxPct: number, theme: CardTheme, f
   const ink = name ? '#1A0807' : '#1A1505'
   const w = Math.round(sansW(label, 9.5, 0.8, true) + 32)
   return { w, svg: `<g class="bbchip"><rect x="${x}" y="${y - 12}" width="${w}" height="16" rx="3" fill="${fill}"/>${hatPx(x + 6, y - 7.5, 14, ink)}<text x="${x + 25}" y="${y}" font-family="${font}" font-size="9.5" font-weight="700" letter-spacing=".8" fill="${ink}">${label}</text></g>` }
+}
+/**
+ * The unlock line in the band's activity slot (baseline `y`, `room` px wide): a white tag with a crystal-blue edge, slammed in at
+ * `startAt` and gone `BB_REVEAL_MS` later. Both moments are pinned to the clock, so a redraw resumes instead of replaying; an opaque
+ * patch under it hides the activity text meanwhile, and the same pinned `set` takes both away. Reduced motion: the same text, still.
+ * Empty when even the smallest size does not fit (the toast has said it).
+ */
+export const bbRightLine = (x: number, y: number, room: number, theme: CardTheme, font: string, startAt: number): string => {
+  let size = 11.5
+  let w = Math.round(sansW(BB_RIGHT, size, 0.3, true) + 22)
+  while (w > room && size > 9) {
+    size -= 0.5
+    w = Math.round(sansW(BB_RIGHT, size, 0.3, true) + 22)
+  }
+  if (w > room) return ''
+  const ink = '#0A0A0B'
+  return `<g class="bbreveal"><set attributeName="opacity" to="0" begin="${pin(startAt + BB_REVEAL_MS)}" fill="freeze"/><rect x="${x - 3}" y="39" width="${Math.max(w, room) + 3}" height="22" fill="${theme.tile}"/><g class="bbright" style="animation-delay:${pin(startAt)}"><rect x="${x}" y="41" width="${w}" height="18" rx="3" fill="#F4F4F4"/><rect x="${x}" y="41" width="3" height="18" rx="1.5" fill="${BLUE}"/><text x="${x + 11}" y="${y}" font-family="${font}" font-size="${size}" font-weight="800" letter-spacing=".3" fill="${ink}">${esc(BB_RIGHT)}</text></g></g>`
 }
 /** Purity as a small gauge from 96 to 100, with a tick at the famous 99.1; right-aligned at `xr`. */
 export const purityOf = (done: number, total: number): number => +(96.2 + 2.9 * (total > 0 ? clamp(done / total) : 0)).toFixed(1)

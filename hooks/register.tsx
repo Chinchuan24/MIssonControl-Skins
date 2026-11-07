@@ -6,7 +6,8 @@ import { CASTS, CAST_CSS, hashOf, spriteMarkup } from './cast'
 import { BREACH_H, BREACH_W, CJK_FONT, EGG_CSS, EGG_TOOLS, EGG_WORDS, GREETING, KATAKANA, breachCard, breachTicker, celebration, heatStars, legendsCard, legendsHeight, psychoChip, radio, relicText, sandevistan, skyline, sysTag } from './eggs'
 import type { CyberEgg, Egg, Legend } from './eggs'
 import { TYGER_RE } from './mentalist'
-import { BB_SKIN_WORDS, BB_TOOLS, SAY_MY_NAME_RE } from './breakingbad'
+import { BB_REVEAL_MS, BB_RIGHT, BB_SKIN_WORDS, BB_TOOLS, SAY_MY_NAME_RE } from './breakingbad'
+import { bbRightLine } from './breakingbad-cards'
 import { THEMES, themeKeyOf } from './themes'
 import { BYE_CAPRI_RE, CAPRICORN_RE, CAPRI_WORD_RE, ER2_FONT, ER2_TOOLS, ER2_WORDS } from './edgerunners2'
 import { CAPRI_MODE, ER2_MODE_DEFAULT } from './edgerunners2-duet'
@@ -1682,7 +1683,7 @@ const BREAKING_BAD_SKIN: Skin = {
 
 // Heisenberg: the hidden skin of Breaking Bad. Black and white with crystal blue, the
 // pork-pie hat by the title. Not in the picker or the list: `/skin heisenberg` finds it,
-// or typing "say my name" while wearing Breaking Bad.
+// or typing "say my name" or "what's my name" while wearing Breaking Bad.
 const HEISENBERG_SKIN: Skin = {
   id: 'heisenberg',
   cast: 'heisenberg',
@@ -1854,6 +1855,9 @@ const er2Unpack = (s: string): Er2Mode => {
   return { mode: mode === 'capri' ? 'capri' : 'd', since: Number(since) || 0, auto: auto === '1' }
 }
 let ER2: Er2Mode = ER2_MODE_DEFAULT
+// When the phrase turned Breaking Bad into Heisenberg (0: it did not): the band's "You're goddamn right!" is drawn from it for
+// BB_REVEAL_MS, pinned to this time, so a redraw keeps it and it ends on its own. Also kept in the store as bbRevealAt.
+let BB_REVEAL_AT = 0
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
 const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, crewAlways: false, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, ultraBy: 'me' as UltraBy, dailyUsd: 0, autopilot: false, keepWarm: false, budgetUsd: 0, tkOn: true, tkJobMin: 60, tkAgentMin: 20, ramLimit: 'auto', maxAgents: 0, killSwitch: 'on' })
 // Machine Guard (hooks/machineguard.ts): what the Settings pane and the band draw. Written only when it changes.
@@ -2162,6 +2166,8 @@ async function loadSkins($: EngineInterface): Promise<{ folder: string; loaded: 
 }
 
 function applySkin(k: Skin): void {
+  // The reveal belongs to the unlock; any other switch drops it.
+  if (k.id !== 'heisenberg') BB_REVEAL_AT = 0
   // The hidden CAPRICORN id is an alias: Edgerunners 2 in CAPRI mode, the palette of the mode below.
   if (k.id === 'capricorn') k = EDGERUNNERS2_SKIN
   if (k.id === 'edgerunners-2' && ER2.mode === 'capri') {
@@ -5584,6 +5590,8 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   const ax = px + pillW + 12
   const actRoom = Math.max(0, (hasReadouts ? r0 - 18 : W - 14) - ax - 12)
   if (d.activity && actRoom >= 60) s.push(Bd(ax, 54, `› ${fitW(d.activity, 11.5, Math.max(0, actRoom - 14))}`))
+  // Heisenberg's unlock line sits over the activity for a few seconds (and ends itself, so no redraw is needed).
+  if (SKIN.id === 'heisenberg' && BB_REVEAL_AT > 0 && d.at >= BB_REVEAL_AT - 1000 && d.at - BB_REVEAL_AT < BB_REVEAL_MS && actRoom >= 60) s.push(bbRightLine(ax, 54, actRoom, c, FONT, BB_REVEAL_AT))
   if (hasReadouts) {
     s.push(`<line x1="${r0 - 18}" y1="40" x2="${r0 - 18}" y2="76" stroke="${c.line}"/>`)
     const ctxTone = d.ctxPct >= 95 ? c.alert : d.ctxPct >= 85 ? c.warn : c.text
@@ -7854,15 +7862,19 @@ export const register: Register = (on, options) => {
         await foundSecret($, found).catch(() => undefined)
       }
     }
-    // The same for "say my name" typed while wearing Breaking Bad: Heisenberg.
+    // The same for "say my name" or "what's my name" typed while wearing Breaking Bad: Heisenberg.
     if (asked && SKIN.id === 'breaking-bad' && SAY_MY_NAME_RE.test(asked)) {
       const found = SKINS.get('heisenberg')
       if (found) {
         applySkin(found)
+        // Only here, on the switch the phrase makes: the line on the band (from now, before the redraw) and as a toast.
+        BB_REVEAL_AT = await $.clock.now().catch(() => Date.now())
+        await $.store.set('bbRevealAt', BB_REVEAL_AT).catch(() => undefined)
         await $.store.set('skin', found.id).catch(() => undefined)
         await update($, skin, () => found.id)
         await retitle($).catch(() => undefined)
         await foundSecret($, found).catch(() => undefined)
+        $.ui.toast(BB_RIGHT)
       }
     }
     // Edgerunners 2's two modes (the prompt goes on unchanged): "bye capri" sends her back to D (checked first); the whole word
