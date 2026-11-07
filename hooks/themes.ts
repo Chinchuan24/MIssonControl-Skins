@@ -30,6 +30,12 @@ import { CAPRICORN_BOOT, CAPRICORN_GREETING, ER2_BAND_H, ER2_BOOT, ER2_CSS, ER2_
 import { ER2_BADGES, ER2_WORDS as ER2_CRED_WORDS, bootLine, er2RankOf, er2Toast, gigsAlt, gigsCard, syncCard, traceAlt, traceCard } from './edgerunners2-cards'
 import { er2Hack } from './edgerunners2-hack'
 import { DUET_SEED, duetAt, duetPlan } from './edgerunners2-duet'
+import { BAND_H as BCS_BAND_H, BCS_BOOT, BCS_CSS, BCS_GREETING, BCS_TITLE_WORDS, BCS_TOOLS, GENE_BOOT, GENE_GREETING, bcsCheer, bcsChip, bcsCrew, bcsEp, bcsEpW, bcsEpisodeAt, bcsFigure, bcsFoot, bcsGauge, bcsName, bcsTear, bcsWarning, pip as bcsPip } from './bettercallsaul'
+import { BCS_BADGES, BCS_CRED_WORDS, attorneyCard, bcsBootLine, bcsRankOf, bcsToast, docketAlt, docketCard, legalPad, legalPadAlt } from './bettercallsaul-cards'
+import { mikeCameo, mikeRoamer } from './bettercallsaul-mike'
+import { bcsExtras } from './bettercallsaul-extra'
+import { zoomWrap } from './bettercallsaul-fx'
+import type { Fx } from './bettercallsaul-fx'
 import { roamPlan } from './roamer'
 import type { HackArgs } from './edgerunners2-hack'
 import { ER_CAPRI } from './cast'
@@ -39,12 +45,16 @@ import type { Badge, Beat, Cred, CredWords, Frame } from './extras'
 import type { Legend } from './eggs'
 
 /** What the band's figure slot knows: the clock, the context, and whether the job-done celebration is drawing. */
-export type FigureCtx = { at: number; ctxPct: number; party?: boolean }
-export type ThemeKey = 'mentalist' | 'redjohn' | 'breakingbad' | 'heisenberg' | 'edgerunners2' | 'capricorn'
+export type FigureCtx = { at: number; ctxPct: number; party?: boolean; fx?: { kind: string; at: number } }
+export type ThemeKey = 'mentalist' | 'redjohn' | 'breakingbad' | 'heisenberg' | 'edgerunners2' | 'capricorn' | 'bettercallsaul' | 'gene'
+/** The pane cards a roaming act can belong to: the level card, the task card, the log. */
+export type PaneCard = 'cred' | 'task' | 'log'
+/** What a theme's rare scheduled eggs know (all from the clock, so an idle draw still shows them). */
+export type ExtraArgs = { W: number; H: number; surface: 'band' | 'pane'; at: number; ctxPct: number; party?: boolean; card?: PaneCard; unplugAt?: number; fx?: { kind: string; at: number } }
 /** The skin colours a theme's drawers read. */
 export type ThemeColors = { accent: string; accent2: string; done: string; warn: string; alert: string; text: string; subtext: string; muted: string; tile: string; track: string; line: string }
 /** What the band knows when it asks for its corner egg. */
-export type ThemeCtx = { ctxPct: number; overBudget: boolean; /** Is a job running (the Edgerunners 2 frame runs a beam while it works). */ isWorking?: boolean; /** Is a roaming character out on the band (the Edgerunners 2 HUD turns hers). */ capri?: boolean }
+export type ThemeCtx = { ctxPct: number; overBudget: boolean; /** The session total cost in dollars (a band's "Total $1.23"). */ totalUsd?: number; /** The clock. */ at?: number; /** Is a job running (the Edgerunners 2 frame runs a beam while it works). */ isWorking?: boolean; /** Is a roaming character out on the band (the Edgerunners 2 HUD turns hers). */ capri?: boolean }
 
 /** A character who wanders through both panels now and then (roamer.ts): her sprite, rim colours, lines and chance. */
 export type ThemeRoamer = {
@@ -61,8 +71,13 @@ export type ThemeRoamer = {
   peek?: (x: number, y: number, plan: RoamPlan, tm: RoamTiming) => string
   /** The pane's spots: where a peek stands and where a sit sits, for a card W by H. */
   spots?: (W: number, H: number) => { peek?: { x: number; y: number }; sit?: { x: number; y: number } }
-  /** Always drawn over a card past 95% context (shards creeping in along the edge). */
-  creep?: (W: number, H: number, ctxPct: number) => string
+  /** Always drawn over a card past 95% context (shards creeping in along the edge); `card` is which pane card it is drawn on. */
+  creep?: (W: number, H: number, ctxPct: number, card?: PaneCard) => string
+  /** The theme's own walk and sit (see roamer.ts RoamTiming): a plain character without the engine's glitch ghosts. */
+  walk?: (s: number, dir: 1 | -1) => string
+  sit?: (x: number, floorY: number, s: number, dir: 1 | -1) => string
+  /** Which pane card an act belongs to (the cameo and a walk on the cred card, a peek on the log, a sit on the task card); without it, the cred card only. */
+  cardOf?: (kind: 'walk' | 'peek' | 'sit' | 'takeover') => PaneCard
   /** The framing drawn behind her walk and sit (feet at the origin; `s` her scale). */
   halo?: (s: number, dir: 1 | -1) => string
   /** Keyframes for her own pieces (the takeover's), with a reduced-motion rule. */
@@ -143,6 +158,8 @@ export type ThemeEggs = {
   }
   /** A character who roams the band and the pane (a walk, a peek, a sit, now and then a takeover). */
   roamer?: ThemeRoamer
+  /** Rare scheduled eggs drawn over a panel (a car on the band, a face rising through the floor of a card, a dim): pure functions of the clock. */
+  extras?: (o: ExtraArgs) => string
   /** The takeover's look in place of roamer.ts's (a dark scrim, her big, a bubble): a cover over the panel W by H, timed by `tm` (pinned start, or now and start). */
   takeover?: (W: number, H: number, line: string, tm: RoamTiming) => string
   /** One line of the cold read for the slim band. */
@@ -313,7 +330,49 @@ const er2Theme = (sec: boolean): ThemeEggs => ({
   takeover: (W, H, line, tm) => er2Takeover(W, H, line, tm, sec),
 })
 
+// Better Call Saul (and its hidden GENE skin): the strip-mall law office. The band is the slim band in the theme's own hand;
+// ATTORNEY AT LAW is the level card, LEGAL PAD the log, THE DOCKET the task card and the closed jobs. Mike roams.
+const saulTheme = (gene: boolean): ThemeEggs => ({
+  ticker: bcsEpisodeAt,
+  css: BCS_CSS,
+  readout: { w: 0, draw: () => '' },
+  chip: (x, y, ctxPct) => bcsChip(x, y, ctxPct, gene),
+  slimBand: true,
+  slim: {
+    h: BCS_BAND_H,
+    sw: sansW,
+    head: () => ({ svg: '', w: 0 }),
+    name: (x, y, W, _t, _f, ctx) => bcsName(x, y, W, gene, ctx?.totalUsd ?? 0),
+    ep: { w: bcsEpW, draw: (xr, y, code, title, full) => bcsEp(xr, y, code, title, full, gene) },
+    tear: (x, y, w, pct, _t, ctx) => bcsTear(x, y, w, pct, ctx?.ctxPct ?? 0, gene),
+    figure: ctx => zoomWrap(bcsFigure(gene), ctx?.fx as Fx | undefined, ctx?.at ?? 0),
+    crew: (x, y, color) => bcsCrew(x, y, color, gene),
+    pip: (st, cx, cy) => bcsPip(st, cx, cy, gene),
+    gauge: (xr, y, isWorking, done, total) => bcsGauge(xr, y, isWorking, done, total, gene),
+    foot: (W, H, _t, ctx) => bcsFoot(W, H, ctx, gene),
+  },
+  warning: bcsWarning(gene),
+  cheer: (W, H, _font, _t, startAt) => bcsCheer(W, H, gene, startAt),
+  cred: { title: 'ATTORNEY AT LAW', ranks: bcsRankOf, words: BCS_CRED_WORDS, badges: BCS_BADGES, toast: bcsToast, card: (W, c) => attorneyCard(W, c, gene) },
+  card: {
+    draw: (W, task, isWorking, done, total, _t, _font, _frame, legends) => docketCard(W, task, isWorking, done, total, legends, gene),
+    alt: docketAlt,
+  },
+  legends: { title: 'CLOSED CASES', empty: 'No closed cases yet. A matter that runs 3+ minutes gets filed here.', icon: '', alt: 'Closed cases', toast: task => `Filed: ${task}`, hidden: true },
+  log: { draw: (W, beats, pick) => legalPad(W, beats, pick, gene), hasControls: true, alt: legalPadAlt },
+  boot: (gene ? GENE_BOOT : BCS_BOOT) as [string, string],
+  bootDraw: W => bcsBootLine(W, gene),
+  greeting: gene ? GENE_GREETING : BCS_GREETING,
+  words: BCS_TITLE_WORDS,
+  tools: BCS_TOOLS,
+  roamer: mikeRoamer(gene),
+  takeover: (W, H, line, tm) => mikeCameo(W, H, line, tm, gene),
+  extras: bcsExtras(gene),
+})
+
 export const THEMES: Record<ThemeKey, ThemeEggs> = {
+  bettercallsaul: saulTheme(false),
+  gene: saulTheme(true),
   mentalist: caseTheme(false),
   redjohn: caseTheme(true),
   breakingbad: bbTheme(false),

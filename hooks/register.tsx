@@ -9,10 +9,14 @@ import { TYGER_RE } from './mentalist'
 import { BB_REVEAL_MS, BB_RIGHT, BB_SKIN_WORDS, BB_TOOLS, SAY_MY_NAME_RE } from './breakingbad'
 import { bbRightLine } from './breakingbad-cards'
 import { THEMES, themeKeyOf } from './themes'
+import { BCS_SKIN_WORDS, BCS_TOOLS, SAUL_GOODMAN_RE, TAKAVIC_RE } from './bettercallsaul'
+import { TOASTS, bashToast, cmdKind, fxOf, mcgillNow, resultFailed, toastDue } from './bettercallsaul-fx'
+import type { BashState, Fx, ToastKey } from './bettercallsaul-fx'
+import { UNPLUG_GAP_MS, shouldUnplug } from './bettercallsaul-extra'
 import { BYE_CAPRI_RE, CAPRICORN_RE, CAPRI_WORD_RE, ER2_FONT, ER2_TOOLS, ER2_WORDS } from './edgerunners2'
 import { CAPRI_MODE, ER2_MODE_DEFAULT } from './edgerunners2-duet'
 import type { Er2Mode, Er2ModeName } from './edgerunners2-duet'
-import { glitchPanel, hackInto, overlayInto, roamOnBand, roamOverlay, transitionInto, transitionLayer } from './overlay'
+import { extrasInto, glitchPanel, hackInto, overlayInto, roamOnBand, roamOverlay, transitionInto, transitionLayer } from './overlay'
 import type { ThemeCtx, ThemeEggs } from './themes'
 import { canNudge, nudge, pickQuiet, prBadge, quietOf, rememberTask, repoAndBranch, rescueText, retryOnHaiku, whatIf, whatIfText, whatIfTip } from './coach'
 import { flatSmiley, serifClip, serifW } from './mentalist-cards'
@@ -1718,6 +1722,79 @@ const HEISENBERG_SKIN: Skin = {
   tabs: { mission: '⚗\uFE0E Mission Control', skins: '⚗\uFE0E Skins' },
 }
 
+// Better Call Saul (fan homage): the strip-mall law office. Saul's powder blue on dark walnut, gold from the tie, cream from the
+// shirt, the system sans (the cards bring Georgia and a condensed shout). Better Call Saul and its characters belong to
+// Sony Pictures Television and AMC, used as fan homage only.
+const BETTER_CALL_SAUL_SKIN: Skin = {
+  id: 'better-call-saul',
+  cast: 'bettercallsaul',
+  name: 'Better Call Saul',
+  description: "Fan homage: Saul's strip-mall law office, powder blue and gold on dark walnut.",
+  font: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  corners: 'round',
+  dark: true,
+  colors: {
+    accent: '#5B8FD6',
+    accent2: '#E6C35C',
+    done: '#7FC68F',
+    warn: '#F2C94C',
+    alert: '#EE5F55',
+    meter: '#5B8FD6',
+    text: '#F5EEE2',
+    subtext: '#CBBDA9',
+    muted: '#9C8C79',
+    tile: '#1A1410',
+    track: '#2B2019',
+    line: '#3B2D23',
+    grid: '#241B15',
+  },
+  boss: ['#5B8FD6', '#E6C35C', '#D7262C', '#F3E7C9', '#5B8FD6'],
+  roles: ['#9FC2F0', '#7FC68F', '#E6C35C', '#F3E7C9', '#EE5F55', '#B39DDB'],
+  effects: { scanlines: false, glitch: false },
+  chat: true,
+  words: BCS_SKIN_WORDS,
+  toolWords: BCS_TOOLS,
+  backdrop: { fill: '#120D0A', pattern: 'lines', ink: 'rgba(230,195,92,.04)' },
+  tabs: { mission: '⚖\uFE0E Mission Control', skins: '⚖\uFE0E Skins' },
+}
+
+// GENE: the hidden skin of Better Call Saul. The whole mod in black and white with film grain (Omaha, the mall bakery). Not in
+// the picker or the list: `/skin gene` finds it, or typing "takavic" while wearing Better Call Saul. "saul goodman" (or
+// "better call saul") typed in GENE switches back.
+const GENE_SKIN: Skin = {
+  id: 'gene',
+  cast: 'gene',
+  hidden: true,
+  name: 'GENE',
+  description: "The hidden one: black and white, with film grain. It's just a name.",
+  font: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  corners: 'round',
+  dark: true,
+  colors: {
+    accent: '#9A9A9A',
+    accent2: '#C9C9C9',
+    done: '#DADADA',
+    warn: '#BDBDBD',
+    alert: '#EDEDED',
+    meter: '#9A9A9A',
+    text: '#F2F2F2',
+    subtext: '#C2C2C2',
+    muted: '#8E8E8E',
+    tile: '#121212',
+    track: '#262626',
+    line: '#343434',
+    grid: '#1B1B1B',
+  },
+  boss: ['#9A9A9A', '#E4E4E4', '#262626', '#F2F2F2', '#9A9A9A'],
+  roles: ['#D2D2D2', '#BDBDBD', '#9A9A9A', '#E4E4E4', '#8E8E8E', '#C9C9C9'],
+  effects: { scanlines: false, glitch: false },
+  chat: true,
+  words: [...BCS_SKIN_WORDS, 'Cinnabon-ing'],
+  toolWords: BCS_TOOLS,
+  backdrop: { fill: '#0A0A0A', pattern: 'lines', ink: 'rgba(255,255,255,.03)' },
+  tabs: { mission: '⚖\uFE0E Mission Control', skins: '⚖\uFE0E Skins' },
+}
+
 // Edgerunners 2 v2 "D's optics" (fan homage, Cyberpunk Skins add-on): a next-gen netrunner HUD on holographic glass, D's
 // cobalt and cool white as the city layer, in a condensed face. Hot pink and acid green are Capri's own and show only
 // when she is near. Cyberpunk: Edgerunners belongs to CD PROJEKT RED, Studio Trigger and Netflix, used as fan homage only.
@@ -1791,7 +1868,7 @@ const CAPRICORN_SKIN: Skin = {
   tabs: { mission: '◈\uFE0E Mission Control', skins: '◈\uFE0E Skins' },
 }
 
-const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, MENTALIST_SKIN, BREAKING_BAD_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN, SAMURAI_SKIN, RED_JOHN_SKIN, HEISENBERG_SKIN, EDGERUNNERS2_SKIN, CAPRICORN_SKIN]
+const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, MENTALIST_SKIN, BREAKING_BAD_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN, SAMURAI_SKIN, RED_JOHN_SKIN, HEISENBERG_SKIN, BETTER_CALL_SAUL_SKIN, GENE_SKIN, EDGERUNNERS2_SKIN, CAPRICORN_SKIN]
 
 // Only plain colour and font values reach the drawings: a skin file cannot
 // smuggle markup into an Svg.
@@ -1858,6 +1935,20 @@ let ER2: Er2Mode = ER2_MODE_DEFAULT
 // When the phrase turned Breaking Bad into Heisenberg (0: it did not): the band's "You're goddamn right!" is drawn from it for
 // BB_REVEAL_MS, pinned to this time, so a redraw keeps it and it ends on its own. Also kept in the store as bbRevealAt.
 let BB_REVEAL_AT = 0
+// Better Call Saul / GENE: the last trigger word typed (a drawing for a few seconds), when Chuck last "unplugged" (the dim), the
+// toasts' last times and the run of failed commands behind them. All in memory; the drawings are pinned to these times.
+let BCS_FX: Fx | undefined
+let BCS_UNPLUG_AT: number | undefined
+const BCS_TOAST_AT: Partial<Record<ToastKey, number>> = {}
+let BCS_BASH: BashState = { testFails: 0, lintFailed: false }
+let BCS_CALLS: number[] = []
+const isBcs = (): boolean => SKIN.id === 'better-call-saul' || SKIN.id === 'gene'
+// A toast of these two skins, at most once per its gap.
+const bcsToast = ($: EngineInterface, key: ToastKey, now: number): void => {
+  if (!isBcs() || !toastDue(BCS_TOAST_AT, key, now)) return
+  BCS_TOAST_AT[key] = now
+  $.ui.toast(TOASTS[key])
+}
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
 const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, crewAlways: false, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, ultraBy: 'me' as UltraBy, dailyUsd: 0, autopilot: false, keepWarm: false, budgetUsd: 0, tkOn: true, tkJobMin: 60, tkAgentMin: 20, ramLimit: 'auto', maxAgents: 0, killSwitch: 'on' })
 // Machine Guard (hooks/machineguard.ts): what the Settings pane and the band draw. Written only when it changes.
@@ -5475,6 +5566,19 @@ const liftContrast = (fg: string, bg: string, min = 4.5): string => {
   for (let i = 0; i < 12 && (contrast(`#${[r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('')}`, bg) ?? 21) < min; i++) [r, g, b] = [r + (255 - r) * 0.12, g + (255 - g) * 0.12, b + (255 - b) * 0.12]
   return `#${[r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('')}`
 }
+// Chuck "unplugs" when 4 or more agents are running (the tool-call burst is noticed in trackTool): once per UNPLUG_GAP_MS.
+const noteUnplug = (at: number): void => {
+  if (BCS_UNPLUG_AT === undefined || at - BCS_UNPLUG_AT >= UNPLUG_GAP_MS) BCS_UNPLUG_AT = at
+}
+const running4 = (running: number, at: number): void => {
+  if (isBcs() && shouldUnplug([], at, running)) noteUnplug(at)
+}
+// A pane card with the theme's per-card roaming acts (Mike peeks at the log, sits on the task card) and rare eggs spliced in.
+const paneCard = (src: string, th: ThemeEggs, card: 'cred' | 'task' | 'log', at: number, ctxPct: number, party: boolean): string => {
+  if (!th.extras && !th.roamer?.cardOf) return src
+  const over = th.roamer?.cardOf ? overlayInto(src, th, { at, ctxPct, party, card }) : src
+  return extrasInto(over, th, { at, ctxPct, card, party, ...(BCS_UNPLUG_AT !== undefined ? { unplugAt: BCS_UNPLUG_AT } : {}) })
+}
 const slimBandSvg = (OW: number, d: HudData): string => {
   const c = SKIN.colors
   const th = themeOf() as ThemeEggs
@@ -5501,7 +5605,7 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   // A theme that draws its own edge (a chamfered glass tile) leaves out the engine's rounded one.
   if (!sl?.ownEdge) s.push(`<rect x=".5" y=".5" width="${W - 1}" height="${H - 1}" rx="10" class="tile"/><rect x=".5" y=".5" width="${W - 1}" height="${H - 1}" rx="10" fill="none" stroke="${edge}" stroke-opacity=".5"${d.isWorking ? ' class="hedge"' : ''}/>`)
   const overBudget = Boolean(d.budget && d.budget.usedMs > d.budget.min * 60_000)
-  const tctx: ThemeCtx = { ctxPct: d.ctxPct, overBudget, isWorking: d.isWorking, capri: roamOnBand(th, d.at, d.ctxPct) }
+  const tctx: ThemeCtx = { ctxPct: d.ctxPct, overBudget, isWorking: d.isWorking, capri: roamOnBand(th, d.at, d.ctxPct), totalUsd: d.session.total, at: d.at }
   if (sl) s.push(sl.foot(W, H, c, tctx))
   if (!sl?.ownEdge) s.push(`<rect x=".5" y="14" width="3" height="${H - 28}" rx="1.5" fill="${edge}"/>`)
   // ---- header (baseline 22)
@@ -5568,7 +5672,7 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   if (cold && crRight - baseEnd > 220) s.push(`<text x="${r2(crRight)}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11.5" font-style="italic" fill="${c.muted}">${xml(serifClip(`“${cold}”`, 11.5, crRight - baseEnd))}</text>`)
   s.push(`<line x1="14" y1="32.5" x2="${W - 14}" y2="32.5" stroke="${c.line}"/>`)
   // ---- task row
-  const fig = sl ? sl.figure({ at: d.at, ctxPct: d.ctxPct, party: d.isParty }) : `${crab(14, 38, 'boss', false, d.isWorking, 1.05)}${crown(14, 38, 1.05)}`
+  const fig = sl ? sl.figure({ at: d.at, ctxPct: d.ctxPct, party: d.isParty, ...(BCS_FX && th.extras ? { fx: BCS_FX } : {}) }) : `${crab(14, 38, 'boss', false, d.isWorking, 1.05)}${crown(14, 38, 1.05)}`
   s.push(dancing(fig, d.isParty))
   const tx = 64
   // Below 1100 px the three readouts shrink to short labels and values (no bars), so they stay on screen.
@@ -5726,12 +5830,15 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   if (!sl && (d.ctxPct >= 95 || overBudget)) s.push(flatSmiley(W - 21, H - 19, 9, RJ, 0.3, 'rjs'))
   // A roaming character (a walk, a peek at the episode, a sit on the gauge, now and then a takeover) goes last, over the celebration.
   const roam = th.roamer
-    ? roamOverlay(th, { W, H, surface: 'band', at: d.at, ctxPct: d.ctxPct, party: d.isParty, spots: { ...(showEp && sl?.ep ? { peek: { x: epLeft, y: 22 } } : {}), ...(th.roamer.bandSpots?.(W, H) ?? {}), ...((sl?.tear || th.roamer.sitBar) && segs > 0 ? { sit: { x: tx + ((segs * 6 - 2) * (pct ?? 0)) / 100, y: sl?.tear ? 64 : gy } } : {}) } })
+    ? roamOverlay(th, { W, H, surface: 'band', at: d.at, ctxPct: d.ctxPct, party: d.isParty, spots: { ...(showEp && sl?.ep ? { peek: { x: epLeft, y: 22 } } : {}), ...(th.roamer.bandSpots?.(W, H) ?? {}), ...((sl?.tear || th.roamer.sitBar) && !th.roamer.sit && segs > 0 ? { sit: { x: tx + ((segs * 6 - 2) * (pct ?? 0)) / 100, y: sl?.tear ? 64 : gy } } : {}) } })
     : ''
   // After a switch of Edgerunners 2's mode the possession transition plays over the band (2 s, pinned to the switch), and in
   // CAPRI mode a glitch now and then takes the whole panel (CSS on one root group).
   const trLayer = transitionLayer(th, { W, H, surface: 'band', since: ER2.since, now: d.at, party: d.isParty, ...(chip.w ? { chip: { x: chipX, y: y - 11.5, w: chip.w, h: 16 } } : {}) })
-  const body = `${s.join('\n')}${d.isParty ? th.cheer(W, H, FONT, c, d.partyAt) : ''}${d.isParty && th.roamer?.hushParty ? '' : roam}${trLayer}`
+  // Rare scheduled eggs (a car, a face, a dim): from the clock, over the band and under the roamer.
+  if (th.extras && !d.isParty) running4(d.crew.filter(m => m.status === 'running').length, d.at)
+  const extras = th.extras ? th.extras({ W, H, surface: 'band', at: d.at, ctxPct: d.ctxPct, ...(d.isParty ? { party: true } : {}), ...(BCS_UNPLUG_AT !== undefined ? { unplugAt: BCS_UNPLUG_AT } : {}), ...(BCS_FX ? { fx: BCS_FX } : {}) }) : ''
+  const body = `${s.join('\n')}${extras}${d.isParty ? th.cheer(W, H, FONT, c, d.partyAt) : ''}${d.isParty && th.roamer?.hushParty ? '' : roam}${trLayer}`
   return glitchPanel(svg(W, H, body), th, { at: d.at, ctxPct: d.ctxPct, party: d.isParty })
 }
 
@@ -6146,6 +6253,7 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
   if (!isMine) return
   // A follow-up Claude started after the job was done ends as quietly as it began.
   if (boss.isFollowUp || outcome === 'stopped') return
+  if (!outcome && isWorthACheer) bcsToast($, SKIN.id === 'gene' && mcgillNow(at) ? 'mcgill' : 'done', at)
   if (outcome === 'error') {
     $.ui.toast(`⚠ Ended with an error: ${clip(job.task, 60)}`)
     void $.ui.notify(`Claude hit an error: ${clip(job.task, 80)}`).catch(() => undefined)
@@ -6219,6 +6327,11 @@ async function trackTool($: EngineInterface, e: { tool: unknown; agentId?: strin
         return all.slice(-BEATS_KEPT)
       })
       if (dropped) await update($, bdPick, i => shiftPick(i, dropped))
+      // Better Call Saul: four calls inside ten seconds make Chuck "unplug" (the band and the pad dim to lantern light for 4 s).
+      if (isBcs()) {
+        BCS_CALLS = [...BCS_CALLS.filter(t => t > at - 10_000), at]
+        if (shouldUnplug(BCS_CALLS, at, 0)) noteUnplug(at)
+      }
     }
   } catch {
     // A drawing aid only.
@@ -6554,6 +6667,12 @@ async function healEntryPoints($: EngineInterface): Promise<void> {
 export const register: Register = (on, options) => {
   timekeeperHooks(on)
   on('session.start', async ($, e, next) => {
+    // A new session starts the Better Call Saul skins' little memory afresh (trigger word, unplug, toasts).
+    BCS_FX = undefined
+    BCS_UNPLUG_AT = undefined
+    BCS_CALLS = []
+    BCS_BASH = { testFails: 0, lintFailed: false }
+    for (const k of Object.keys(BCS_TOAST_AT)) delete BCS_TOAST_AT[k as ToastKey]
     const started = await next(e)
     await registerEntryPoints($)
     await loadModelAliases($).catch(() => undefined)
@@ -6836,6 +6955,22 @@ export const register: Register = (on, options) => {
     }
   })
 
+  // Better Call Saul: a few toasts from how Bash commands end (a test that fails twice, a force push, a clean lint after a failure).
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    if (!isBcs()) return next(e)
+    const kind = cmdKind(String((e as unknown as { command?: string }).command ?? ''))
+    const res = await next(e)
+    if (!kind) return res
+    try {
+      const { toast, state } = bashToast(kind, kind === 'force' ? false : resultFailed(res), BCS_BASH)
+      BCS_BASH = state
+      if (toast) bcsToast($, toast, await $.clock.now())
+    } catch {
+      // A garnish only.
+    }
+    return res
+  })
+
   // The manager's task list, followed as the plan tool is called; wrap-up closes it.
   on('tool.call', { tool: PLAN_TOOL }, async ($, e, next) => {
     // Never in the way: a failure here must not block the plan tool itself.
@@ -6899,6 +7034,7 @@ export const register: Register = (on, options) => {
     // A workflow's agent is not in $.agent.list(): Machine Guard counts it from here.
     if (e.workflow && started.agentId && started.deny === undefined) mgWorkflow.set(started.agentId, gate.at ?? 0)
     if (started.deny !== undefined) return started
+    if (!e.resume) bcsToast($, 'agent', await $.clock.now())
     rememberTask(started.agentId, { prompt: e.prompt, description: e.description, subagentType: e.subagentType })
     if (isUltraSpawn && started.agentId) {
       ultraFlag.set(started.agentId, true)
@@ -7460,7 +7596,7 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="breach" marginBottom={1}>
                 <Svg
-                  source={th ? th.card.draw(W, boss.task, boss.isWorking, steps.filter(st => st.state === 'done').length, steps.length, SKIN.colors, FONT, cardShape, legends) : breachCard(W, steps.filter(st => st.state === 'done').length, steps.length, boss.isWorking, egg, FONT, cardShape)}
+                  source={th ? paneCard(th.card.draw(W, boss.task, boss.isWorking, steps.filter(st => st.state === 'done').length, steps.length, SKIN.colors, FONT, cardShape, legends), th, 'task', clockNow, info.contextPct, (boss.celebrateUntil ?? 0) > clockNow) : breachCard(W, steps.filter(st => st.state === 'done').length, steps.length, boss.isWorking, egg, FONT, cardShape)}
                   alt={th ? th.card.alt(boss.isWorking, steps.filter(st => st.state === 'done').length, steps.length) : `Breach Protocol: ${steps.filter(st => st.state === 'done').length} of ${steps.length} steps`}
                 />
               </Box>
@@ -7476,7 +7612,7 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="bd" flexDirection="column" marginBottom={1}>
                 <Svg
-                  source={th ? hackInto(th.log.draw(W, beats, pick, SKIN.colors, FONT, cardShape), th, { at: clockNow, ctxPct: info.contextPct, card: 'log', party: (boss.celebrateUntil ?? 0) > clockNow }) : braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
+                  source={th ? paneCard(hackInto(th.log.draw(W, beats, pick, SKIN.colors, FONT, cardShape), th, { at: clockNow, ctxPct: info.contextPct, card: 'log', party: (boss.celebrateUntil ?? 0) > clockNow }), th, 'log', clockNow, info.contextPct, (boss.celebrateUntil ?? 0) > clockNow) : braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
                   alt={th?.log.alt ? th.log.alt(beats, pick) : th && !th.log.hasControls ? `Lab log: ${beats.length} tool calls` : braindanceAlt(beats, pick)}
                 />
                 {th && !th.log.hasControls ? null : <Box flexDirection="row" gap={2}>
@@ -7876,6 +8012,24 @@ export const register: Register = (on, options) => {
         await foundSecret($, found).catch(() => undefined)
         $.ui.toast(BB_RIGHT)
       }
+    }
+    // Better Call Saul: "takavic" wakes GENE; "saul goodman" (or "better call saul") in GENE puts the suit back on. Trigger words
+    // (chicanery, 1216, namaste, ding, saul3d) start a short drawing on the band. The prompt goes on unchanged.
+    if (asked && isBcs()) {
+      const at = await $.clock.now().catch(() => Date.now())
+      const to = SKIN.id === 'better-call-saul' && TAKAVIC_RE.test(asked) ? 'gene' : SKIN.id === 'gene' && SAUL_GOODMAN_RE.test(asked) ? 'better-call-saul' : ''
+      const found = to ? SKINS.get(to) : undefined
+      if (found) {
+        applySkin(found)
+        await $.store.set('skin', found.id).catch(() => undefined)
+        await update($, skin, () => found.id)
+        await retitle($).catch(() => undefined)
+        if (found.hidden) await foundSecret($, found).catch(() => undefined)
+        else $.ui.toast(THEMES.bettercallsaul.greeting)
+      }
+      const k = fxOf(asked)
+      if (k) BCS_FX = { kind: k, at }
+      bcsToast($, 'first', at)
     }
     // Edgerunners 2's two modes (the prompt goes on unchanged): "bye capri" sends her back to D (checked first); the whole word
     // "capri" in any case, or the third episode's title "0+2=1" (which toggles), lets her in.

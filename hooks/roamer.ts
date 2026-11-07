@@ -212,6 +212,12 @@ export type RoamTiming = {
   startAt?: number
   /** Where a peek stands, or a sit sits (its feet), instead of the spot picked from the plan: a theme names the edge she leans out of. */
   peekAt?: { x: number; y: number }
+  /** Which surface this is drawn on (set by roamerMarkup for a theme's own walk and sit). */
+  surface?: 'band' | 'pane'
+  /** A theme's own walk (feet at the origin, centred; `s` the pixel size, `dir` the way): replaces the engine's figure and its data trail. */
+  walk?: (s: number, dir: 1 | -1, plan: RoamPlan, tm: RoamTiming) => string
+  /** A theme's own sit (its feet at (x, floorY)): replaces the figure and the perch, drawn inside the same glitch-in and glitch-out groups. */
+  sit?: (x: number, floorY: number, s: number, dir: 1 | -1, plan: RoamPlan, tm: RoamTiming) => string
   /** A theme's framing drawn behind her walk or sit, in a frame whose origin is her feet (`s` is her scale, `dir` her way). */
   halo?: (s: number, dir: 1 | -1) => string
 }
@@ -262,6 +268,7 @@ export const roamerMarkup = (sprite: Sprite, plan: RoamPlan, W: number, H: numbe
       const w = i % 3 === 0 ? 2 : 1
       return `M${r2(-plan.dir * (9 + i * 7))} ${r2(-2 - unit(`${plan.bucket}|y${i}`) * 24 * s)}h${w}v${w}h${-w}z`
     }).join('')
+    if (tm.walk) return `<g transform="translate(0 ${r2(surface === 'band' ? H - 5 : H - 10)})"><g class="rm-walk rm-mo" style="--a:${a}px;--b:${b}px;animation-duration:${r2(dur)}s;animation-delay:${dly(0)}">${tm.walk(surface === 'band' ? 1.8 : 1.2, plan.dir, plan, { ...tm, surface })}</g></g>`
     return `${defs}<g transform="translate(0 ${floor})"><g class="rm-walk rm-mo" style="--a:${a}px;--b:${b}px;animation-duration:${r2(dur)}s;animation-delay:${dly(0)}"><path class="rm-trail" d="${bits}" fill="${t.accent2}" fill-opacity=".6"/>${tm.halo ? tm.halo(s, plan.dir) : ''}${figure(sprite, id, s, plan.dir === -1, true, t, ghostAt)}</g></g>`
   }
 
@@ -270,6 +277,11 @@ export const roamerMarkup = (sprite: Sprite, plan: RoamPlan, W: number, H: numbe
   const isSit = plan.kind === 'sit'
   const spotY = tm.peekAt ? tm.peekAt.y : undefined
   const y = isSit ? r2(clamp(tm.perchY ?? spotY ?? (surface === 'band' ? H * 0.55 : H * (0.3 + 0.5 * plan.y)), top, H - 2)) : spotY !== undefined ? r2(clamp(spotY, top, H - 2)) : floor
+  if (isSit && tm.sit) {
+    const sx = r2(clamp(tm.peekAt ? tm.peekAt.x : W * plan.x, 40, W - 40))
+    const sy = r2(tm.peekAt ? tm.peekAt.y : surface === 'band' ? H - 7 : H - 22)
+    return `<g class="rm-mo rm-pk"><g class="rm-in" style="animation-delay:${dly(0)}"><g class="rm-out" style="animation-delay:${dly(dur - 0.45)}">${tm.sit(sx, sy, surface === 'band' ? 1.5 : 1.4, plan.dir, plan, { ...tm, surface })}</g></g></g>`
+  }
   const pw = r2(34 * s)
   const perch = isSit
     ? `<rect x="${r2(-pw / 2)}" y="1" width="${pw}" height="${plan.perch === 'bar' ? 4 : 2}" rx="1" fill="${plan.perch === 'bar' ? t.accent2 : t.accent}" fill-opacity=".75"/>`

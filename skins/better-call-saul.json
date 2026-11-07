@@ -1,0 +1,86 @@
+{
+  "$schema": "./skin.schema.json",
+  "id": "better-call-saul",
+  "name": "Better Call Saul",
+  "description": "Fan homage: Saul's strip-mall law office, powder blue and gold on dark walnut.",
+  "font": "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  "corners": "round",
+  "dark": true,
+  "colors": {
+    "accent": "#5B8FD6",
+    "accent2": "#E6C35C",
+    "done": "#7FC68F",
+    "warn": "#F2C94C",
+    "alert": "#EE5F55",
+    "meter": "#5B8FD6",
+    "text": "#F5EEE2",
+    "subtext": "#CBBDA9",
+    "muted": "#9C8C79",
+    "tile": "#1A1410",
+    "track": "#2B2019",
+    "line": "#3B2D23",
+    "grid": "#241B15"
+  },
+  "boss": [
+    "#5B8FD6",
+    "#E6C35C",
+    "#D7262C",
+    "#F3E7C9",
+    "#5B8FD6"
+  ],
+  "roles": [
+    "#9FC2F0",
+    "#7FC68F",
+    "#E6C35C",
+    "#F3E7C9",
+    "#EE5F55",
+    "#B39DDB"
+  ],
+  "effects": {
+    "scanlines": false,
+    "glitch": false
+  },
+  "backdrop": {
+    "fill": "#120D0A",
+    "pattern": "lines",
+    "ink": "rgba(230,195,92,.04)"
+  },
+  "chat": true,
+  "words": [
+    "Chicanery",
+    "Sunk Costs",
+    "Expenses",
+    "Slip",
+    "Something Stupid",
+    "Bagman",
+    "Wine and Roses",
+    "Fun and Games",
+    "Waterworks",
+    "Quite a Ride",
+    "Namaste",
+    "Magic Man",
+    "Off Brand",
+    "Winner"
+  ],
+  "toolWords": {
+    "Read": "Review",
+    "Grep": "Discovery",
+    "Glob": "Docket",
+    "LS": "Docket",
+    "Edit": "Redline",
+    "MultiEdit": "Redline",
+    "NotebookEdit": "Redline",
+    "Write": "Draft",
+    "Bash": "Run",
+    "PowerShell": "Run",
+    "Agent": "Retain",
+    "ToolSearch": "Precedent",
+    "WebFetch": "File",
+    "WebSearch": "Research"
+  },
+  "tabs": {
+    "mission": "⚖︎ Mission Control",
+    "skins": "⚖︎ Skins"
+  },
+  "cast": "bettercallsaul"
+}
