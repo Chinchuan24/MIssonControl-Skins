@@ -221,4 +221,10 @@ export const HEIS_BOOT = ['SAY MY NAME…', 'HEISENBERG · BLUE SKY · NO HALF M
 export const HEIS_GREETING = 'Say my name… Heisenberg.'
 export const BATCH_TOAST = (task: string): string => `On the honor roll: ${task}`
 // Typing this (with the Breaking Bad skin on) wakes the hidden skin.
-export const SAY_MY_NAME_RE = /say\s+my\s+name/i
+// The Heisenberg unlock phrases: "say my name", or "what's my name" (also whats / wats / wat's / what is, straight or curly
+// apostrophe, any spacing). Whole words only, so "somewhat's my name" or "what's my names" do not count; surrounding
+// punctuation ("?", "!", quotes) is fine.
+export const SAY_MY_NAME_RE = /(?<![a-z0-9])(?:say\s+my\s+name|wh?at(?:\s*['\u2018\u2019\u02BC`\u00B4]?\s*s|\s+is)\s+my\s+name)(?![a-z0-9])/i
+export function isSayMyName(text: string): boolean {
+  return SAY_MY_NAME_RE.test(text)
+}

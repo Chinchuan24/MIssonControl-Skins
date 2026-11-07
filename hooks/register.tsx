@@ -1682,7 +1682,7 @@ const BREAKING_BAD_SKIN: Skin = {
 
 // Heisenberg: the hidden skin of Breaking Bad. Black and white with crystal blue, the
 // pork-pie hat by the title. Not in the picker or the list: `/skin heisenberg` finds it,
-// or typing "say my name" while wearing Breaking Bad.
+// or typing "say my name" or "what's my name" while wearing Breaking Bad.
 const HEISENBERG_SKIN: Skin = {
   id: 'heisenberg',
   cast: 'heisenberg',
@@ -7854,7 +7854,7 @@ export const register: Register = (on, options) => {
         await foundSecret($, found).catch(() => undefined)
       }
     }
-    // The same for "say my name" typed while wearing Breaking Bad: Heisenberg.
+    // The same for "say my name" or "what's my name" typed while wearing Breaking Bad: Heisenberg.
     if (asked && SKIN.id === 'breaking-bad' && SAY_MY_NAME_RE.test(asked)) {
       const found = SKINS.get('heisenberg')
       if (found) {

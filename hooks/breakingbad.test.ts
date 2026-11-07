@@ -1,7 +1,7 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
-import { BB_EPISODES, HEIS_GREETING, SAY_MY_NAME_RE, bbEpisodeAt, empireRankOf, labNotes } from './breakingbad'
+import { BB_EPISODES, HEIS_GREETING, SAY_MY_NAME_RE, isSayMyName, bbEpisodeAt, empireRankOf, labNotes } from './breakingbad'
 import { BAND_H, bbChip, classroomCard, empireToast, onAirAlt, onAirCard, periodicCard, purityOf, sansW } from './breakingbad-cards'
 import { BB_HEIS_BUST, BB_JESSE, BB_JESSE_BUST, BB_WALT_BUST, CASTS } from './cast'
 import type { Sprite } from './cast'
@@ -165,6 +165,25 @@ test('heisenberg: "say my name" on Breaking Bad switches skin and leaves the pro
   expect(await skinList($)).not.toContain('heisenberg')
 })
 
+test('heisenberg: every "what\'s my name" spelling unlocks on Breaking Bad; near-misses and other skins do nothing', async ($, on) => {
+  base(on)
+  const phrases = ["what's my name", 'whats my name', 'wats my name', "wat's my name", 'what is my name', 'what\u2019s my name', 'WHAT\u2019S  MY   NAME?', '  "Whats my name!"  ', 'hey, what is my name?!']
+  for (const text of phrases) {
+    await start($, 'breaking-bad')
+    const out = (await $.prompt.submit({ text, cursor: 0 } as never)) as { text?: string }
+    expect(String(out?.text ?? text)).toBe(text)
+    expect(await skinList($)).toContain('▸ heisenberg')
+  }
+  for (const text of ["what's my game", "somewhat's my name", "what's my names", 'what my name', "what's your name"]) {
+    await start($, 'breaking-bad')
+    await $.prompt.submit({ text, cursor: 0 } as never)
+    expect(await skinList($)).not.toContain('heisenberg')
+  }
+  await start($, 'crab-classic')
+  await $.prompt.submit({ text: "what's my name", cursor: 0 } as never)
+  expect(await skinList($)).not.toContain('heisenberg')
+})
+
 test('default and crab-classic stay clean of the Breaking Bad eggs', async ($, on) => {
   base(on, 960_000)
   for (const skin of ['crab-classic', 'default']) {
@@ -197,6 +216,8 @@ test('breaking bad tables: 35 verified titles, purity, notes, the ladder and the
   expect(sansW('MISSION CONTROL', 9.5, 1.6, true)).toBeGreaterThan(90)
   expect(SAY_MY_NAME_RE.test('Say my name')).toBe(true)
   expect(SAY_MY_NAME_RE.test('say your name')).toBe(false)
+  for (const t of ["what's my name", 'whats my name', 'wats my name', "wat's my name", 'what is my name', 'What\u2019s my name?', 'WHAT\u2019S  MY  NAME!']) expect(isSayMyName(t)).toBe(true)
+  for (const t of ["what's my game", "somewhat's my name", "what's my names", "what's your name", 'whatsmyname', 'swhats my name']) expect(isSayMyName(t)).toBe(false)
 })
 
 test('periodic table card: the level is an element, the receipt counts, the badges sit where they live', () => {
