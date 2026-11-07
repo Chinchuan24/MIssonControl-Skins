@@ -18,6 +18,7 @@ import {
   BATCH_TOAST, BB_CSS, BB_GREETING, BB_BOOT, BB_TITLE_WORDS, BB_TOOLS, EMPIRE_BADGES, EMPIRE_WORDS, HEIS_BOOT, HEIS_GREETING,
   BB_WARNING, crystalGlints, empireRankOf, bbEpisodeAt, yeahScience,
 } from './breakingbad'
+import { jesseRoamer, jesseCameo } from './breakingbad-jesse'
 import { BAND_H, bbChip, bbFoot, bbHead, bbPip, classroomCard, crewPx, empireToast, onAirAlt, onAirCard, periodicCard, purityGauge, sansW, walt } from './breakingbad-cards'
 import {
   CBI_BADGES, CBI_WORDS, CLOSED_FILES_TOAST, COLD_W, MENT_CSS, MENTALIST_BOOT, MENTALIST_GREETING, MENTALIST_TOOLS, MENTALIST_WORDS, REDJOHN_BOOT, REDJOHN_GREETING, TEA_WARNING,
@@ -58,6 +59,12 @@ export type ThemeRoamer = {
   creep?: (W: number, H: number, ctxPct: number) => string
   /** Keyframes for her own pieces (the takeover's), with a reduced-motion rule. */
   css?: string
+  /** The band's spots in place of the engine's (a peek ledge), for a band W by H; the sit on the step bar comes from `sitBar`. */
+  bandSpots?: (W: number, H: number) => { peek?: { x: number; y: number } }
+  /** She perches on the band's step bar (a theme without a `slim.tear` gauge). */
+  sitBar?: boolean
+  /** Nothing is drawn while a celebration is (the cheer is the band's own moment). */
+  hushParty?: boolean
 }
 
 export type ThemeEggs = {
@@ -194,7 +201,7 @@ const bbTheme = (heis: boolean): ThemeEggs => ({
     h: BAND_H,
     sw: sansW,
     head: (x, y, t, font) => bbHead(x, y, t, font, heis),
-    figure: () => walt(21, heis ? 37 : 42.6, 2.8, heis),
+    figure: () => walt(20, 36, 34, 40, heis),
     crew: (x, y, color) => crewPx(x, y, 1.4, color),
     pip: bbPip,
     gauge: purityGauge,
@@ -215,6 +222,9 @@ const bbTheme = (heis: boolean): ThemeEggs => ({
   greeting: heis ? HEIS_GREETING : BB_GREETING,
   words: BB_TITLE_WORDS,
   tools: BB_TOOLS,
+  // Jesse roams both panels now and then, and a small cameo takes the place of the takeover.
+  roamer: jesseRoamer(heis),
+  takeover: (W, H, line, tm) => jesseCameo(W, H, line, tm),
 })
 
 

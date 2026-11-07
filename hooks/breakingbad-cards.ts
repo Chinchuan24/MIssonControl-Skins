@@ -11,6 +11,8 @@ import { BADGES, levelOf, xpFor } from './extras'
 import type { Beat, Cred, Frame } from './extras'
 import type { Legend } from './eggs'
 import { BB_TOOLS, ELEMENTS, empireRankOf } from './breakingbad'
+import { BB_HEIS_BUST, BB_WALT_BUST, spriteMarkup } from './cast'
+import type { Sprite } from './cast'
 
 export type CardTheme = { accent: string; accent2: string; done: string; warn: string; alert: string; text: string; subtext: string; muted: string; tile: string; track: string; line: string }
 /** The theme colours plus the skin's own tokens (the element tile, the empty cell, the desert). */
@@ -90,13 +92,21 @@ const HAT = ['...kkkkkkk...', '...khhhhhk...', '...ggggggg...', '..kkkkkkkkk..',
 /** The pork-pie hat, 13 x 6 pixels, one ink. */
 export const hatPx = (x: number, y: number, w: number, ink: string, cls = '', op = 1): string =>
   sprite(x, y, w / 13, HAT, { k: ink, h: ink, g: ink }, `${cls ? ` class="${cls}"` : ''} opacity="${op}"`)
-const WALT = [
-  '...kkkkkk...', 'kkkkkkkkkkkk', '...ssssss...', '..ssssssss..', '..gggsgggs..', '..gsgsgsgs..', '..ssssssss..',
-  '..sbbbbbss..', '...sbssbs...', '....bbbb....', '..jjjwwjjj..', '.jjjjewejjj.', 'jjjjjewejjjj', 'jjjjjjjjjjjj',
-]
-/** Mr. White, head and shoulders (12 x 14, glasses and a goatee). Heisenberg wears the hat. */
-export const walt = (x: number, y: number, px: number, heis: boolean): string =>
-  sprite(x, y, px, heis ? WALT : WALT.slice(2), { k: '#1A1A1D', s: '#D8B89A', g: '#1C1C1C', b: '#7A5A3C', j: heis ? '#2A2A2E' : '#A89A72', w: '#E8E8E0', e: heis ? '#5EC8F0' : '#4F7A5C' })
+/**
+ * A pixel-art bust (cast.ts's BB_WALT_BUST, or the hat one for Heisenberg), scaled to fit a w by h box
+ * at (x, y): crisp pixels, centred, standing on the box's floor. The class `bbbust` marks it.
+ */
+export const bustPx = (sp: Sprite, x: number, y: number, w: number, h: number): string => {
+  const cols = Math.max(...sp.rows.map(r => r.length))
+  const nw = cols * 0.5625
+  const nh = sp.rows.length * 0.5625
+  const k = Math.min(w / nw, h / nh)
+  // spriteMarkup draws at its own 0.5625 pixel inside a nw x nh box; the group scales that up to the slot.
+  const inner = spriteMarkup(sp, '#FFFFFF', nw, nh)
+  return `<g class="bbbust" shape-rendering="crispEdges" transform="translate(${r1(x + (w - nw * k) / 2)} ${r1(y + h - nh * k)}) scale(${+k.toFixed(4)})">${inner}</g>`
+}
+/** Mr. White's portrait for the band's figure slot (a 34 by 40 box at x 20, y 36); Heisenberg wears the hat. */
+export const walt = (x: number, y: number, w: number, h: number, heis: boolean): string => bustPx(heis ? BB_HEIS_BUST : BB_WALT_BUST, x, y, w, h)
 const CREW = ['..sss..', '.sssss.', '..sss..', '...s...', '.ccccc.', 'ccccccc', 'c.ccc.c', 'c.ccc.c', '..c.c..', '..c.c..']
 export const crewPx = (x: number, y: number, px: number, color: string): string => sprite(x, y, px, CREW, { s: '#D8B89A', c: color })
 const RV = ['.wwwwwwwwwww..', 'wbbwwbbwwwwww.', 'wbbwwbbwwwbbww', 'wwwwwwwwwwwwww', 'gggggggggggggg', '.kk.......kk..']

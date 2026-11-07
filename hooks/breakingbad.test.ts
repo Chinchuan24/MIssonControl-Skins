@@ -3,7 +3,13 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import { BB_EPISODES, HEIS_GREETING, SAY_MY_NAME_RE, bbEpisodeAt, empireRankOf, labNotes } from './breakingbad'
 import { BAND_H, bbChip, classroomCard, empireToast, onAirAlt, onAirCard, periodicCard, purityOf, sansW } from './breakingbad-cards'
-import { CASTS } from './cast'
+import { BB_HEIS_BUST, BB_JESSE, BB_JESSE_BUST, BB_WALT_BUST, CASTS } from './cast'
+import type { Sprite } from './cast'
+import { JESSE_CSS, JESSE_LINES } from './breakingbad-jesse'
+import { roamOptsOf } from './overlay'
+import { roamPlan } from './roamer'
+import { THEMES } from './themes'
+import type { ThemeKey } from './themes'
 import { contrast } from './skinkit'
 
 const pane = { title: '', isFocused: false, bodyColumns: 100, placement: 'dock', scroll: { offset: 0, bodyRows: 60 }, view: {} } as const
@@ -13,8 +19,8 @@ const toasts: string[] = []
 const sounds: string[] = []
 
 // The core edition: no Cyberpunk Skins add-on.
-const base = (on: On, context = 100_000) => {
-  const clock = mock.clock(on, { now: NOW })
+const base = (on: On, context = 100_000, now = NOW) => {
+  const clock = mock.clock(on, { now })
   mock.env(on, { LANG: 'en_US.UTF-8' })
   mock.store(on)
   on('fs.exists', async () => ({ value: false }) as never)
@@ -252,4 +258,200 @@ test('breaking bad: svg sizes, contrast and sprite sanity', () => {
     }
     expect(cb!.crew.every(sp => sp.rows.some(r => r.includes('t')))).toBe(true)
   }
+})
+
+// --- Walter's pixel bust, and Jesse the roamer --------------------------------------------------
+const COLS: Record<number, number> = { 750: 106, 900: 126, 1250: 173 }
+const bandAt = async ($: Engine, W: number): Promise<string> => {
+  const ui = await $.ui.mount({ plugin: 'crab-progress', surface: 'desktop', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows: 14, bodyColumns: COLS[W] } as never })
+  const all = (await ui.findAll({ type: 'Svg' })).map(el => String(el.props.source)).join('')
+  await ui.unmount()
+  return all
+}
+const jobIn = async ($: Engine) => {
+  await $.prompt.submit({ text: 'Fix the login bug', cursor: 0 } as never)
+  await $.tool.call({ tool: 'mcp__crab-progress__progress', title: 'Fix the login bug', total: 5, done: 2, phase: 'delegate', tasks: [{ title: 'Lead: run the batch', tier: 'fable' }] } as never).catch(() => undefined)
+}
+const usedColors = (sp: Sprite): Set<string> => new Set([...new Set(sp.rows.join(''))].filter(ch => ch !== '.').map(ch => sp.pal[ch] as string))
+const only = (a: Sprite, ...others: Sprite[]): string[] => [...usedColors(a)].filter(c => others.every(o => !usedColors(o).has(c)))
+const theme = (k: ThemeKey) => THEMES[k]
+const roamerOf = (k: ThemeKey) => theme(k).roamer as NonNullable<ReturnType<typeof theme>['roamer']>
+const HOUR = 3_600_000
+// The first moment from NOW whose plan is `kind` (null: no act), inside the act.
+const findAt = (k: ThemeKey, kind: string | null, ctx = 10, from = NOW): number => {
+  const r = roamerOf(k)
+  for (let t = from; t < from + 5 * 86_400_000; t += 30_000) {
+    const p = roamPlan(r.seed, t, roamOptsOf(r, ctx))
+    if (kind === null ? !p.on : p.kind === kind) return kind === null ? t + 1000 : p.startAt + (kind === 'takeover' ? 1500 : 1200)
+  }
+  throw new Error(`no ${kind}`)
+}
+const SKINS: [ThemeKey, string, Sprite][] = [['breakingbad', 'breaking-bad', BB_WALT_BUST], ['heisenberg', 'heisenberg', BB_HEIS_BUST]]
+
+test('the busts: 40 rows, every letter in the palette, the hat one differs from the plain one', () => {
+  for (const sp of [BB_WALT_BUST, BB_HEIS_BUST, BB_JESSE_BUST]) {
+    expect(sp.rows).toHaveLength(40)
+    expect(new Set(sp.rows.map(r => r.length)).size).toBe(1)
+    for (const row of sp.rows) for (const ch of row) if (ch !== '.') expect(sp.pal[ch]).toBeTruthy()
+  }
+  expect(only(BB_HEIS_BUST, BB_WALT_BUST).length).toBeGreaterThan(2)
+  expect(only(BB_WALT_BUST, BB_HEIS_BUST).length).toBeGreaterThan(2)
+})
+
+for (const [key, skin, bust] of SKINS) {
+  for (const W of [750, 900, 1250]) {
+    test(`${skin}: the band's figure is the pixel bust, no hand-drawn face, scaled into its slot (W ${W})`, async ($, on) => {
+      base(on, 100_000, findAt(key, null))
+      await start($, skin)
+      await jobIn($)
+      const band = await bandAt($, W)
+      expect(band).toContain('class="bbbust"')
+      for (const c of only(bust, ...SKINS.filter(x => x[2] !== bust).map(x => x[2]), BB_JESSE_BUST, BB_JESSE)) expect(band).toContain(c)
+      for (const other of SKINS.filter(x => x[2] !== bust)) for (const c of only(other[2], bust)) expect(band).not.toContain(c)
+      // The old blocky face's jacket and shirt colours are gone.
+      for (const old of ['#A89A72', '#4F7A5C']) expect(band).not.toContain(old)
+      // One bust, fitted into the 34 by 40 slot at x 20, y 36 (never wider than the slot or taller).
+      const m = /class="bbbust"[^>]*transform="translate\(([\d.]+) ([\d.]+)\) scale\(([\d.]+)\)"/.exec(band)
+      expect(m).toBeTruthy()
+      const [x, y, k] = [Number(m?.[1]), Number(m?.[2]), Number(m?.[3])]
+      expect(x).toBeGreaterThanOrEqual(19.9)
+      expect(y).toBeGreaterThanOrEqual(35.9)
+      expect(x + (bust.rows[0] as string).length * 0.5625 * k).toBeLessThanOrEqual(54.2)
+      expect(y + bust.rows.length * 0.5625 * k).toBeLessThanOrEqual(76.2)
+      // The title is still plain text.
+      expect(band).toContain('Fix the login bug')
+      expect(band).not.toContain('class="bbt"')
+    })
+  }
+}
+
+for (const [key, skin] of SKINS) {
+  test(`jesse (${skin}): a walk shows in the band and the pane at a fixed time; the same plan every time`, async ($, on) => {
+    const r = roamerOf(key)
+    expect(r.sprite).toBe(BB_JESSE)
+    const t = findAt(key, 'walk')
+    expect(roamPlan(r.seed, t, roamOptsOf(r, 10))).toEqual(roamPlan(r.seed, t, roamOptsOf(r, 10)))
+    base(on, 100_000, t)
+    await start($, skin)
+    await jobIn($)
+    const band = await bandAt($, 1250)
+    const pane = (await svgs($, 'Pane')).join('')
+    for (const s of [band, pane]) {
+      expect(s).toContain('rm-walk')
+      expect(s).toContain('rm-sp')
+      for (const c of only(BB_JESSE, BB_WALT_BUST, BB_HEIS_BUST)) expect(s).toContain(c)
+    }
+  })
+
+  test(`jesse (${skin}): a peek (the bust over a ledge) in the band and the pane`, async ($, on) => {
+    base(on, 100_000, findAt(key, 'peek'))
+    await start($, skin)
+    await jobIn($)
+    for (const s of [await bandAt($, 1250), (await svgs($, 'Pane')).join('')]) {
+      expect(s).toContain('rm-pk')
+      expect(s).toContain('bbjc')
+      for (const c of only(BB_JESSE_BUST, BB_WALT_BUST, BB_HEIS_BUST)) expect(s).toContain(c)
+    }
+  })
+
+  test(`jesse (${skin}): a sit on the step bar in the band`, async ($, on) => {
+    base(on, 100_000, findAt(key, 'sit'))
+    await start($, skin)
+    await jobIn($)
+    const band = await bandAt($, 1250)
+    expect(band).toContain('rm-pk')
+    expect(band).toContain('rm-mo')
+    expect(band).toContain('rm-sp')
+  })
+
+  test(`jesse (${skin}): the cameo (a waving bust and a bubble) replaces the takeover, in both panels`, async ($, on) => {
+    const t = findAt(key, 'takeover')
+    const plan = roamPlan(roamerOf(key).seed, t, roamOptsOf(roamerOf(key), 10))
+    expect(JESSE_LINES).toContain(plan.line)
+    base(on, 100_000, t)
+    await start($, skin)
+    await jobIn($)
+    const text = plan.line.replace(/'/g, '&#39;').replace(/&#39;/g, "'")
+    for (const W of [750, 1250]) {
+      const band = await bandAt($, W)
+      expect(band).toContain('bbj-cam')
+      expect(band).toContain('bbj-bub')
+      expect(band).toContain(text)
+      expect(band).not.toContain('class="rm-tk"')
+      for (const c of only(BB_JESSE_BUST, BB_WALT_BUST, BB_HEIS_BUST)) expect(band).toContain(c)
+    }
+    const pane = (await svgs($, 'Pane')).join('')
+    expect(pane).toContain('bbj-cam')
+    expect(pane).toContain(text)
+    expect(pane).not.toContain('class="rm-tk"')
+  })
+
+  for (const kind of ['walk', 'takeover'] as const) {
+    test(`jesse (${skin}): never while the celebration is drawn (${kind})`, async ($, on) => {
+      const t = findAt(key, kind)
+      const clock = base(on, 100_000, t - 20_600)
+      await start($, skin)
+      await jobIn($)
+      await clock.advance(20_600)
+      expect(await bandAt($, 1250)).toContain(kind === 'walk' ? 'rm-walk' : 'bbj-cam')
+      await $.turn.complete({ reason: 'answer', answer: 'done' } as never)
+      const band = await bandAt($, 1250)
+      expect(band).toContain('YEAH, SCIENCE!')
+      expect(band).not.toContain('rm-walk')
+      expect(band).not.toContain('bbj-cam')
+    })
+  }
+
+  for (const kind of ['walk', 'peek', 'sit', 'takeover']) {
+    test(`jesse (${skin}): the band and the pane stay inside the size budget (${kind}, 96% context)`, async ($, on) => {
+      base(on, 960_000, findAt(key, kind, 96))
+      await start($, skin)
+      await jobIn($)
+      for (const W of [750, 1250]) expect((await bandAt($, W)).length).toBeLessThan(120_000)
+      for (const src of await svgs($, 'Pane')) expect(src.length).toBeLessThan(131_072)
+    })
+  }
+}
+
+test('jesse: the five lines are clean and the cameo shows at most once per 30 minutes over 3 hours, on any clock', () => {
+  expect(JESSE_LINES).toEqual(['Yeah, science!', 'Yo, Mr. White!', "We're cooking now.", 'Science, yo!', "Mr. White, it's me."])
+  for (const k of ['breakingbad', 'heisenberg'] as const) {
+    expect(roamerOf(k).lines).toEqual(JESSE_LINES)
+    let seen = 0
+    for (let day = 0; day < 40; day++) {
+      const from = NOW + day * 7 * HOUR
+      const starts: number[] = []
+      for (let t = from; t < from + 3 * HOUR; t += 30_000) {
+        const p = roamPlan(roamerOf(k).seed, t, roamOptsOf(roamerOf(k), 10))
+        if (p.kind === 'takeover' && !starts.includes(p.startAt)) starts.push(p.startAt)
+      }
+      seen += starts.length
+      for (let i = 1; i < starts.length; i++) expect((starts[i] as number) - (starts[i - 1] as number)).toBeGreaterThanOrEqual(30 * 60_000)
+      expect(starts.length).toBeLessThanOrEqual(4)
+    }
+    expect(seen).toBeGreaterThan(10)
+  }
+})
+
+test('jesse: rarer than Capri, still walks, peeks and sits; walks do not run on a slim chance', () => {
+  const capri = THEMES.edgerunners2.roamer as NonNullable<(typeof THEMES.edgerunners2)['roamer']>
+  expect(roamerOf('breakingbad').chance(10)).toBe(0.25)
+  expect(roamerOf('breakingbad').chance(10)).toBeLessThan(capri.chance(10) + 1e-9)
+  const kinds = new Set<string>()
+  let on = 0
+  for (let t = NOW; t < NOW + 86_400_000; t += 30_000) {
+    const p = roamPlan(roamerOf('heisenberg').seed, t, roamOptsOf(roamerOf('heisenberg'), 10))
+    if (p.on) { on++; kinds.add(p.kind as string) }
+  }
+  expect([...kinds].sort()).toEqual(['peek', 'sit', 'takeover', 'walk'])
+  expect(on).toBeGreaterThan(300)
+  expect(on).toBeLessThan(1100)
+})
+
+test('jesse: reduced motion has no walking, only a still faint peek or the bubble', () => {
+  const css = `${JESSE_CSS}${roamerOf('breakingbad').css}`
+  const reduced = css.split('prefers-reduced-motion').slice(1).join('|')
+  for (const c of ['bbj-cam', 'bbj-bub', 'bbj-wave', 'bbj-bus']) expect(reduced).toContain(`.${c}`)
+  // The engine's own rules cover the walk (hidden), the sit (hidden) and the peek (still, faint).
+  expect(roamerOf('heisenberg').css).toBe(JESSE_CSS)
 })

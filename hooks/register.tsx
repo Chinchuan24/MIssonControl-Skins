@@ -5608,9 +5608,9 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   if (!sl && (d.ctxPct >= 95 || overBudget)) s.push(flatSmiley(W - 21, H - 19, 9, RJ, 0.3, 'rjs'))
   // A roaming character (a walk, a peek at the episode, a sit on the gauge, now and then a takeover) goes last, over the celebration.
   const roam = th.roamer
-    ? roamOverlay(th, { W, H, surface: 'band', at: d.at, ctxPct: d.ctxPct, spots: { ...(showEp && sl?.ep ? { peek: { x: epLeft, y: 22 } } : {}), ...(sl?.tear && segs > 0 ? { sit: { x: tx + ((segs * 6 - 2) * (pct ?? 0)) / 100, y: 64 } } : {}) } })
+    ? roamOverlay(th, { W, H, surface: 'band', at: d.at, ctxPct: d.ctxPct, spots: { ...(showEp && sl?.ep ? { peek: { x: epLeft, y: 22 } } : {}), ...(th.roamer.bandSpots?.(W, H) ?? {}), ...((sl?.tear || th.roamer.sitBar) && segs > 0 ? { sit: { x: tx + ((segs * 6 - 2) * (pct ?? 0)) / 100, y: sl?.tear ? 64 : gy } } : {}) } })
     : ''
-  const body = `${s.join('\n')}${d.isParty ? th.cheer(W, H, FONT, c, d.partyAt) : ''}${roam}`
+  const body = `${s.join('\n')}${d.isParty ? th.cheer(W, H, FONT, c, d.partyAt) : ''}${d.isParty && th.roamer?.hushParty ? '' : roam}`
   return svg(W, H, body)
 }
 
