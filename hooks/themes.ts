@@ -28,6 +28,8 @@ import { MENT_EXTRA_CSS, cardGlyphs, hypnosis, mentSkyline, redJohnHeat, smileGl
 import { caseBoard, caseBoardAlt, ctxChip, personnelFile } from './mentalist-cards'
 import { CAPRICORN_GREETING, ER2_BAND_H, ER2_BOOT, ER2_CSS, ER2_GREETING, ER2_TITLE_WORDS, ER2_TOOLS, ER2_WARNING, TK_CSS, er2Cheer, er2Chip, er2Crew, er2EpW, er2Ep, er2EpisodeAt, er2Figure, er2Foot, er2Gauge, er2Halo, er2Name, er2PaneCreep, er2PaneSpots, er2Peek, er2Pill, er2Pip, er2Takeover, er2Tear, er2W, isNear } from './edgerunners2'
 import { ER2_BADGES, ER2_WORDS as ER2_CRED_WORDS, bootLine, er2RankOf, er2Toast, gigsAlt, gigsCard, syncCard, traceAlt, traceCard } from './edgerunners2-cards'
+import { er2Hack } from './edgerunners2-hack'
+import type { HackArgs } from './edgerunners2-hack'
 import { ER_CAPRI } from './cast'
 import type { Sprite } from './cast'
 import type { RoamColors, RoamPlan, RoamTiming } from './roamer'
@@ -67,6 +69,8 @@ export type ThemeRoamer = {
   sitBar?: boolean
   /** Nothing is drawn while a celebration is (the cheer is the band's own moment). */
   hushParty?: boolean
+  /** Lines that flash across a panel now and then (Capri's red hack lines): drawn last, over everything, from the seed and the clock. */
+  hack?: (a: HackArgs) => string
 }
 
 export type ThemeEggs = {
@@ -285,6 +289,7 @@ const er2Theme = (sec: boolean): ThemeEggs => ({
     creep: er2PaneCreep,
     halo: er2Halo,
     css: TK_CSS,
+    hack: a => er2Hack(sec ? 'capricorn' : 'er2', a, sec),
   },
   takeover: (W, H, line, tm) => er2Takeover(W, H, line, tm, sec),
 })

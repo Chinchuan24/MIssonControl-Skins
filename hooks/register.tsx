@@ -9,7 +9,7 @@ import { TYGER_RE } from './mentalist'
 import { BB_SKIN_WORDS, BB_TOOLS, SAY_MY_NAME_RE } from './breakingbad'
 import { THEMES, themeKeyOf } from './themes'
 import { CAPRICORN_RE, ER2_FONT, ER2_TOOLS, ER2_WORDS, HI_CAPRI_MS, HI_CAPRI_RE } from './edgerunners2'
-import { overlayInto, roamOnBand, roamOverlay, takeoverWithin } from './overlay'
+import { hackInto, overlayInto, roamOnBand, roamOverlay, takeoverWithin } from './overlay'
 import type { ThemeCtx, ThemeEggs } from './themes'
 import { canNudge, nudge, pickQuiet, prBadge, quietOf, rememberTask, repoAndBranch, rescueText, retryOnHaiku, whatIf, whatIfText, whatIfTip } from './coach'
 import { flatSmiley, serifClip, serifW } from './mentalist-cards'
@@ -5625,7 +5625,7 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   if (!sl && (d.ctxPct >= 95 || overBudget)) s.push(flatSmiley(W - 21, H - 19, 9, RJ, 0.3, 'rjs'))
   // A roaming character (a walk, a peek at the episode, a sit on the gauge, now and then a takeover) goes last, over the celebration.
   const roam = th.roamer
-    ? roamOverlay(th, { W, H, surface: 'band', at: d.at, ctxPct: d.ctxPct, spots: { ...(showEp && sl?.ep ? { peek: { x: epLeft, y: 22 } } : {}), ...(th.roamer.bandSpots?.(W, H) ?? {}), ...((sl?.tear || th.roamer.sitBar) && segs > 0 ? { sit: { x: tx + ((segs * 6 - 2) * (pct ?? 0)) / 100, y: sl?.tear ? 64 : gy } } : {}) } })
+    ? roamOverlay(th, { W, H, surface: 'band', at: d.at, ctxPct: d.ctxPct, party: d.isParty, spots: { ...(showEp && sl?.ep ? { peek: { x: epLeft, y: 22 } } : {}), ...(th.roamer.bandSpots?.(W, H) ?? {}), ...((sl?.tear || th.roamer.sitBar) && segs > 0 ? { sit: { x: tx + ((segs * 6 - 2) * (pct ?? 0)) / 100, y: sl?.tear ? 64 : gy } } : {}) } })
     : ''
   const body = `${s.join('\n')}${d.isParty ? th.cheer(W, H, FONT, c, d.partyAt) : ''}${d.isParty && th.roamer?.hushParty ? '' : roam}`
   return svg(W, H, body)
@@ -7324,7 +7324,7 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="cred" marginBottom={1}>
                 <Svg
-                  source={th ? ((src: string) => (th.roamer ? overlayInto(src, th, { at: clockNow, ctxPct: info.contextPct }) : src))(th.cred.card ? th.cred.card(W, streetCred, SKIN.colors, FONT, cardShape) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, th.cred.title, '', th.cred.ranks, th.cred.words)) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
+                  source={th ? ((src: string) => (th.roamer ? overlayInto(src, th, { at: clockNow, ctxPct: info.contextPct, party: (boss.celebrateUntil ?? 0) > clockNow }) : src))(th.cred.card ? th.cred.card(W, streetCred, SKIN.colors, FONT, cardShape) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, th.cred.title, '', th.cred.ranks, th.cred.words)) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
                   alt={`Level ${levelOf(streetCred.xp)} ${(th ? th.cred.ranks : egg === 'samurai' ? rockerRankOf : rankOf)(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
                 />
               </Box>
@@ -7363,7 +7363,7 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="bd" flexDirection="column" marginBottom={1}>
                 <Svg
-                  source={th ? th.log.draw(W, beats, pick, SKIN.colors, FONT, cardShape) : braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
+                  source={th ? hackInto(th.log.draw(W, beats, pick, SKIN.colors, FONT, cardShape), th, { at: clockNow, ctxPct: info.contextPct, card: 'log', party: (boss.celebrateUntil ?? 0) > clockNow }) : braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
                   alt={th?.log.alt ? th.log.alt(beats, pick) : th && !th.log.hasControls ? `Lab log: ${beats.length} tool calls` : braindanceAlt(beats, pick)}
                 />
                 {th && !th.log.hasControls ? null : <Box flexDirection="row" gap={2}>
