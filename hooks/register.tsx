@@ -18,7 +18,7 @@ import type { Beat, Cred } from './extras'
 import { ONESHOT_KEY, ULTRA_BY_KEY, ULTRA_BY_OPTIONS, ULTRA_KEY, ULTRA_TASK_HINT, cleanUltraBy, managerPicks, parseUltraBy, ultraBySaid, ultraBySection, ultraPlanToast, type UltraBy, pillChip, oneShotChipWord, cleanOneShot, cleanUltraRules, isUltraAgent, matchUltra, nextOneShot, oneShotChip, oneShotSaid, oneShotSection, oneShotWord, parseOneShot, resolveEffort, ultraCommand, ultraLine, withUltraBrief } from './crewcontrol'
 import type { OneShot } from './crewcontrol'
 import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, unifiedDiff } from './richtext'
-import { LIVE_N, glide, isNewReading, isSame, liveText, liveWidth, pin, steady, steadyTree, wallMinute } from './smooth'
+import { LIVE_N, glide, isNewReading, isSame, liveText, liveWidth, pin, sentLength, steady, steadyTree, wallMinute } from './smooth'
 import { COLOR_RE, FONT_BAD_RE, ID_RE, TOOL_KEY_RE, contrast, skinCheck, skinNew } from './skinkit'
 import { WARM_PROMPT, WARM_TAG, isWarmDue, isWarmed, warmCall, warmLimitHit } from './warm'
 import { BLANK_PICK, BLANK_SPEND, SPEND_KINDS, TODAY_PERIOD, exportSpend, isRescanDue, loadSpend, logSpendDay, monthLabel, monthOf, cleanDays, combineDays, monthsWithData, parseSpendArgs, pickSpendKind, pickSpendMonth, readSpend, setSpendPeriod, shiftMonth, spendCard, typeSpendDay } from './spend'
@@ -2017,16 +2017,23 @@ async function billingRemove($: EngineInterface): Promise<void> {
   await update($, billing, prev => ({ ...prev, nonce: prev.nonce + 1 }))
 }
 
-// The pane's two folds, kept in the store so a reload or a new session opens the
-// list as the person left it: long by default.
+// The pane's two folds and the agents opened in it, kept in the store so a reload or a
+// new session opens the list as the person left it: long by default. An opened agent
+// that is no longer listed is dropped.
 const PANE_VIEW = 'paneView'
-const readPaneView = async ($: EngineInterface): Promise<Pick<Panel, 'isCompact' | 'isDoneCollapsed'>> => {
+type PaneView = Pick<Panel, 'isCompact' | 'isDoneCollapsed' | 'expanded'>
+const listedIds = async ($: EngineInterface): Promise<Set<string>> => new Set((await read($, agents)).map(a => a.id))
+const readPaneView = async ($: EngineInterface): Promise<PaneView> => {
   const v = (await $.store.get(PANE_VIEW).catch(() => undefined)) as Partial<Panel> | undefined
-  return { isCompact: v?.isCompact === true, isDoneCollapsed: v?.isDoneCollapsed === true }
+  const known = await listedIds($)
+  const expanded = Array.isArray(v?.expanded) ? v.expanded.filter(id => typeof id === 'string' && known.has(id)) : []
+  return { isCompact: v?.isCompact === true, isDoneCollapsed: v?.isDoneCollapsed === true, expanded }
 }
-const setPaneView = async ($: EngineInterface, change: (p: Pick<Panel, 'isCompact' | 'isDoneCollapsed'>) => Partial<Panel>): Promise<void> => {
+const setPaneView = async ($: EngineInterface, change: (p: PaneView) => Partial<PaneView>): Promise<void> => {
   const prev = await read($, panel)
-  const next = { isCompact: prev.isCompact, isDoneCollapsed: prev.isDoneCollapsed, ...change(prev) }
+  const known = await listedIds($)
+  const was = { isCompact: prev.isCompact, isDoneCollapsed: prev.isDoneCollapsed, expanded: (prev.expanded ?? []).filter(id => known.has(id)) }
+  const next = { ...was, ...change(was) }
   await update($, panel, p => ({ ...p, ...next }))
   await $.store.set(PANE_VIEW, next).catch(() => undefined)
 }
@@ -2173,19 +2180,27 @@ async function showPane($: EngineInterface, id: string, title: string): ReturnTy
 // What the desktop app counts against its 262,144-character limit for one drawing:
 // every text, an Svg's source and alt, each other element's prop names and string
 // values. Past the limit it draws a blank pane; DRAW_MAX leaves room for its own count.
+// `sourceLength` measures a source as it is sent: the pane sends it compacted (steady),
+// often a third shorter than drawn, so counting it raw dropped a small crew's cards.
 const DRAW_MAX = 220_000
-const drawnChars = (n: unknown): number => {
+const drawnChars = (n: unknown, sourceLength: (source: string) => number = src => src.length): number => {
   if (typeof n === 'string') return n.length
-  if (Array.isArray(n)) return n.reduce((sum: number, c) => sum + drawnChars(c), 0)
+  if (Array.isArray(n)) return n.reduce((sum: number, c) => sum + drawnChars(c, sourceLength), 0)
   if (!n || typeof n !== 'object') return 0
   const el = n as { type?: unknown; props?: Record<string, unknown>; children?: unknown }
   const props = el.props ?? {}
   const own =
     el.type === 'Svg'
-      ? String(props.source ?? '').length + String(props.alt ?? '').length
+      ? sourceLength(String(props.source ?? '')) + String(props.alt ?? '').length
       : Object.entries(props).reduce((sum, [k, v]) => (k === 'children' ? sum : sum + k.length + (typeof v === 'string' ? v.length : 0)), 0)
-  return own + drawnChars(el.children ?? props.children)
+  return own + drawnChars(el.children ?? props.children, sourceLength)
 }
+// The pane's size fallbacks, richest first, and the one it drew last. A richer one
+// than that must fit with DRAW_SLACK to spare: a pane at the edge whose size wavers by
+// a few characters (a log line, a roamer's visit) would otherwise flip between whole
+// layouts, cards to slim rows to the short view and back, redraw after redraw.
+const DRAW_SLACK = 10_000
+let paneLevel = 0
 
 // After a switch, the open panes take the new skin's tab titles.
 async function retitle($: EngineInterface): Promise<void> {
@@ -7123,13 +7138,14 @@ export const register: Register = (on, options) => {
     const t = totals(list, at)
     const info = liveEnv(await read($, env), clockNow)
     const rules = await read($, memory)
-    const opened = new Set(p.expanded ?? [])
+    const opened = new Set((p.expanded ?? []).filter(id => allAgents.some(a => a.id === id)))
     const rows = buildTree(list, p.isDoneCollapsed)
     // On a desktop only the first few running agents get a card; each of the rest
     // gets a slim live row, so a big crew stays listed in full and under the app's
-    // size limit. A card that ends hands its place to the next.
+    // size limit. A card that ends hands its place to the next. A running agent the
+    // person opened keeps its card over and above those.
     const treeWith = (cards: number): TreeRow[] => {
-      const slim = new Set(e.surface === 'desktop' ? rows.flatMap(r => (r.kind === 'agent' && r.a.status === 'running' ? [r.a.id] : [])).slice(cards) : [])
+      const slim = new Set(e.surface === 'desktop' ? rows.flatMap(r => (r.kind === 'agent' && r.a.status === 'running' && !opened.has(r.a.id) ? [r.a.id] : [])).slice(cards) : [])
       return rows.map(r => (r.kind === 'agent' ? { ...r, folded: r.a.status !== 'running' && !opened.has(r.a.id), slim: slim.has(r.a.id) } : r))
     }
     const tree = treeWith(MAX_CARDS)
@@ -7137,11 +7153,11 @@ export const register: Register = (on, options) => {
     const listed = new Set(rows.flatMap(r => (r.kind === 'agent' ? [r.a.id] : [])))
     const hiddenDone = p.isDoneCollapsed ? finished.filter(a => !listed.has(a.id)) : []
     const toggleOpen = (id: string) =>
-      update($, panel, prev => {
+      setPaneView($, prev => {
         const set = new Set(prev.expanded ?? [])
         if (set.has(id)) set.delete(id)
         else set.add(id)
-        return { ...prev, expanded: [...set].slice(-50) }
+        return { expanded: [...set].slice(-50) }
       })
     noteTypicalRun(allAgents)
     const steps = workSteps(f, list, boss, clockNow)
@@ -7259,7 +7275,7 @@ export const register: Register = (on, options) => {
             <Box flexDirection="column">
               <Text dimColor>Too many agents to draw in full: this is the short view.</Text>
               <Box flexDirection="row" gap={2}>
-                {opened.size > 0 && <Button key="fold-all" label="Fold the opened agents" plain onPress={() => update($, panel, prev => ({ ...prev, expanded: [] }))} />}
+                {opened.size > 0 && <Button key="fold-all" label="Fold the opened agents" plain onPress={() => setPaneView($, () => ({ expanded: [] }))} />}
                 {finished.length > 0 && !p.isDoneCollapsed && toggleDone}
               </Box>
             </Box>
@@ -7391,11 +7407,20 @@ export const register: Register = (on, options) => {
               r.kind === 'role' ? (
                 <Svg key={r.key} source={treeRowSvg(W, r, drawn(r.key, () => roleSvg(rowInnerW(W, r), r)))} alt={`${r.role}: ${r.count} agents, ${r.running} working`} />
               ) : r.slim ? (
+                // A running agent's slim live row, opened to its card as a finished row is:
+                // the drawing shrinks into what the button leaves, the button never.
                 <Box key={r.key} flexDirection="column">
-                  <Svg
-                    source={treeRowSvg(W, r, drawn(`${lite ? 'lite' : 'slim'}:${r.key}`, () => liveRowSvg(rowInnerW(W, r), r.a, at, lite)), lite)}
-                    alt={`${r.a.description}: ${modelName(r.a.model)}, ${s.isRunning}${isQuiet(r.a) ? ', quiet' : ''}${isOver(r.a) ? `, ${tkStr().overWord}` : ''}`}
-                  />
+                  <Box flexDirection="row" alignItems="center">
+                    <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                      <Svg
+                        source={treeRowSvg(W - OPEN_W, r, drawn(`${lite ? 'lite' : 'slim'}:${r.key}`, () => liveRowSvg(rowInnerW(W - OPEN_W, r), r.a, at, lite)), lite)}
+                        alt={`${r.a.description}: ${modelName(r.a.model)}, ${s.isRunning}${isQuiet(r.a) ? ', quiet' : ''}${isOver(r.a) ? `, ${tkStr().overWord}` : ''}`}
+                      />
+                    </Box>
+                    <Box flexShrink={0}>
+                      <Button key={`open-${r.key}`} label="Open ▸" plain onPress={() => toggleOpen(r.a.id)} />
+                    </Box>
+                  </Box>
                   {rescueRow($, r.a, ui)}
                 </Box>
               ) : r.folded ? (
@@ -7418,7 +7443,7 @@ export const register: Register = (on, options) => {
                     source={treeRowSvg(W, r, drawn(r.key, () => agentSvg(rowInnerW(W, r), r.a, at, !isBoxed(r))))}
                     alt={`${r.a.description}: ${modelName(r.a.model)}, ${r.a.status === 'running' ? s.isRunning : r.a.status === 'failed' ? s.failed : r.a.status === 'stopped' ? s.stopped : s.isFinished}${isOver(r.a) ? `, ${tkStr().overWord}` : ''}`}
                   />
-                  {r.a.status !== 'running' && <Button key={`close-${r.key}`} label="▴ Collapse" plain onPress={() => toggleOpen(r.a.id)} />}
+                  {(r.a.status !== 'running' || opened.has(r.a.id)) && <Button key={`close-${r.key}`} label="▴ Collapse" plain onPress={() => toggleOpen(r.a.id)} />}
                   {rescueRow($, r.a, ui)}
                   {r.a.isUltra && r.a.isUltraByManager && <Text key={`ultra-by-${r.key}`} dimColor>{"⚡ Manager's call"}</Text>}
                   {r.a.status === 'running' && <Button key={`ultra-${r.key}`} label={r.a.isUltra ? '⚡ Turn Ultra off' : '⚡ Turn Ultra on'} plain onPress={() => toggleUltra($, r.a.id)} />}
@@ -7441,20 +7466,30 @@ export const register: Register = (on, options) => {
       // then fewer cards; then the finished rows folded into one (all but the first
       // few, the opened ones and any with a card under them); at last the short view.
       const rich = orgSource(W, org)
+      // Measured as sent, each source compacted once per drawing however many fallbacks hold it.
+      const sent = new Map<string, number>()
+      const lengthOf = (src: string): number => sent.get(src) ?? sent.set(src, sentLength(src)).get(src) ?? src.length
+      const sizeOf = (v: unknown): number => drawnChars(v, lengthOf)
+      // Level `level` of the fallbacks fits: with room to spare when richer than the last drawn.
+      const fits = (level: number, size: number): boolean => size <= DRAW_MAX - (level < paneLevel ? DRAW_SLACK : 0)
+      const take = <T,>(level: number, v: T): T => {
+        paneLevel = level
+        return keep(v)
+      }
       // A crew with more slim rows than crabs can fit skips drawing them all to measure.
       const isCrowd = tree.filter(isSlim).length > MAX_CRAB_ROWS
       const view = isCrowd ? null : full(rich, tree, [])
-      if (view && drawnChars(view) <= DRAW_MAX) return keep(view)
+      if (view && fits(0, sizeOf(view))) return take(0, view)
       const lite = full(rich, tree, [], true)
-      const liteSize = drawnChars(lite)
-      if (liteSize <= DRAW_MAX) return keep(lite)
+      const liteSize = sizeOf(lite)
+      if (fits(1, liteSize)) return take(1, lite)
       const fewer = [2, 0].map(cards => full(rich, treeWith(cards), [], true))
-      const fewerSize = fewer.map(drawnChars)
-      for (const [i, v] of fewer.entries()) if ((fewerSize[i] ?? Infinity) <= DRAW_MAX) return keep(v)
+      const fewerSize = fewer.map(sizeOf)
+      for (const [i, v] of fewer.entries()) if (fits(2 + i, fewerSize[i] ?? Infinity)) return take(2 + i, v)
       const light = orgSvg(W, org, true)
-      if (liteSize - rich.length + light.length <= DRAW_MAX) return keep(full(light, tree, [], true))
+      if (fits(4, liteSize - lengthOf(rich) + lengthOf(light))) return take(4, full(light, tree, [], true))
       for (const [i, cards] of [2, 0].entries())
-        if ((fewerSize[i] ?? Infinity) - rich.length + light.length <= DRAW_MAX) return keep(full(light, treeWith(cards), [], true))
+        if (fits(5 + i, (fewerSize[i] ?? Infinity) - lengthOf(rich) + lengthOf(light))) return take(5 + i, full(light, treeWith(cards), [], true))
       const foldFinished = (rows: TreeRow[]) => {
         const fold = new Set(
           rows.flatMap((r, i) => {
@@ -7471,12 +7506,12 @@ export const register: Register = (on, options) => {
       const lean = foldFinished(treeWith(0))
       if (lean.isFolded) {
         const leanView = full(light, lean.shown, lean.done, true)
-        if (drawnChars(leanView) <= DRAW_MAX) return keep(leanView)
+        if (fits(7, sizeOf(leanView))) return take(7, leanView)
       }
       const short = compactView(rich)
-      if (drawnChars(short) <= DRAW_MAX) return keep(short)
+      if (fits(8, sizeOf(short))) return take(8, short)
       const shorter = compactView(light)
-      return keep(drawnChars(shorter) <= DRAW_MAX ? shorter : compactView(''))
+      return fits(9, sizeOf(shorter)) ? take(9, shorter) : take(10, compactView(''))
     }
 
     // Terminal: the same content in text rows.

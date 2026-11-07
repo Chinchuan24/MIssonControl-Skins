@@ -120,13 +120,15 @@ const KEPT_MAX = 400
  * The source for one slot of a drawing (`slot` names it across redraws): the very
  * same string while the content is the same, so the image is neither decoded again
  * nor restarted; a new content is phased at `at`, its bars gliding from their last widths.
+ * `isNew`: the slot's image is gone (it was not in the last drawing), so the one drawn
+ * now starts at `at`: phased afresh, never a source pinned to an earlier image's start.
  */
-export const steady = (slot: string, content: string, at: number): string => {
+export const steady = (slot: string, content: string, at: number, isNew = false): string => {
   const was = kept.get(slot)
-  if (was && was.content === content) return was.source
+  if (was && was.content === content && !isNew) return was.source
   const widths = glides(content)
   const source = phased(compact(content), at).replace(GLIDE, (_, id: string, to: string) => {
-    const from = was?.widths.get(id)
+    const from = isNew ? undefined : was?.widths.get(id)
     return from === undefined || from === to
       ? ''
       : `<animate attributeName="width" from="${from}" to="${to}" dur=".45s" calcMode="spline" keyTimes="0;1" keySplines=".2 .8 .2 1" fill="freeze"/>`
@@ -140,12 +142,20 @@ export const steady = (slot: string, content: string, at: number): string => {
 type Node = { type?: string; key?: unknown; props?: Record<string, unknown>; children?: unknown[] }
 const keyOf = (n: Node): string => String(n.key ?? n.props?.key ?? '')
 
+// The slots each scope's last drawing held: a slot missing from it had no image.
+const drawnLast = new Map<string, Set<string>>()
+
 /**
  * A whole drawing's sources made steady: each Svg's slot is its own key, else its
  * nearest keyed box's (an agent's row), so a card keeps its slot as rows come and go.
+ * A slot back after a drawing without it (the pane collapsed, then expanded) is a new
+ * image: its source is phased at `at`, not the one pinned to the start of the image
+ * that went, whose clocks, bars and roamer would stand where they stood back then.
  */
 export const steadyTree = <T>(tree: T, scope: string, at: number): T => {
   const seen = new Map<string, number>()
+  const last = drawnLast.get(scope)
+  const now = new Set<string>()
   const walk = (x: unknown, near: string): unknown => {
     if (Array.isArray(x)) return x.map(c => walk(c, near))
     if (!x || typeof x !== 'object') return x
@@ -154,12 +164,19 @@ export const steadyTree = <T>(tree: T, scope: string, at: number): T => {
     if (n.type === 'Svg' && typeof n.props?.source === 'string') {
       const k = seen.get(name) ?? 0
       seen.set(name, k + 1)
-      return { ...n, props: { ...n.props, source: steady(`${scope}:${name}#${k}`, n.props.source, at) } }
+      const slot = `${scope}:${name}#${k}`
+      now.add(slot)
+      return { ...n, props: { ...n.props, source: steady(slot, n.props.source, at, last !== undefined && !last.has(slot)) } }
     }
     return Array.isArray(n.children) ? { ...n, children: n.children.map(c => walk(c, name)) } : n
   }
-  return walk(tree, '') as T
+  const out = walk(tree, '') as T
+  drawnLast.set(scope, now)
+  return out
 }
+
+/** How long a source is as `steady` sends it: compacted (phasing moves only a few digits). */
+export const sentLength = (content: string): number => compact(content).length
 
 // --- what moves each second, drawn once a minute.
 
