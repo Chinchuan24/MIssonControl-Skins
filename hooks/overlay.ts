@@ -18,7 +18,7 @@ export const roamOptsOf = (r: ThemeRoamer, ctxPct: number): RoamOpts => ({ chanc
 
 /** The theme's hack lines for a panel (if it has them), with her plan for the window: more often while she is out. */
 const hackOf = (th: ThemeEggs, o: OverlayArgs, plan: RoamPlan, card?: 'cred' | 'log'): string =>
-  th.roamer?.hack ? th.roamer.hack({ W: o.W, H: o.H, surface: o.surface, at: o.at, ctxPct: o.ctxPct, roam: plan, ...(o.party ? { party: true } : {}), ...(card ? { card } : {}) }) : ''
+  th.roamer?.hack ? th.roamer.hack({ W: o.W, H: o.H, surface: o.surface, at: o.at, ctxPct: o.ctxPct, roam: plan, roamFor: t => (th.roamer ? roamPlan(th.roamer.seed, t, roamOptsOf(th.roamer, o.ctxPct)) : null), ...(o.party ? { party: true } : {}), ...(card ? { card } : {}) }) : ''
 
 export const roamOverlay = (th: ThemeEggs, o: OverlayArgs & { card?: 'cred' | 'log' }): string => {
   const r = th.roamer
