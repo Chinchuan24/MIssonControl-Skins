@@ -50,7 +50,7 @@ for (const [skin, word, addon] of [
   ['breaking-bad', 'On air: spot', false],
   ['heisenberg', 'On air: spot', false],
   ['mentalist', 'Case board: lead', false],
-  ['edgerunners-2', "Roman's tape: shot", true],
+  ['edgerunners-2', "Netrun trace: node", true],
 ] as const) {
   test(`${skin}: First, Back, Next and Live move the log card's pick`, { timeoutMs: 20_000 }, async ($, on) => {
     base(on, { addon })
@@ -96,7 +96,7 @@ test('capricorn: hidden from the picker until worn; once found it is listed whil
   expect(await pickerHas('capricorn')).toBe(true)
   await start($, '') // a reload: session.start again, the store kept
   expect(await skinList($)).toContain('▸ capricorn')
-  expect(await bandSvg($)).toContain('HOST · 0+2=1')
+  expect(await bandSvg($)).toContain('PROJECT CAPRICORN')
 })
 
 test('capricorn: a saved CAPRICORN falls back to the classic when the add-on is gone', { timeoutMs: 20_000 }, async ($, on) => {

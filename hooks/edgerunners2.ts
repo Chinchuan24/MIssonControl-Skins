@@ -1,38 +1,42 @@
-// Cyberpunk: Edgerunners 2 (fan homage; the hidden CAPRICORN skin shares everything here).
-// Torn magenta paper pasted on black, paper tape, the key art's concentric eye, and Capri
-// bleeding in from the edges. The band's pieces, the context chip, the takeover and the
-// pixel helpers live here; the pane's cards are in edgerunners2-cards.ts. Pure SVG strings,
-// no `$`, no state. Every "random" tear, shard and speck comes from a seed, so a redraw
-// gives the same picture.
+// Cyberpunk: Edgerunners 2, v2 "D's optics" (fan homage; the hidden CAPRICORN skin shares everything here).
+// A next-gen netrunner HUD on layered holographic glass: chamfered panes with 1 px gradient frames, a top
+// sheen and a parallax ghost, one beam travelling the frame, a beam gauge with a white-hot tip, a LINK hex
+// stream. D's cobalt and cool white are the city layer; hot pink and acid green are Capri's and show only when
+// she is near (95%+ context, a roam, a takeover) or in CAPRICORN, where she owns the HUD.
+// The band's pieces, the takeover and the pixel helpers live here; the pane's cards are in edgerunners2-cards.ts.
+// Pure SVG strings, no `$`, no state. Every "random" streak and speck comes from a seed, so a redraw gives the
+// same picture.
 //
-// Capri is NEVER drawn with vector paths: every Capri is one of the pixel sprites in cast.ts
-// (ER_CAPRI roams, ER_CAPRI_BUST is the portrait and the mask, ER_CAPRI_BIG is the takeover).
+// Capri is NEVER drawn with vector paths: every Capri is one of the pixel sprites in cast.ts (ER_CAPRI roams,
+// ER_CAPRI_BUST is the Neural Sync capsule and the name patch, ER_CAPRI_BIG is the takeover). Holo effects frame
+// them (scan glow, slices, rings, a trail); they never replace them. Her boxed eye is an icon of her mark.
 //
-// A fan homage to Cyberpunk: Edgerunners (CD PROJEKT RED / Studio Trigger / Netflix). Only
-// episode titles, short phrases and original drawing; no logos, no spoilers.
-import { CAST_CSS, ER_CAPRI, ER_CAPRI_BIG, ER_CAPRI_BUST, ER_D, ER_RUNNER, ER_RUNNER2, ER_RUNNER3, hashOf, spriteMarkup } from './cast'
-import { pin } from './smooth'
+// A fan homage to Cyberpunk: Edgerunners (CD PROJEKT RED / Studio Trigger / Netflix). Only episode titles,
+// short phrases and original drawing; no logos, no spoilers.
+import { ER_CAPRI, ER_CAPRI_BIG, ER_CAPRI_BUST, ER_D, ER_RUNNER, ER_RUNNER2, ER_RUNNER3, hashOf } from './cast'
 import type { Sprite } from './cast'
 import type { RoamPlan, RoamTiming } from './roamer'
 
 // --- tokens ----------------------------------------------------------------------
-export const P = {
-  ink: '#0A0709', ink2: '#151014', line: '#2C2128', track: '#1A333C',
-  mag: '#FD0250', crim: '#A02241', pink: '#FF5A92', paper: '#E9E6D8', paper2: '#CBC6B4',
-  text: '#F1EEE4', sub: '#C2B9B3', muted: '#968B90',
-  cobalt: '#3E80F7', cobaltT: '#79A6FF', done: '#8ED1BF', warn: '#F5A35C',
-  // Capri only: never used for ordinary UI.
-  hot: '#FF2E7E', hotD: '#C8124E', green: '#3DF27A', eye: '#2F6BFF', white: '#F7F4EA', black: '#050305',
-}
+/** The city layer (D's HUD) and the secret skin (Capri owns it). */
+export type Pal = { tile: string; tile2: string; line: string; track: string; a: string; aT: string; ice: string; text: string; sub: string; muted: string; done: string; warn: string; alert: string }
+export const CITY: Pal = { tile: '#070A12', tile2: '#0C1622', line: '#1C2740', track: '#131B2E', a: '#3E80F7', aT: '#8FB5FF', ice: '#BFD8FF', text: '#EAF2FF', sub: '#AEBDD6', muted: '#7A8AA8', done: '#5EE3C0', warn: '#FFB547', alert: '#FF3D71' }
+export const CAPRICORN: Pal = { tile: '#0C0410', tile2: '#180818', line: '#2E1430', track: '#20101F', a: '#FF2E7E', aT: '#3DF27A', ice: '#FFD6E6', text: '#FFF0F6', sub: '#E0B8CC', muted: '#9A7A90', done: '#3DF27A', warn: '#FFB547', alert: '#FF2E7E' }
+/** Capri only. Never used for ordinary UI in the city layer. */
+export const K = { hot: '#FF2E7E', pink: '#FF6AD0', red: '#FC1444', green: '#3DF27A', eye: '#2F6BFF', white: '#F7F4EA', black: '#050305' }
+export const palOf = (sec: boolean): Pal => (sec ? CAPRICORN : CITY)
 export const ER2_FONT = "'Avenir Next Condensed','Roboto Condensed','Arial Narrow',Bahnschrift,sans-serif"
 export const MONO = "'SF Mono',Menlo,Consolas,monospace"
+/** Band pieces carry their own face: the band's root sets none. */
+const ff = (svg: string): string => `<g font-family="${ER2_FONT}">${svg}</g>`
+export const CJK = "'Hiragino Sans','Hiragino Kaku Gothic ProN','PingFang SC','Yu Gothic UI','Noto Sans CJK JP',sans-serif"
 
 export const esc = (s: string): string => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 export const r1 = (n: number): number => +(+n).toFixed(1)
 export const clamp = (n: number, a: number, b: number): number => Math.max(a, Math.min(b, n))
 export const hash = (s: string): number => hashOf(String(s))
-let uid = 0
-export const uniq = (p: string): string => `${p}${(uid = (uid + 1) % 100000)}`
+/** A stable id for a def: the same drawing always gets the same one, so a redraw gives the same source. */
+export const did = (p: string, ...a: (string | number | boolean | undefined)[]): string => `${p}${hash(a.join('|')) % 1_000_000}`
 
 // A small seeded generator (mulberry32).
 export const rng = (seed: string): (() => number) => {
@@ -95,149 +99,263 @@ export const er2Wrap = (s: string, size: number, maxW: number, max = 3, weight =
 export const T = (x: number, y: number, s: string, size: number, weight: number, fill: string, extra = ''): string =>
   `<text x="${r1(x)}" y="${r1(y)}" font-size="${size}" font-weight="${weight}" fill="${fill}" ${extra}>${esc(s)}</text>`
 
-// --- the motifs --------------------------------------------------------------------
-/** A torn rectangle: each chosen edge walks in 3-8 px steps and bites inward by up to `j` px. */
-export const torn = (x: number, y: number, w: number, h: number, seed: string, j = 2, edges = 'trbl'): string => {
-  const R = rng(seed)
-  const pts: [number, number][] = []
-  const walk = (x0: number, y0: number, x1: number, y1: number, nx: number, ny: number, amp: number) => {
-    const len = Math.hypot(x1 - x0, y1 - y0)
-    let t = 0
-    while (t < len) {
-      const f = t / len
-      const d = amp ? (R() < 0.12 ? amp * 1.9 : R() * amp) : 0
-      pts.push([x0 + (x1 - x0) * f + nx * d, y0 + (y1 - y0) * f + ny * d])
-      t += 3 + R() * 5
-    }
+
+export const mw = (s: string, size: number, ls = 0): number => [...String(s)].length * (0.602 * size + ls)
+export const M = (x: number, y: number, s: string, size: number, fill: string, extra = ''): string =>
+  `<text x="${r1(x)}" y="${r1(y)}" font-family="${MONO}" font-size="${size}" fill="${fill}" ${extra}>${esc(s)}</text>`
+/** `#rrggbb` as rgba(). */
+export const lift = (hex: string, a: number): string => {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16))
+  return `rgba(${r},${g},${b},${a})`
+}
+/** A chamfer path: cut `c1` at the top-left and bottom-right corners, `c2` at the other two (the HUD's asymmetric cut). */
+export const cham = (x: number, y: number, w: number, h: number, c1 = 6, c2 = 2): string =>
+  `M${r1(x + c1)} ${r1(y)}H${r1(x + w - c2)}L${r1(x + w)} ${r1(y + c2)}V${r1(y + h - c1)}L${r1(x + w - c1)} ${r1(y + h)}H${r1(x + c2)}L${r1(x)} ${r1(y + h - c2)}V${r1(y + c1)}Z`
+
+// --- motion: every animation has a reduced-motion fallback ----------------------------
+export const ER2_CSS = `.v2-led{animation:v2led 1.4s steps(1) infinite}@keyframes v2led{50%{opacity:.25}}
+.v2-rec{animation:v2led 1.2s steps(1) infinite}
+.v2-vis{animation:v2vis 2.4s ease-in-out infinite}@keyframes v2vis{50%{opacity:.45}}
+.v2-blink{animation:v2blink 4.2s steps(1) infinite}@keyframes v2blink{0%,92%,100%{opacity:1}94%{opacity:.1}}
+.v2-beam{animation:v2beam 7s linear infinite}@keyframes v2beam{to{stroke-dashoffset:-1000}}
+.v2-rail{animation:v2rail 3.2s linear infinite}@keyframes v2rail{to{stroke-dashoffset:-220}}
+.v2-sweep{animation:v2sweep 8s linear infinite}@keyframes v2sweep{from{transform:translateY(0)}to{transform:translateY(var(--h))}}
+.v2-bx{animation:v2bx 3s steps(6) infinite}@keyframes v2bx{to{transform:translateX(78px)}}
+.v2-chrom{animation:v2chrom 4.2s steps(1) infinite}@keyframes v2chrom{0%,86%,100%{opacity:0}88%{opacity:.9}90%{opacity:.5}93%{opacity:.9}96%{opacity:0}}
+.v2-streak{animation:v2streak 2.8s steps(1) infinite}@keyframes v2streak{0%,100%{transform:translateX(0)}30%{transform:translateX(-5px)}31%{transform:translateX(4px)}60%{transform:translateX(2px)}61%{transform:translateX(-6px)}}
+.v2-drift{animation:v2drift 5s linear infinite}@keyframes v2drift{from{transform:translateY(0)}to{transform:translateY(-6px)}}
+.v2-psy{animation:v2psy 1.6s steps(1) infinite}@keyframes v2psy{0%,100%{transform:translateX(0)}22%{transform:translateX(1px)}25%{transform:translateX(-1px)}27%{transform:translateX(0)}}
+.v2-ring{animation:v2ring 9s linear infinite;transform-box:fill-box;transform-origin:center}@keyframes v2ring{to{transform:rotate(360deg)}}
+.v2-cone{animation:v2cone 3.6s ease-in-out infinite}@keyframes v2cone{50%{opacity:.55}}
+.v2-hex{animation:v2hex 1.2s steps(1) infinite}@keyframes v2hex{0%,100%{opacity:1}33%{opacity:0}66%{opacity:0}}
+.v2-hex2{animation:v2hex 1.2s steps(1) infinite -.4s}.v2-hex3{animation:v2hex 1.2s steps(1) infinite -.8s}
+.v2-drop{animation:v2drop .35s cubic-bezier(.2,.9,.2,1) both}@keyframes v2drop{from{transform:translateY(-6px);opacity:0}}
+.v2-slide{animation:v2slide .3s cubic-bezier(.2,.9,.2,1) both}@keyframes v2slide{from{transform:translateX(6px);opacity:0}}
+.v2-cheer{animation:v2cheer 2.4s steps(1) both}@keyframes v2cheer{0%{opacity:0}8%,88%{opacity:1}100%{opacity:0}}
+.hair{animation:v2sway 1.8s steps(1) infinite}@keyframes v2sway{50%{transform:translateX(1px)}}
+.vis{animation:v2vis 2.2s ease-in-out infinite}
+.led{animation:v2led 1.2s steps(1) infinite}
+@media (prefers-reduced-motion: reduce){.v2-led,.v2-rec,.v2-vis,.v2-blink,.v2-beam,.v2-rail,.v2-sweep,.v2-bx,.v2-chrom,.v2-streak,.v2-drift,.v2-psy,.v2-ring,.v2-cone,.v2-hex,.v2-hex2,.v2-hex3,.v2-drop,.v2-slide,.v2-cheer,.hair,.vis,.led{animation:none}.v2-sweep,.v2-chrom,.v2-mo,.v2-hex2,.v2-hex3{display:none}}
+`
+/** The takeover, 3.5 s (animation-fill both). Reduced motion: the animated layer is hidden and a still note shows for 3 s. */
+export const TK_CSS = `.tk-scrim{animation:tkscrim .25s linear both}@keyframes tkscrim{from{opacity:0}to{opacity:.92}}
+.tk-field{animation:tkfield .3s cubic-bezier(.2,.9,.2,1) both;transform-box:fill-box;transform-origin:center}@keyframes tkfield{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.tk-strobe{animation:tkstrobe .8s steps(1) both}@keyframes tkstrobe{0%,100%{opacity:1}25%{opacity:.35}50%{opacity:1}75%{opacity:.5}}
+.tk-ret{animation:tkret .5s cubic-bezier(.2,.9,.2,1) both;transform-box:fill-box;transform-origin:center}@keyframes tkret{from{transform:scale(1.5);opacity:0}to{transform:scale(1);opacity:1}}
+.tk-ring{animation:tkring 6s linear infinite;transform-box:fill-box;transform-origin:center}@keyframes tkring{to{transform:rotate(360deg)}}
+.tk-in{animation:tkin .5s steps(1) both}@keyframes tkin{0%{opacity:0}12%{opacity:1;clip-path:inset(0 0 72% 0);transform:translateX(-4px)}28%{opacity:.5;clip-path:inset(46% 0 0 0);transform:translateX(4px)}44%{opacity:1;clip-path:inset(0 0 34% 0);transform:translateX(-2px)}60%{opacity:.6;clip-path:inset(18% 0 18% 0);transform:translateX(2px)}78%,100%{opacity:1;clip-path:none;transform:none}}
+.tk-g1{animation:tkg1 3.1s steps(1) infinite}@keyframes tkg1{0%{opacity:.8;transform:translate(-4px,0)}5%{opacity:.6;transform:translate(-3px,1px)}9%,44%,52%,89%,97%,100%{opacity:0;transform:none}45%{opacity:.8;transform:translate(-4px,-1px)}90%{opacity:.8;transform:translate(-3px,0)}}
+.tk-g2{animation:tkg2 3.1s steps(1) infinite}@keyframes tkg2{0%{opacity:.8;transform:translate(4px,0)}5%{opacity:.6;transform:translate(3px,-1px)}9%,44%,52%,89%,97%,100%{opacity:0;transform:none}45%{opacity:.8;transform:translate(4px,1px)}90%{opacity:.8;transform:translate(3px,0)}}
+.tk-bar{animation:tkbar .2s steps(2) both;transform-box:fill-box;transform-origin:center}@keyframes tkbar{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+.tk-ty{animation:tkty linear both;transform-box:fill-box;transform-origin:100% 50%}@keyframes tkty{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+.tk-cur{animation:tkcur .5s steps(1) infinite}@keyframes tkcur{50%{opacity:0}}
+.tk-off{animation:tkoff .6s steps(1) both}@keyframes tkoff{0%{opacity:1;clip-path:inset(0)}20%{clip-path:inset(0);transform:translateX(5px)}40%{clip-path:inset(30% 0 30% 0);transform:translateX(-4px)}60%{clip-path:inset(46% 0 46% 0);transform:none;opacity:1}80%{clip-path:inset(49.5% 0 49.5% 0);opacity:1}100%{clip-path:inset(50% 0 50% 0);opacity:0}}
+.tk-still{display:none}
+@media (prefers-reduced-motion: reduce){.tk-scrim,.tk-field,.tk-strobe,.tk-ret,.tk-ring,.tk-in,.tk-g1,.tk-g2,.tk-bar,.tk-ty,.tk-cur,.tk-off{animation:none}.tk-anim{display:none}.tk-still{display:block;animation:tkstill 3.5s steps(1) both}@keyframes tkstill{0%,85%{opacity:1}100%{opacity:0;visibility:hidden}}}
+`
+
+// --- primitives ---------------------------------------------------------------------
+/** Scanlines: a 1 px line every 3 px. One pattern def per drawing. */
+export const scanDefs = (id: string, color = '#FFFFFF', op = 0.045): string => `<pattern id="${id}" width="1" height="3" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="${color}" fill-opacity="${op}"/></pattern>`
+const bloomDefs = (id: string, sd = 3): string => `<filter id="${id}" x="-50%" y="-200%" width="200%" height="500%"><feGaussianBlur stdDeviation="${sd}"/></filter>`
+const frameDefs = (id: string, c1: string, c2: string, c3: string): string => `<linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset=".55" stop-color="${c2}"/><stop offset="1" stop-color="${c3}"/></linearGradient>`
+const sheenDefs = (id: string, color: string): string => `<linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity=".16"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient>`
+
+export type PaneOpts = { /** A card's shared frame gradients (`cardDefs`): no per-pane defs, ghost or sheen. */ shared?: string; sec?: boolean; near?: boolean; cut?: number; fill?: string; fillOp?: number; scanId?: string; nodes?: boolean; ghost?: boolean; beam?: boolean; sheenH?: number; frame?: string; scan?: boolean }
+/**
+ * A holographic glass pane: chamfered, translucent fill, a 1 px gradient frame, a top sheen and a parallax ghost of
+ * the frame offset (+2, -2). `near` switches the frame to Capri's colours.
+ */
+export const pane = (x: number, y: number, w: number, h: number, o: PaneOpts = {}): string => {
+  const P = palOf(Boolean(o.sec))
+  const id = did('pn', x, y, w, h, o.sec, o.near, o.frame, o.beam)
+  const near = Boolean(o.near)
+  const c1 = near ? K.hot : o.frame || P.a
+  const c3 = near ? K.green : P.line
+  const c2 = near ? K.pink : lift(c1, 0.45)
+  const cut = o.cut ?? 6
+  const c2cut = Math.max(2, Math.round(cut / 3))
+  const d = cham(x, y, w, h, cut, c2cut)
+  const sheenH = Math.min(h, o.sheenH ?? 40)
+  if (o.shared) {
+    const sd = cham(x, y, w, h, cut, c2cut)
+    let t = `<path d="${sd}" fill="${o.fill ?? P.tile2}" fill-opacity="${o.fillOp ?? 0.92}"/>`
+    if (o.scan !== false && o.scanId) t += `<path d="${sd}" fill="url(#${o.scanId})"/>`
+    t += `<path d="${sd}" fill="none" stroke="url(#${o.shared}${near ? 'n' : 'f'})"/>`
+    if (o.nodes) t += `<g fill="${near ? K.white : P.ice}" fill-opacity=".9"><rect x="${r1(x + cut - 1)}" y="${y - 1}" width="2" height="2"/><rect x="${r1(x + w - 1)}" y="${r1(y + h - cut - 1)}" width="2" height="2"/></g>`
+    return t
   }
-  const J = (e: string) => (edges.includes(e) ? j : 0)
-  walk(x, y, x + w, y, 0, 1, J('t'))
-  walk(x + w, y, x + w, y + h, -1, 0, J('r'))
-  walk(x + w, y + h, x, y + h, 0, -1, J('b'))
-  walk(x, y + h, x, y, 1, 0, J('l'))
-  return `M${pts.map(p => `${r1(p[0])} ${r1(p[1])}`).join('L')}Z`
-}
-/** Two-ply paper: an under-layer offset down-right, then the sheet. */
-export const paper = (x: number, y: number, w: number, h: number, seed: string, fill = P.mag, under = P.crim, j = 2, edges = 'trbl', off: [number, number] = [1.6, 2]): string =>
-  `<path d="${torn(x + off[0], y + off[1], w, h, `${seed}u`, j, edges)}" fill="${under}"/><path d="${torn(x, y, w, h, seed, j, edges)}" fill="${fill}"/>`
-export const tape = (cx: number, cy: number, w: number, h: number, rot: number, seed: string, op = 0.62): string =>
-  `<path d="${torn(-w / 2, -h / 2, w, h, seed, 1.4, 'lr')}" transform="translate(${r1(cx)} ${r1(cy)}) rotate(${rot})" fill="${P.paper}" fill-opacity="${op}"/>`
-export type LabelOpts = { size?: number; weight?: number; ls?: number; fill?: string; ink?: string; under?: string; rot?: number; padX?: number; h?: number; seed?: string }
-/** A paper label, the skin's title style (the band's name, every card title). */
-export const label = (x: number, y: number, text: string, o: LabelOpts = {}): { svg: string; w: number } => {
-  const { size = 9.5, weight = 800, ls = 1.5, fill = P.paper, ink = P.ink, under = '#000', rot = -1.2, padX = 7, h = 16, seed = text } = o
-  const w = r1(er2W(text, size, ls, weight) + padX * 2)
-  return { w, svg: `<g transform="rotate(${rot} ${r1(x + w / 2)} ${r1(y + h / 2)})">${paper(x, y, w, h, seed, fill, under, 1.5, 'trbl', [1.2, 1.6])}${T(x + padX, y + h / 2 + size * 0.36, text, size, weight, ink, `letter-spacing="${ls}"`)}</g>` }
-}
-/** Shards: irregular triangles in the given colours. */
-export const shards = (x: number, y: number, w: number, h: number, n: number, seed: string, cols: string[], smin = 3, smax = 11): string => {
-  const R = rng(seed)
-  let s = ''
-  for (let i = 0; i < n; i++) {
-    const cx = x + R() * w
-    const cy = y + R() * h
-    const sz = smin + R() * (smax - smin)
-    const a = R() * 6.283
-    const pt = (ang: number, rr: number) => `${r1(cx + Math.cos(ang) * rr)} ${r1(cy + Math.sin(ang) * rr)}`
-    s += `<path d="M${pt(a, sz)}L${pt(a + 2.1 + R() * 0.7, sz * (0.35 + R() * 0.4))}L${pt(a + 4 + R() * 0.6, sz * (0.5 + R() * 0.5))}Z" fill="${cols[Math.floor(R() * cols.length)]}"/>`
+  let s = `<defs>${frameDefs(`${id}f`, c1, c2, c3)}${sheenDefs(`${id}s`, near ? K.pink : o.frame || P.ice)}<clipPath id="${id}c"><path d="${d}"/></clipPath></defs>`
+  if (o.ghost !== false) s += `<path d="${cham(x + 2, y - 2, w, h, cut, c2cut)}" fill="none" stroke="${c1}" stroke-opacity=".22"/>`
+  s += `<path d="${d}" fill="${o.fill ?? P.tile2}" fill-opacity="${o.fillOp ?? 0.92}"/>`
+  s += `<rect x="${x}" y="${y}" width="${w}" height="${sheenH}" fill="url(#${id}s)" clip-path="url(#${id}c)"/>`
+  if (o.scan !== false && o.scanId) s += `<path d="${d}" fill="url(#${o.scanId})"/>`
+  s += `<path d="${d}" fill="none" stroke="url(#${id}f)" stroke-width="1"${o.beam ? ' class="v2-beam" stroke-dasharray="70 930"' : ''}/>`
+  if (o.beam) s += `<path d="${d}" fill="none" stroke="url(#${id}f)" stroke-width="1" stroke-opacity=".45"/>`
+  if (o.nodes) {
+    const n = near ? K.white : P.ice
+    s += `<g fill="${n}" fill-opacity=".9"><rect x="${r1(x + cut - 1)}" y="${y - 1}" width="2" height="2"/><rect x="${x - 1}" y="${r1(y + cut - 1)}" width="2" height="2"/><rect x="${r1(x + w - cut - 1)}" y="${r1(y + h - 1)}" width="2" height="2"/><rect x="${r1(x + w - 1)}" y="${r1(y + h - cut - 1)}" width="2" height="2"/></g>`
   }
   return s
 }
-/** Capri's pink lightning: a jagged line with a white core. */
-export const bolt = (x1: number, y1: number, x2: number, y2: number, seed: string, seg = 6, amp = 5, wdt = 1.8, col = P.hot): string => {
-  const R = rng(seed)
-  const pts: [number, number][] = [[x1, y1]]
-  const dx = x2 - x1
-  const dy = y2 - y1
-  const len = Math.hypot(dx, dy) || 1
-  const nx = -dy / len
-  const ny = dx / len
-  for (let i = 1; i < seg; i++) {
-    const f = i / seg
-    const o = (i % 2 ? 1 : -1) * amp * (0.4 + R() * 0.8)
-    pts.push([x1 + dx * f + nx * o, y1 + dy * f + ny * o])
-  }
-  pts.push([x2, y2])
-  const p = pts.map(q => `${r1(q[0])},${r1(q[1])}`).join(' ')
-  return `<polyline points="${p}" fill="none" stroke="${col}" stroke-width="${wdt}" stroke-linejoin="miter" stroke-linecap="square"/><polyline points="${p}" fill="none" stroke="${P.white}" stroke-width="${r1(wdt * 0.35)}"/>`
+/** A card's shared defs: the scanline pattern and the frame gradient in the city's and in Capri's colours. */
+export const cardDefs = (sid: string, sec: boolean, scanOp = 0.035): string => {
+  const P = palOf(sec)
+  return `<defs>${scanDefs(sid, sec ? K.hot : '#FFFFFF', sec ? 0.05 : scanOp)}${frameDefs(`${sid}f`, P.a, lift(P.a, 0.45), P.line)}${frameDefs(`${sid}n`, K.hot, K.pink, K.green)}</defs>`
 }
-/** Static: single pixels. */
-export const grain = (x: number, y: number, w: number, h: number, n: number, seed: string, col = '#fff'): string => {
-  const R = rng(seed)
-  let d = ''
-  for (let i = 0; i < n; i++) {
-    const big = R() < 0.2 ? 1.4 : 0.8
-    d += `M${r1(x + R() * w)} ${r1(y + R() * h)}h${big}v${big}h-${big}z`
+/** Reticle brackets at the four corners of a box. */
+export const brackets = (x: number, y: number, w: number, h: number, len: number, color: string, sw = 1.2, op = 1): string =>
+  `<path d="M${r1(x)} ${r1(y + len)}V${r1(y)}H${r1(x + len)}M${r1(x + w - len)} ${r1(y)}H${r1(x + w)}V${r1(y + len)}M${r1(x + w)} ${r1(y + h - len)}V${r1(y + h)}H${r1(x + w - len)}M${r1(x + len)} ${r1(y + h)}H${r1(x)}V${r1(y + h - len)}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-opacity="${op}"/>`
+export type BeamOpts = { sec?: boolean; near?: boolean; ticks?: boolean; color?: string; color2?: string }
+/** A beam gauge: a chamfered track, a gradient fill and a white-hot tip with bloom. Ticks every 10%. */
+export const beam = (x: number, y: number, w: number, h: number, pct: number, o: BeamOpts = {}): string => {
+  const P = palOf(Boolean(o.sec))
+  const id = did('bm', x, y, w, h, Math.round(pct), o.sec, o.near, o.color)
+  const f1 = o.near ? K.hot : o.color || P.a
+  const f2 = o.near ? K.green : o.color2 || P.aT
+  const tip = o.near ? K.white : P.ice
+  const fw = r1((w * clamp(pct, 0, 100)) / 100)
+  let s = `<defs><linearGradient id="${id}g" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="${f1}" stop-opacity=".75"/><stop offset=".85" stop-color="${f1}"/><stop offset="1" stop-color="${f2}"/></linearGradient>${bloomDefs(`${id}b`, h >= 6 ? 3 : 2)}</defs>`
+  s += `<path d="${cham(x + 1.5, y - 1.5, w, h, 2, 1)}" fill="none" stroke="${P.line}" stroke-opacity=".7"/>`
+  s += `<path d="${cham(x, y, w, h, 2, 1)}" fill="${P.track}"/>`
+  if (o.ticks) s += `<g fill="${P.line}">${Array.from({ length: 9 }, (_, i) => `<rect x="${r1(x + (w * (i + 1)) / 10)}" y="${y + h + 2}" width="1" height="2"/>`).join('')}</g>`
+  if (fw > 0) {
+    s += `<rect x="${x}" y="${y}" width="${fw}" height="${h}" fill="url(#${id}g)"/>`
+    s += `<rect x="${r1(x + Math.max(0, fw - 14))}" y="${y}" width="14" height="${h}" fill="${tip}" fill-opacity=".55" filter="url(#${id}b)"/>`
+    s += `<rect x="${r1(x + Math.max(0, fw - 2))}" y="${y}" width="2" height="${h}" fill="${tip}"/>`
   }
-  return `<path d="${d}" fill="${col}" opacity=".75"/>`
-}
-/** The key art's concentric eye. */
-export const eyeRings = (cx: number, cy: number, r: number, ring = P.mag, base = P.ink): string =>
-  `<circle cx="${r1(cx)}" cy="${r1(cy)}" r="${r1(r)}" fill="${base}"/><circle cx="${r1(cx)}" cy="${r1(cy)}" r="${r1(r * 0.8)}" fill="none" stroke="${ring}" stroke-width="${r1(r * 0.1)}"/><circle cx="${r1(cx)}" cy="${r1(cy)}" r="${r1(r * 0.52)}" fill="none" stroke="${ring}" stroke-width="${r1(r * 0.09)}"/><circle cx="${r1(cx)}" cy="${r1(cy)}" r="${r1(r * 0.25)}" fill="${ring}"/>`
-/** A torn hole: a jagged radial outline. */
-export const burst = (cx: number, cy: number, rx: number, ry: number, seed: string, n = 46, depth = 0.22): string => {
-  const R = rng(seed)
-  const pts: string[] = []
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * 6.283 + (R() - 0.5) * 0.06
-    const k = 1 - R() * depth * (R() < 0.25 ? 2 : 1)
-    pts.push(`${r1(cx + Math.cos(a) * rx * k)} ${r1(cy + Math.sin(a) * ry * k)}`)
-  }
-  return `M${pts.join('L')}Z`
-}
-/** The tear gauge: a night-teal slot filled with magenta paper whose leading edge is ripped. */
-export const tearGauge = (x: number, y: number, w: number, h: number, pct: number, seed: string, fill = P.mag, under = P.crim, track = P.track): string => {
-  const fw = Math.max(0, w * clamp(pct, 0, 100) / 100)
-  const j = Math.min(3, h * 0.5)
-  return `<rect x="${r1(x)}" y="${r1(y)}" width="${r1(w)}" height="${h}" rx="1" fill="${track}"/>${fw > 2 ? `<path d="${torn(x, y, fw, h, `${seed}u`, j, 'r')}" fill="${under}" transform="translate(1.6 0)"/><path d="${torn(x, y, fw, h, seed, j, 'r')}" fill="${fill}"/>` : ''}`
+  return s
 }
 
-// --- pixel sprites ------------------------------------------------------------------
-/** A sprite as crisp rects, merged into one path per colour. `t` takes `tint`. */
-export const pixels = (sp: Sprite, x: number, y: number, size: number, tint = P.cobalt, rim?: string): string => {
-  const d = new Map<string, string[]>()
-  const colorOf = (ch: string | undefined): string | undefined => (ch === undefined || ch === '.' ? undefined : ch === 't' && !sp.pal.t ? tint : sp.pal[ch])
-  const add = (c: string, i: number, j: number, n: number) => {
-    if (!d.has(c)) d.set(c, [])
-    d.get(c)?.push(`M${r1(x + i * size)} ${r1(y + j * size)}h${r1(n * size)}v${r1(size)}h-${r1(n * size)}z`)
-  }
-  const filled = (i: number, j: number) => colorOf(sp.rows[j]?.[i]) !== undefined
-  const w = Math.max(...sp.rows.map(r => r.length))
-  if (rim) for (let j = -1; j <= sp.rows.length; j++) for (let i = -1; i <= w; i++) if (!filled(i, j) && (filled(i + 1, j) || filled(i - 1, j) || filled(i, j + 1) || filled(i, j - 1))) add(rim, i, j, 1)
-  sp.rows.forEach((row, j) => {
-    for (let i = 0; i < row.length; i++) {
-      const ch = row[i] as string
-      const c = colorOf(ch)
-      if (c === undefined) continue
-      let n = 1
-      while (row[i + n] === ch) n++
-      add(c, i, j, n)
-      i += n - 1
+export type PxOpts = { rim?: string; rimOp?: number; mono?: string; op?: number; rows?: [number, number]; flip?: boolean; tint?: string }
+/**
+ * Pixel art, crisp, merged into one path per colour and motion class (hair, vis, led). `rim`: a 1 px rim around the
+ * silhouette (ignored for a sprite with `rim: false`); `mono`: every pixel in one colour (the wireframe look);
+ * `rows`: draw only that window of rows. `s` is px per sprite pixel.
+ */
+export const pixels = (sp: Sprite, x: number, y: number, s: number, o: PxOpts = {}): string => {
+  const W = Math.max(...sp.rows.map(r => r.length))
+  const H = sp.rows.length
+  const from = o.rows ? o.rows[0] : 0
+  const to = o.rows ? o.rows[1] : H
+  const rim = sp.rim === false ? undefined : o.rim
+  const by = new Map<string, string[]>()
+  // Runs of one colour merge down the rows when the next row has the same run, so a block is one rect.
+  const live = new Map<string, { k: string; px: number; n: number; y0: number; y1: number }>()
+  const flush = (py: number) => {
+    for (const [id, r] of live) {
+      if (r.y1 < py) {
+        const a = by.get(r.k)
+        const d = `M${r.px} ${r.y0}h${r.n}v${r.y1 - r.y0 + 1}h${-r.n}z`
+        if (a) a.push(d)
+        else by.set(r.k, [d])
+        live.delete(id)
+      }
     }
+  }
+  const colorOf = (ch: string | undefined): string | undefined => (ch === undefined || ch === '.' ? undefined : (o.mono ?? (ch === 't' && !sp.pal.t ? (o.tint ?? K.hot) : sp.pal[ch])))
+  const filled = (px: number, py: number): boolean => colorOf(sp.rows[py]?.[px]) !== undefined
+  const addRect = (k: string, px: number, py: number, n: number) => {
+    const id = `${k}#${px}#${n}`
+    const r = live.get(id)
+    if (r && r.y1 === py - 1) r.y1 = py
+    else {
+      if (r) {
+        const a = by.get(k)
+        const d = `M${r.px} ${r.y0}h${r.n}v${r.y1 - r.y0 + 1}h${-r.n}z`
+        if (a) a.push(d)
+        else by.set(k, [d])
+      }
+      live.set(id, { k, px, n, y0: py, y1: py })
+    }
+  }
+  for (let py = Math.max(-1, from - 1); py <= Math.min(H, to); py++) {
+    const row = sp.rows[py] ?? ''
+    for (let px = -1; px <= W; px++) {
+      const ch = row[px]
+      const c = colorOf(ch)
+      if (c === undefined) {
+        if (rim && py >= from && py < to && (filled(px + 1, py) || filled(px - 1, py) || filled(px, py + 1) || filled(px, py - 1))) addRect(`|rim|${rim}`, px, py, 1)
+        continue
+      }
+      if (py < from || py >= to) continue
+      let n = 1
+      while (row[px + n] === ch) n++
+      addRect(`${o.mono ? '' : (sp.cls?.[ch as string] ?? '')}||${c}`, px, py, n)
+      px += n - 1
+    }
+    flush(py)
+  }
+  flush(H + 5)
+  const paths = [...by.entries()].map(([k, ds]) => {
+    const [cls, kind, color] = k.split('|') as [string, string, string]
+    const isRim = kind === 'rim'
+    return `<path${cls ? ` class="${cls}"` : ''} d="${ds.join('')}" fill="${color}"${isRim ? ` fill-opacity="${o.rimOp ?? 0.5}"` : o.op ? ` fill-opacity="${o.op}"` : ''}/>`
   })
-  return `<g>${[...d.entries()].map(([c, p]) => `<path d="${p.join('')}" fill="${c}"/>`).join('')}</g>`
+  const tf = o.flip ? `translate(${r1(x + W * s)} ${r1(y)}) scale(${-s} ${s})` : `translate(${r1(x)} ${r1(y)}) scale(${s})`
+  return `<g transform="${tf}" shape-rendering="crispEdges">${paths.join('')}</g>`
 }
-const RUNNERS = [ER_RUNNER, ER_RUNNER2, ER_RUNNER3]
+/** Capri's boxed eye (the key art's presence icon): a green box, black sclera, blue iris, white pupil. 14 by 8 at s = 1. An icon of her mark, not her figure. */
+export const eye = (x: number, y: number, s = 1, cls = 'v2-vis'): string =>
+  `<g transform="translate(${r1(x)} ${r1(y)}) scale(${s})"><rect x="0" y="0" width="14" height="8" rx=".8" fill="${K.green}"/><rect x="1.3" y="1.3" width="11.4" height="5.4" fill="${K.black}"/><circle class="${cls}" cx="7" cy="4" r="2" fill="${K.eye}"/><circle cx="7.6" cy="3.4" r=".7" fill="${K.white}"/></g>`
+/** Pixel-sort streaks (the redline interference texture): thin bars in Capri's pinks that slide a few px. */
+export const streaks = (x: number, y: number, w: number, h: number, seed: string, n: number, o: { colors?: string[]; max?: number; cls?: string } = {}): string => {
+  const r = rng(seed)
+  const cols = o.colors ?? [K.hot, K.pink, K.green, K.white]
+  let s = `<g class="${o.cls ?? 'v2-streak'}">`
+  for (let i = 0; i < n; i++) {
+    const sw = 6 + r() * (o.max ?? 54)
+    const sx = x + r() * Math.max(0, w - sw)
+    const sy = y + Math.floor(r() * h)
+    const c = cols[Math.floor(r() * cols.length)] as string
+    s += `<rect x="${r1(sx)}" y="${sy}" width="${r1(sw)}" height="${r() < 0.3 ? 2 : 1}" fill="${c}" fill-opacity="${r1(0.45 + r() * 0.5)}"/>`
+  }
+  return `${s}</g>`
+}
+/** Data particles: 1-2 px green squares in a margin, drifting up. */
+export const motes = (x: number, y: number, w: number, h: number, seed: string, n: number): string => {
+  const r = rng(seed)
+  return `<g class="v2-drift" fill="${K.green}">${Array.from({ length: n }, () => `<rect x="${r1(x + r() * w)}" y="${r1(y + r() * h)}" width="${r() < 0.4 ? 2 : 1}" height="${r() < 0.4 ? 2 : 1}" fill-opacity="${r1(0.4 + r() * 0.6)}"/>`).join('')}</g>`
+}
+/** The red interference field (the clip's centre panel): red base, vertical subpixel stripes, pink tear streaks, dark dropped bands. */
+export const field = (x: number, y: number, w: number, h: number, seed: string, o: { n?: number } = {}): string => {
+  const id = did('fd', x, y, w, h)
+  const r = rng(seed)
+  let s = `<defs><pattern id="${id}" width="3" height="1" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="#000" fill-opacity=".22"/></pattern><clipPath id="${id}c"><rect x="${r1(x)}" y="${y}" width="${r1(w)}" height="${h}"/></clipPath></defs>`
+  s += `<g clip-path="url(#${id}c)"><rect x="${r1(x)}" y="${y}" width="${r1(w)}" height="${h}" fill="${K.red}"/>`
+  const n = o.n ?? Math.round(h / 6)
+  for (let i = 0; i < n; i++) {
+    const sy = y + r() * h
+    const sh = r() < 0.2 ? 3 : r() < 0.5 ? 2 : 1
+    const sw = w * (0.2 + r() * 0.8)
+    const sx = x + (r() < 0.5 ? 0 : w - sw)
+    const dark = r() < 0.3
+    s += `<rect x="${r1(sx)}" y="${r1(sy)}" width="${r1(sw)}" height="${sh}" fill="${dark ? '#7A0A2A' : r() < 0.5 ? K.pink : '#FFB3E6'}" fill-opacity="${r1(dark ? 0.6 : 0.5 + r() * 0.5)}"/>`
+  }
+  for (let i = 0; i < Math.round(n / 3); i++) s += `<rect x="${r1(x + r() * w)}" y="${r1(y + r() * h)}" width="${r1(3 + r() * 10)}" height="${r1(2 + r() * 4)}" fill="#FFD2F0" fill-opacity="${r1(0.5 + r() * 0.5)}"/>`
+  return `${s}<rect x="${r1(x)}" y="${y}" width="${r1(w)}" height="${h}" fill="url(#${id})"/></g>`
+}
+const CODES = ['1C', 'BD', '55', 'E9', '7A', 'FF']
+export const HEX_CODES = CODES
+export const HEX_W = 30 + 13 * 6
+/** The LINK hex stream: six codes with a lit cell running while the job works. Capri recolours it pink. Drawn from x. */
+export const hexStream = (x: number, y: number, working: boolean, near: boolean, sec: boolean): string => {
+  const P = palOf(sec)
+  const cell = 13
+  const lit = near ? K.hot : P.a
+  let s = M(x, y, 'LINK', 8, P.muted, 'letter-spacing="1"')
+  s += `<g>${CODES.map((c, i) => M(x + 30 + i * cell + cell / 2, y, c, 8.5, working ? (near ? K.pink : P.aT) : P.muted, `text-anchor="middle" fill-opacity="${working ? 0.9 : 0.6}"`)).join('')}</g>`
+  if (working) s += `<rect class="v2-bx" x="${x + 30}" y="${y - 8}" width="${cell}" height="11" fill="${lit}" fill-opacity=".18" stroke="${lit}" stroke-opacity=".75" stroke-width=".8"/>`
+  return s
+}
+/** The Arasaka datashard: a chamfered chip with three pins each side. 12 by 8 at s = 1. */
+export const chipGlyph = (x: number, y: number, color: string, s = 1): string =>
+  `<g transform="translate(${r1(x)} ${r1(y)}) scale(${s})" fill="${color}"><path d="${cham(2, 0, 8, 8, 2, 1)}" fill="none" stroke="${color}" stroke-width="1.2"/><rect x="4.5" y="2.5" width="3" height="3"/><rect x="0" y="1.5" width="2" height="1"/><rect x="0" y="3.5" width="2" height="1"/><rect x="0" y="5.5" width="2" height="1"/><rect x="10" y="1.5" width="2" height="1"/><rect x="10" y="3.5" width="2" height="1"/><rect x="10" y="5.5" width="2" height="1"/></g>`
 
-// A sprite through the cast's own drawing (its hair sways, its eyes flicker, its lightning pulses),
-// the top-left of its box at (x, y) and `k` px per sprite pixel.
-const spriteAt = (sp: Sprite, x: number, y: number, k: number, extra: string): string => {
-  const w = Math.max(...sp.rows.map(r => r.length))
-  return `<g class="ch" transform="translate(${r1(x)} ${r1(y)}) scale(${r1(k)})" ${extra} shape-rendering="crispEdges"><g transform="scale(${r1(1 / 0.5625)})">${spriteMarkup(sp, P.hot, w, sp.rows.length).replace(/^<g transform="translate\([^)]*\) scale\([^)]*\)">/, '<g transform="scale(0.5625)">')}</g></g>`
-}
+// --- sprites for the band ---------------------------------------------------------------
+const RUNNERS = [ER_RUNNER, ER_RUNNER2, ER_RUNNER3]
 export const BUST_W = 42
 export const BUST_H = 48
-/** Capri's portrait (ER_CAPRI_BUST): the BIOCHIP's core and the mask in miniature. */
-export const capriBust = (x: number, y: number, k: number, extra = ''): string => spriteAt(ER_CAPRI_BUST, x, y, k, extra)
-/** Capri, big (ER_CAPRI_BIG, 42 by 96): the takeover. */
-export const capriBig = (x: number, y: number, k: number, extra = ''): string => spriteAt(ER_CAPRI_BIG, x, y, k, extra)
-
-// --- the palettes: the skin, and the secret skin where Capri owns the paper ----------
-export type Pal = { bg: string; raised: string; line: string; text: string; sub: string; muted: string; track: string; fill: string; fillInk: string; under: string; lbl: string; lblInk: string; edge: string; d: string; dT: string; pill: string; pillInk: string; accentT: string; hotT: string }
-export const palOf = (sec: boolean): Pal =>
-  sec
-    ? { bg: P.mag, raised: '#E0023F', line: '#B8003A', text: P.black, sub: '#22030C', muted: '#2A0510', track: '#B0003A', fill: P.black, fillInk: P.green, under: '#000', lbl: P.black, lblInk: P.green, edge: P.black, d: P.black, dT: P.black, pill: P.black, pillInk: P.green, accentT: P.black, hotT: P.black }
-    : { bg: P.ink, raised: P.ink2, line: P.line, text: P.text, sub: P.sub, muted: P.muted, track: P.track, fill: P.mag, fillInk: P.ink, under: P.crim, lbl: P.paper, lblInk: P.ink, edge: P.mag, d: P.cobalt, dT: P.cobaltT, pill: P.cobalt, pillInk: P.white, accentT: P.cobaltT, hotT: P.pink }
 
 // --- the episodes (titles only, never synopses) ---------------------------------------
 export const ER2_EPISODES = ['Last Chance for a Slow Dance', 'Give Me Another Day', '0+2=1', 'Someone That I Used to Know', 'Fades (Pass the Distance)', 'Everything Hate', 'To the Depths with You', 'Serce', 'Strictly Reserved for You', 'Then Everyone Went Home']
@@ -248,222 +366,244 @@ export const er2EpisodeAt = (at: number): string => {
 }
 
 export const ER2_GREETING = 'No signal, no survival. Wake up, choom.'
-export const CAPRICORN_GREETING = "We're one now."
-export const ER2_BOOT: [string, string] = ['SYNCING BIOCHIP · handshake with D…', 'LINKED · No signal, no survival.']
+export const CAPRICORN_GREETING = "we're one now, choom."
+export const ER2_BOOT: [string, string] = ['LINKING · handshake with D…', 'LINKED · No signal, no survival.']
 export const ER2_WARNING = (ctx: number): string => (ctx >= 95 ? "Capri's awake. /compact now, choom." : "Chip's running hot. /compact soon.")
-export const ER2_WORDS = ['Syncing the chip', 'Reading the engram', 'Rolling tape', 'Pasting it up', 'Asking Sal', "Calling King's crew", 'Crossing the Badlands', 'Riding through Watson']
+export const ER2_WORDS = ['Linking in', 'Syncing the chip', 'Running the trace', 'Pinging Snake Nation', 'Loading the engram', 'Crawling Night City']
 export const ER2_TITLE_WORDS = ['Slow Dance', 'Another Day', 'Fades', 'Serce', 'Strictly Reserved', 'Everyone Went Home']
-/** Roman's camera words, in place of season 1's hacking verbs. */
-export const ER2_TOOLS: Record<string, string> = { Read: 'Pan', Grep: 'Zoom', Glob: 'Wide shot', LS: 'Wide shot', Edit: 'Cut', MultiEdit: 'Cut', NotebookEdit: 'Cut', Write: 'Print', Bash: 'Action', PowerShell: 'Action', Agent: 'Cast', WebFetch: 'B-roll', WebSearch: 'Scout', ToolSearch: 'Ask Sal' }
+/** D's netrunner verbs for the tool calls. */
+export const ER2_TOOLS: Record<string, string> = { Read: 'Probe', Grep: 'Sweep', Glob: 'Map', LS: 'Map', Edit: 'Rewrite', MultiEdit: 'Rewrite', NotebookEdit: 'Rewrite', Write: 'Inject', Bash: 'Run', PowerShell: 'Run', Agent: 'Link', WebFetch: 'Pull', WebSearch: 'Crawl', ToolSearch: 'Load' }
 /** The secret skin's unlock: the ep 3 title in a prompt, or "hi capri" within a minute of a takeover. */
 export const CAPRICORN_RE = /0\s*\+\s*2\s*=\s*1/
 export const HI_CAPRI_RE = /\bhi,?\s+capri\b/i
 export const HI_CAPRI_MS = 60_000
 
-// --- motion ----------------------------------------------------------------------------
-export const ER2_CSS = `${CAST_CSS}.rec{animation:er-rec 1.2s steps(1) infinite}@keyframes er-rec{50%{opacity:.25}}
-.er-chip{animation:er-ch 2s steps(1) infinite}@keyframes er-ch{50%{opacity:.35}}
-.er-eye{animation:er-eye 2.4s ease-in-out infinite;transform-box:fill-box;transform-origin:center}@keyframes er-eye{50%{transform:scale(.8)}}
-.er-drift{animation:er-dr 3s ease-in-out infinite alternate}@keyframes er-dr{to{transform:translateY(1px)}}
-.er-ep{animation:er-ep .25s steps(2) both;transform-box:fill-box;transform-origin:center}@keyframes er-ep{from{transform:rotate(-3deg) scale(.96)}to{transform:none}}
-.er-fresh{animation:er-fr .5s steps(1) 3}@keyframes er-fr{50%{opacity:.2}}
-.er-drop{animation:er-dp .35s cubic-bezier(.2,.9,.3,1) both}@keyframes er-dp{from{transform:translateY(-6px) rotate(2deg);opacity:0}}
-.er-in{animation:er-in .3s ease-out both}@keyframes er-in{from{transform:translateX(6px);opacity:0}}
-.er-cheer{animation:er-cheer .9s steps(1) 3}@keyframes er-cheer{33%{opacity:.15}66%{opacity:.9}}
-@media (prefers-reduced-motion: reduce){.rec,.er-chip,.er-eye,.er-drift,.er-ep,.er-fresh,.er-drop,.er-in,.er-cheer{animation:none}}
-`
-
-// --- the band's pieces -------------------------------------------------------------------
+// --- the band's pieces ---------------------------------------------------------------------
 export const ER2_BAND_H = 132
+export type BandCtx = { ctxPct: number; overBudget: boolean; isWorking?: boolean; capri?: boolean }
 export type BandTheme = { accent: string; accent2: string; done: string; warn: string; alert: string; text: string; subtext: string; muted: string; tile: string; track: string; line: string }
+/** Is Capri's HUD on: 95%+ context, Capri roaming, or the secret skin. */
+export const isNear = (c: Partial<BandCtx> | undefined, sec: boolean): boolean => sec || (c?.ctxPct ?? 0) >= 95 || Boolean(c?.capri)
 
-/** The context chip past 85%: CHIP HOT, then CAPRI'S AWAKE (acid-green paper, her portrait, two sparks). `y` is the header's baseline. */
-export const er2Chip = (x: number, y: number, pct: number, sec: boolean): { svg: string; w: number } => {
-  if (pct < 85) return { svg: '', w: 0 }
-  const top = y - 11
-  const awake = pct >= 95
-  const txt = awake ? "CAPRI'S AWAKE" : 'CHIP HOT'
-  const w = r1(er2W(txt, 9.5, 1.2, 800) + 34)
-  if (!awake) {
-    const chip = `<g transform="translate(${x + 8} ${top + 4})"><rect width="11" height="8" rx="1" fill="${P.ink}"/>${[1.5, 4.5, 7.5].map(q => `<rect x="${q}" y="-2" width="1.4" height="2" fill="${P.ink}"/><rect x="${q}" y="8" width="1.4" height="2" fill="${P.ink}"/>`).join('')}<rect x="3" y="2.4" width="5" height="3.2" fill="${P.mag}"/></g>`
-    return { w, svg: `<g>${paper(x, top, w, 16, 'chiphot', sec ? P.black : P.mag, sec ? '#000' : P.crim, 1.6)}${chip}${T(x + 25, top + 11.6, txt, 9.5, 800, sec ? P.green : P.ink, 'letter-spacing="1.2"')}</g>` }
-  }
-  // Her portrait in miniature: the crown and the eyes, 0.25 of the mask's size.
-  const mini = `<rect x="${x + 5}" y="${top + 2}" width="14" height="12" fill="${P.black}"/>${capriBust(x + 5.8, top + 2.6, 0.3)}`
-  return { w, svg: `<g class="er-chip">${paper(x, top, w, 16, 'awake', P.green, P.hotD, 1.6, 'trbl', [1.4, 1.8])}${mini}${T(x + 25, top + 11.6, txt, 9.5, 800, P.black, 'letter-spacing="1.2"')}${bolt(x + w - 4, top - 5, x + w + 9, top + 3, 'sp1', 3, 2, 1.3)}${bolt(x - 2, top + 18, x + 9, top + 23, 'sp2', 3, 2, 1.1)}</g>` }
-}
-
-/** The header's name: the MISSION CONTROL paper label, D's shoulder patch, and his line (shorter, then gone, as the band narrows). */
-export const er2Name = (x: number, y: number, W: number, sec: boolean): { svg: string; w: number } => {
-  const C = palOf(sec)
-  const L = label(x, y - 11, 'MISSION CONTROL', { fill: C.lbl, ink: C.lblInk, seed: 'mc' })
-  const px = x + L.w + 12
-  const patch = `<g transform="rotate(1.5 ${px + 8} ${y - 3})">${paper(px, y - 11, 16, 16, 'dpatch', C.d, sec ? '#000' : '#1E3E7A', 1.2)}${T(px + 4.2, y + 1.2, sec ? 'C' : 'D', 12, 800, sec ? P.green : P.white)}</g>`
-  const id = sec ? 'HOST · 0+2=1' : W >= 1100 ? 'SNAKE NATION · NETRUNNER' : W >= 900 ? 'SNAKE NATION' : ''
-  const idW = id ? er2W(id, 9.5, 1.3, 800) : 0
-  return { w: L.w + 12 + 16 + (id ? 7 + idW : 0), svg: `${L.svg}${patch}${id ? T(px + 23, y + 0.5, id, 9.5, 800, C.dT, 'letter-spacing="1.3"') : ''}` }
-}
-
-/** The episode strip, right-aligned at `xr`: torn magenta paper with tape on its left end. Full: code and title; short: the code. */
-export const er2EpW = (code: string, title: string, full: boolean): number => r1(er2W(code, 9.5, 1, 800) + 8 + (full ? er2W(title, 12.5, 0, 700) + 14 : 0) + 14)
-export const er2Ep = (xr: number, y: number, code: string, title: string, full: boolean, sec: boolean): string => {
-  const C = palOf(sec)
-  const w = er2EpW(code, title, full)
-  const ex = r1(xr - w)
-  return `<g class="er-ep"><g transform="rotate(${sec ? 1 : -0.8} ${r1(ex + w / 2)} ${y - 3})">${paper(ex, y - 12, w, 18, `ep${title}`, sec ? P.black : P.mag, C.under, 1.8)}${T(ex + 10, y + 0.6, code, 9.5, 800, sec ? P.green : P.ink, 'letter-spacing="1"')}${full ? T(ex + 18 + er2W(code, 9.5, 1, 800), y + 1.4, title, 12.5, 700, sec ? P.green : P.ink, 'font-style="italic"') : ''}</g>${tape(ex + 4, y - 11, 16, 7, -24, 'ept', sec ? 0.8 : 0.62)}</g>`
-}
-
-/** D's figure in the task row, in the 34 by 40 box at (20, 36); Capri herself in the secret skin (a pixel sprite, with her rim). */
-export const er2Figure = (sec: boolean): string => (sec ? pixels(ER_CAPRI, 26, 35, 0.86, P.hot, P.green) : pixels(ER_D, 31, 36, 0.85, P.cobalt))
-
-/** One crew member (a teal-jacket runner) at the top-left of its 7 by 18 box, the jacket in the role's colour. */
-export const er2Crew = (x: number, y: number, color: string, sec: boolean): string => pixels(RUNNERS[hash(color) % 3] as Sprite, x, y, 0.38, sec ? P.black : color)
-/** A step pip, centred at (cx, cy): a small torn square, tilted either way. */
-export const er2Pip = (st: string, cx: number, cy: number, t: BandTheme, sec: boolean): string => {
-  const C = palOf(sec)
-  const rot = hash(`${cx}`) % 2 ? 4 : -4
-  const at = `transform="rotate(${rot} ${cx} ${cy})"`
-  if (st === 'done') return `<path d="${torn(cx - 5, cy - 5, 10, 10, `pd${cx}`, 1.4)}" fill="${sec ? P.black : P.mag}" ${at}/>`
-  if (st === 'running') return `<path class="rec" d="${torn(cx - 5, cy - 5, 10, 10, `pr${cx}`, 1.4)}" fill="${sec ? P.green : P.cobalt}" ${at}/>`
-  if (st === 'failed') return `<path d="M${cx - 3.2} ${cy - 3.2}l6.4 6.4M${cx + 3.2} ${cy - 3.2}l-6.4 6.4" stroke="${t.alert}" stroke-width="1.8" stroke-linecap="round"/>`
-  return `<rect x="${r1(cx - 4.5)}" y="${r1(cy - 4.5)}" width="9" height="9" fill="none" stroke="${C.muted}" stroke-width="1.2" ${at}/>`
-}
-/** The tear gauge in the task row. */
-export const er2Tear = (x: number, y: number, w: number, pct: number, sec: boolean): string => {
-  const C = palOf(sec)
-  return tearGauge(x, y, w, 8, pct, `g${Math.round(pct)}`, C.fill, C.under, C.track)
-}
-/** The strip along the foot: the torn left edge, the possession creep from 95% on, and in the corner Capri's eye. */
-export const er2Foot = (W: number, H: number, sec: boolean, ctx: { ctxPct: number; overBudget: boolean; isWorking?: boolean }): string => {
-  const C = palOf(sec)
-  const cid = uniq('erclip')
-  const near = ctx.ctxPct >= 95 || sec
-  let s = `<defs><clipPath id="${cid}"><rect x=".5" y=".5" width="${W - 1}" height="${H - 1}" rx="9.5"/></clipPath></defs><g clip-path="url(#${cid})">`
-  if (sec) s += grain(0, 0, W, H, Math.min(420, Math.round((W * H) / 300)), 'secgrain', '#fff') + shards(W - 420, -5, 400, 9, 16, 'secsh', [P.black, P.green, P.white], 2.5, 6) + shards(10, H - 4, 600, 7, 18, 'secsh2', [P.black, P.green], 2, 5)
-  const edge = sec ? P.black : ctx.isWorking === false ? P.paper2 : P.mag
-  s += `<path d="${torn(-4, -4, 14, H + 8, 'edge', 3.4, 'r')}" fill="${sec ? '#000' : P.crim}" transform="translate(1.5 0)"/><path d="${torn(-4, -4, 14, H + 8, 'edge', 3.4, 'r')}" fill="${edge}"/>`
-  // Possession creep: shards in the top and bottom margins only, so none sits under a number.
-  if (ctx.ctxPct >= 95 && !sec) s += `<g class="er-drift">${shards(10, -4, 300, 7, 16, 'creepT', [P.hot, P.green, P.hotD], 2, 5.5)}${shards(10, H - 4, 420, 6, 18, 'creepB', [P.hot, P.green, P.hotD], 2, 5)}${bolt(12, 3, 70, 5, 'cb1', 5, 2, 1.1)}</g>`
+/** The ground layer: the glass tile, sheen, scanlines, a faint optic sweep, the frame (with a beam while working), the link rail, possession in the margins and the corner egg. */
+export const er2Foot = (W: number, H: number, sec: boolean, ctx: BandCtx): string => {
+  const P = palOf(sec)
+  const near = isNear(ctx, sec)
+  const working = ctx.isWorking !== false
+  const id = did('ft', W, H, near, sec)
+  const cut = 9
+  const d = cham(0.5, 0.5, W - 1, H - 1, cut, 3)
+  const c1 = near ? K.hot : P.a
+  const c3 = near ? K.green : P.line
+  let s = `<defs>${scanDefs(`${id}s`, sec ? K.hot : '#FFFFFF', sec ? 0.05 : 0.04)}${frameDefs(`${id}f`, c1, near ? K.pink : lift(P.a, 0.4), c3)}${sheenDefs(`${id}h`, near ? K.pink : P.ice)}<clipPath id="${id}c"><path d="${d}"/></clipPath></defs>`
+  s += `<path d="${d}" fill="${P.tile}"/>`
+  s += `<g clip-path="url(#${id}c)"><rect x="0" y="0" width="${W}" height="48" fill="url(#${id}h)"/><rect x="0" y="0" width="${W}" height="${H}" fill="url(#${id}s)"/>`
+  if (working) s += `<rect class="v2-sweep" style="--h:${H}px" x="0" y="-2" width="${W}" height="1" fill="${near ? K.pink : P.a}" fill-opacity=".14"/>`
+  // Possession: streaks and motes stay in the top and bottom margins, never under a value.
+  if (near) s += streaks(12, 1, Math.round(W * 0.55), 5, `${sec ? 'sec' : 'ctx'}T${W}`, 9) + streaks(12, H - 6, Math.round(W * 0.5), 5, `${sec ? 'sec' : 'ctx'}B${W}`, 8) + motes(12, 1, 300, 5, `mo${W}`, 7)
   s += '</g>'
-  if (near || ctx.overBudget) s += `<g opacity="${sec ? 1 : 0.9}" class="er-eye">${eyeRings(W - 14, H - 12, 6, sec ? P.black : P.green, sec ? P.green : P.black)}<circle cx="${W - 14}" cy="${H - 12}" r="1.7" fill="${P.eye}"/></g>`
-  return s
+  s += `<path d="${d}" fill="none" stroke="url(#${id}f)" stroke-opacity="${working ? 0.45 : 0.6}"/>`
+  if (working) s += `<path class="v2-beam" d="${d}" fill="none" stroke="${near ? K.white : P.ice}" stroke-width="1" stroke-dasharray="70 930" stroke-opacity=".9"/>`
+  s += `<g fill="${near ? K.white : P.ice}" fill-opacity=".85"><rect x="${cut - 0.5}" y="-0.5" width="2" height="2"/><rect x="-0.5" y="${cut - 0.5}" width="2" height="2"/><rect x="${W - cut - 1.5}" y="${H - 1.5}" width="2" height="2"/><rect x="${W - 1.5}" y="${H - cut - 1.5}" width="2" height="2"/></g>`
+  s += `<line x1="5" y1="14" x2="5" y2="${H - 14}" stroke="${near ? K.hot : P.a}" stroke-width="2" stroke-opacity=".55"/>`
+  if (working) s += `<line class="v2-rail" x1="5" y1="14" x2="5" y2="${H - 14}" stroke="${near ? K.white : P.ice}" stroke-width="2" stroke-dasharray="12 208"/>`
+  return s + corner(W, H, near, sec)
 }
-/** The job-done cheer: paper scraps and a taped note. */
-export const er2Cheer = (W: number, H: number, _font: string, _t: BandTheme, startAt: number | undefined, sec: boolean): string => {
-  const at = startAt ? pin(startAt) : '0s'
+/** The 14 px egg box at (W-21, H-19): the optic reticle blinks; when Capri is near her eye opens there. */
+const corner = (W: number, H: number, near: boolean, sec: boolean): string => {
+  const P = palOf(sec)
+  const x = W - 21
+  const y = H - 19
+  if (near) return eye(x, y + 3, 1)
+  return `<g class="v2-blink"><circle cx="${x + 7}" cy="${y + 7}" r="4.5" fill="none" stroke="${P.a}" stroke-opacity=".6"/><circle cx="${x + 7}" cy="${y + 7}" r="1.2" fill="${P.aT}"/><path d="M${x + 7} ${y}v2M${x + 7} ${y + 12}v2M${x} ${y + 7}h2M${x + 12} ${y + 7}h2" stroke="${P.a}" stroke-opacity=".6"/></g>`
+}
+
+/** The header's name: MISSION CONTROL as a holo tag, D's patch and his id (shorter, then gone, as the band narrows). */
+export const er2Name = (x: number, y: number, W: number, sec: boolean, near: boolean): { svg: string; w: number } => {
+  const P = palOf(sec)
+  const label = 'MISSION CONTROL'
+  const lw = r1(er2W(label, 9.5, 1.6, 800) + 26)
+  let s = pane(x, y - 12, lw, 17, { sec, near, cut: 4, fillOp: 0.85, scan: false, ghost: false })
+  s += `<rect class="v2-led" x="${x + 7}" y="${y - 5.5}" width="4" height="4" fill="${near ? K.green : P.ice}"/>`
+  const attrs = `font-size="9.5" font-weight="800" letter-spacing="1.6"`
+  if (near) s += `<text class="v2-chrom" x="${x + 15.5}" y="${y}" ${attrs} fill="${K.hot}" opacity="0">${label}</text><text class="v2-chrom" x="${x + 18.5}" y="${y}" ${attrs} fill="${K.green}" opacity="0">${label}</text>`
+  else s += `<text x="${x + 18}" y="${y}" ${attrs} fill="${P.a}" fill-opacity=".35">${label}</text>`
+  s += `<text x="${x + 17}" y="${y}" ${attrs} fill="${P.text}">${label}</text>`
+  const px = x + lw + 10
+  if (sec) s += `<path d="${cham(px, y - 12, 17, 17, 3, 1)}" fill="${K.black}" stroke="${K.green}" stroke-width="1"/>${pixels(ER_CAPRI_BUST, px + 2, y - 11, 0.31)}`
+  else s += `<path d="${cham(px, y - 12, 16, 16, 3, 1)}" fill="${P.a}"/>${T(px + 4.3, y + 0.6, 'D', 12, 800, '#FFFFFF')}`
+  const id = sec ? 'PROJECT CAPRICORN · HOST D' : W >= 1100 ? 'SNAKE NATION · NETRUNNER' : W >= 900 ? 'SNAKE NATION' : ''
+  if (id) s += T(px + 23, y + 0.5, id, 9.5, 800, P.aT, 'letter-spacing="1.3"')
+  return { svg: ff(s), w: lw + 10 + 17 + (id ? 7 + er2W(id, 9.5, 1.3, 800) : 0) }
+}
+
+/** The context chip: 85% CHIP HOT (amber), 95% CAPRI'S AWAKE (her colours, a jitter, her eye). */
+export const er2Chip = (x: number, y: number, pct: number, sec: boolean): { svg: string; w: number } => {
+  const P = palOf(sec)
+  if (pct < 85) return { svg: '', w: 0 }
+  const hot = pct >= 95
+  const label = hot ? "CAPRI'S AWAKE" : 'CHIP HOT'
+  const w = r1(er2W(label, 9.5, 1.2, 800) + 34)
+  const c = hot ? K.green : P.warn
+  let s = `<g${hot ? ' class="v2-psy"' : ''}><path d="${cham(x, y - 11.5, w, 16, 4, 1)}" fill="${hot ? K.hot : c}" fill-opacity="${hot ? 0.22 : 0.16}" stroke="${c}" stroke-opacity=".8"/>`
+  s += hot ? eye(x + 6, y - 7.5, 0.85, 'v2-led') : chipGlyph(x + 6, y - 7.5, c, 0.9)
+  s += T(x + 23, y, label, 9.5, 800, c, 'letter-spacing="1.2"')
+  return { svg: ff(`${s}</g>`), w }
+}
+
+/** The episode readout: the code in a chamfered mono tag, the title in italics. */
+export const er2EpW = (code: string, title: string, full: boolean): number => r1(mw(code, 8.5, 0.8) + 12 + (full ? er2W(title, 11.5, 0, 500) + 8 : 0))
+export const er2Ep = (xr: number, y: number, code: string, title: string, full: boolean, sec: boolean): string => {
+  const P = palOf(sec)
+  const cw = r1(mw(code, 8.5, 0.8) + 12)
+  const x = r1(xr - er2EpW(code, title, full))
+  let s = `<path d="${cham(x, y - 11, cw, 15, 3, 1)}" fill="${P.a}" fill-opacity=".14" stroke="${P.a}" stroke-opacity=".6"/>${M(x + 6, y, code, 8.5, P.aT, 'letter-spacing=".8"')}`
+  if (full) s += T(x + cw + 8, y, title, 11.5, 500, P.sub, 'font-style="italic"')
+  return ff(s)
+}
+/** The right-hand LINK hex stream; the engine drops it first when there is no room. */
+export const er2Gauge = (xr: number, y: number, working: boolean, near: boolean, sec: boolean): { svg: string; w: number } => ({ svg: hexStream(xr - HEX_W, y, working, near, sec), w: HEX_W })
+
+/** D in the 34 by 40 box at (20, 36) on a cobalt base line; Capri herself in the secret skin. */
+export const er2Figure = (sec: boolean): string => {
+  const P = palOf(sec)
+  const base = `<rect x="22" y="76" width="30" height="1" fill="${P.a}" fill-opacity=".5"/>`
+  return sec ? `${base}${pixels(ER_CAPRI, 26, 35, 0.86, { rim: K.hot, rimOp: 0.45 })}` : `${base}${pixels(ER_D, 31, 36, 0.85)}`
+}
+/** A runner at the top-left of its box, the jacket in the role colour, with a 1 px base. */
+export const er2Crew = (x: number, y: number, color: string): string => {
+  const sp = RUNNERS[hash(color) % 3] as Sprite
+  const tinted: Sprite = { ...sp, pal: { ...sp.pal, c: color, e: color } }
+  return `${pixels(tinted, x, y, 0.38)}<rect x="${x - 1}" y="${y + 18.5}" width="9" height="1" fill="${color}" fill-opacity=".55"/>`
+}
+/** A step as a 9 px chamfered cell: done filled, running outlined with a pulsing core, failed an X. */
+export const er2Pip = (st: string, cx: number, cy: number, sec: boolean): string => {
+  const P = palOf(sec)
+  const d = cham(cx - 4.5, cy - 4.5, 9, 9, 2.5, 1)
+  if (st === 'done') return `<path d="${d}" fill="${P.a}"/>`
+  if (st === 'running') return `<path d="${d}" fill="none" stroke="${P.a}" stroke-width="1.2"/><rect class="v2-led" x="${cx - 1.5}" y="${cy - 1.5}" width="3" height="3" fill="${P.ice}"/>`
+  if (st === 'failed') return `<path d="M${cx - 3.2} ${cy - 3.2}l6.4 6.4M${cx + 3.2} ${cy - 3.2}l-6.4 6.4" stroke="${P.alert}" stroke-width="1.8" stroke-linecap="round"/>`
+  if (st === 'stopped') return `<path d="${d}" fill="${P.muted}" fill-opacity=".7"/>`
+  return `<path d="${d}" fill="none" stroke="${P.muted}" stroke-opacity=".7" stroke-width="1.1"/>`
+}
+/** The task gauge: the beam, 8 tall, with ticks. */
+export const er2Tear = (x: number, y: number, w: number, pct: number, sec: boolean, near: boolean): string => beam(x, y, w, 8, pct, { sec, near, ticks: true })
+/** A chamfered status or role pill (the engine's `pill` hook). */
+export const er2Pill = (x: number, y: number, w: number, h: number, fill: string, op: number, stroke?: string): string =>
+  `<path d="${cham(x, y, w, h, 4, 1)}" fill="${fill}" fill-opacity="${op}"${stroke ? ` stroke="${stroke}" stroke-opacity=".55"` : ''}/>`
+/** The cheer: a chamfered ice bar flashes JOB DONE, CHOOM. across the band. */
+export const er2Cheer = (W: number, H: number, sec: boolean): string => {
+  const P = palOf(sec)
   const text = 'JOB DONE, CHOOM.'
-  const w = r1(er2W(text, 15, 1.4, 800) + 30)
+  const w = r1(er2W(text, 15, 1.4, 800) + 36)
   const cx = W / 2
   const cy = H / 2
-  return `<g class="er-cheer" style="animation-delay:${at}">${shards(cx - 150, cy - 40, 300, 80, 14, 'cheer', [P.mag, P.paper, sec ? P.black : P.cobalt], 4, 9)}<g transform="rotate(-1.5 ${cx} ${cy})">${paper(cx - w / 2, cy - 14, w, 26, 'cheernote', sec ? P.black : P.paper, '#000', 2)}${T(cx, cy + 5, text, 15, 800, sec ? P.green : P.ink, 'text-anchor="middle" letter-spacing="1.4"')}</g>${tape(cx - w / 2 + 6, cy - 14, 22, 8, -30, 'ch1')}</g>`
+  return ff(`<g class="v2-cheer"><path d="${cham(cx - w / 2 + 2, cy - 15, w, 28, 6, 2)}" fill="none" stroke="${sec ? K.green : P.a}" stroke-opacity=".5"/><path d="${cham(cx - w / 2, cy - 13, w, 28, 6, 2)}" fill="${sec ? K.hot : P.ice}"/>${T(cx, cy + 6, text, 15, 800, sec ? K.black : '#07101C', 'text-anchor="middle" letter-spacing="1.4"')}</g>`)
 }
 
-// --- the takeover ----------------------------------------------------------------------------
-// The paper tears open from the middle, the key art's eyes settle in, pink bolts strobe (at most two
-// flashes), ER_CAPRI_BIG rises, the line is pasted up glyph by glyph on ransom-note scraps, and the whole
-// layer rips out along a jagged vertical seam. Reduced motion: one still taped note, no cover.
-export const TK_CSS = `.tk{animation:tk-all 3.5s linear both}
-.tk-scrim{animation:tk-sc .3s linear both}
-@keyframes tk-sc{from{opacity:0}to{opacity:1}}
-.tk-tear{animation:tk-te .4s cubic-bezier(.2,.9,.2,1) both;transform-box:fill-box;transform-origin:50% 50%}
-@keyframes tk-te{from{transform:scale(.2);opacity:0}to{transform:none;opacity:1}}
-.tk-eye{animation:tk-ey .5s ease-out both;transform-box:fill-box;transform-origin:center}
-@keyframes tk-ey{from{transform:rotate(-8deg);opacity:0}to{transform:none;opacity:1}}
-.tk-sh{animation:tk-sh .4s ease-out both}
-@keyframes tk-sh{from{transform:translate(12px,-12px);opacity:0}to{transform:none;opacity:1}}
-.tk-bolt{animation:tk-bo .4s steps(1) both}
-@keyframes tk-bo{0%,100%{opacity:0}25%,50%{opacity:1}}
-.tk-big{animation:tk-bg .5s cubic-bezier(.2,.9,.2,1) both;transform-box:fill-box;transform-origin:50% 100%}
-@keyframes tk-bg{from{transform:translateY(10px) scale(.85);opacity:0}to{transform:none;opacity:1}}
-.rn{animation:tk-rn .14s ease-out both;transform-box:fill-box;transform-origin:center}
-@keyframes tk-rn{from{transform:scale(1.4);opacity:0}to{transform:none;opacity:1}}
-.tk-L{animation:tk-l .6s ease-in both}
-@keyframes tk-l{to{transform:translateX(-18px) rotate(-2deg);opacity:0}}
-.tk-R{animation:tk-r .6s ease-in both}
-@keyframes tk-r{to{transform:translateX(18px) rotate(2deg);opacity:0}}
-.tk-still{display:none}
-@media (prefers-reduced-motion: reduce){.tk{display:none}.tk-still{display:block}.tk-scrim,.tk-tear,.tk-eye,.tk-sh,.tk-bolt,.tk-big,.rn,.tk-L,.tk-R{animation:none}}
-`
+// --- Capri's holo framing (drawn around the roamer's own figure) -----------------------------------
+/**
+ * The framing for her walk or sit, in a frame whose origin is her feet. `s` is the roamer's scale (the band's 1.8). The
+ * figure itself is the engine's (cast.ts spriteMarkup of ER_CAPRI); the copies here are the same sprite, mono-tinted.
+ */
+export const er2Halo = (s: number, dir: 1 | -1): string => {
+  const sp = ER_CAPRI
+  const k = 0.5625 * s
+  const w = 20 * k
+  const h = sp.rows.length * k
+  const top = -h
+  const x0 = -10 * k
+  const id = did('wk', s, dir)
+  let g = `<defs><radialGradient id="${id}" cx=".5" cy=".55" r=".5"><stop offset="0" stop-color="${K.hot}" stop-opacity=".28"/><stop offset=".6" stop-color="${K.hot}" stop-opacity=".08"/><stop offset="1" stop-color="${K.green}" stop-opacity="0"/></radialGradient>${bloomDefs(`${id}b`, 3)}</defs>`
+  g += `<ellipse cx="0" cy="${r1(top + h * 0.55)}" rx="${r1(w * 1.4)}" ry="${r1(h * 0.62)}" fill="url(#${id})"/>`
+  g += streaks(-w * 1.2, top + 4, w * 2.4, h - 10, `${id}sl`, 7, { max: Math.round(w * 1.6) })
+  g += `<ellipse cx="0" cy="-1" rx="${r1(w * 0.9)}" ry="${r1(3 * s)}" fill="none" stroke="${K.green}" stroke-opacity=".6"/><ellipse cx="0" cy="-1" rx="${r1(w * 0.5)}" ry="${r1(1.6 * s)}" fill="none" stroke="${K.hot}" stroke-opacity=".7"/>`
+  const flip = dir === -1
+  g += `<g class="v2-mo" opacity=".55" filter="url(#${id}b)">${pixels(sp, x0, top, k, { mono: K.hot, op: 0.6, flip })}</g>`
+  g += `<g opacity=".35">${pixels(sp, x0 - 2.5, top, k, { mono: K.hot, flip })}${pixels(sp, x0 + 2.5, top, k, { mono: K.green, flip })}</g>`
+  const r = rng(id)
+  g += `<g fill="${K.green}" fill-opacity=".75">${Array.from({ length: 9 }, (_, i) => `<rect x="${r1(-dir * (14 + i * 9))}" y="${r1(-4 - r() * h * 0.55)}" width="${i % 3 ? 1 : 2}" height="${i % 3 ? 1 : 2}"/>`).join('')}</g>`
+  return g
+}
+
 const delayer = (startAt: number | undefined, tm: RoamTiming): ((x: number) => string) => {
   if (tm.delay) return x => `calc(${tm.delay} + ${r1(x)}s)`
   const base = tm.now !== undefined && startAt !== undefined ? (startAt - tm.now) / 1000 : 0
   return x => `${r1(base + x)}s`
 }
-// The ransom-note line: every glyph on its own torn scrap (paper with ink, or black with green), pasted one per 70 ms.
-const ransom = (cx: number, y: number, text: string, size: number, seed: string, dly: (x: number) => string, sec: boolean): string => {
-  const R = rng(seed)
-  const chars = [...text]
-  const ws = chars.map(ch => (ch === ' ' ? size * 0.35 : er2W(ch, size, 0, 800) + size * 0.42))
-  let x = cx - ws.reduce((a, b) => a + b, 0) / 2
-  let s = ''
-  chars.forEach((ch, i) => {
-    const w = ws[i] as number
-    if (ch === ' ') {
-      x += w
-      return
-    }
-    const h = size * 1.32
-    const rot = (R() - 0.5) * 12
-    const dy = (R() - 0.5) * size * 0.25
-    const ink = i % 3 === 1 || sec
-    const f = ink ? P.black : P.paper
-    const tx = ink ? P.green : P.ink
-    s += `<g class="rn" style="animation-delay:${dly(1.1 + i * 0.07)}" transform="rotate(${r1(rot)} ${r1(x + w / 2)} ${r1(y + dy)})"><rect x="${r1(x + 1.2)}" y="${r1(y + dy - h * 0.72 + 1.6)}" width="${r1(w - 2)}" height="${r1(h)}" fill="#000"/><path d="${torn(x, y + dy - h * 0.72, w - 2, h, `${seed}${i}`, 1.6)}" fill="${f}"/>${T(x + (w - 2) / 2, y + dy + size * 0.12, ch, size, 800, tx, 'text-anchor="middle"')}</g>`
-    x += w
-  })
-  return s
-}
-/** The takeover for a panel (W × H): `tm.delay` (a pinned start) or `tm.now` + `tm.startAt` set where it is in its 3.5 s. */
-export const er2Takeover = (W: number, H: number, line: string, tm: RoamTiming, sec: boolean): string => {
-  const dly = delayer(tm.startAt, tm)
-  const cx = W / 2
-  const mid = H * 0.46
-  const text = line || 'hi, choom.'
-  const small = H < 200
-  const id = uniq('tk')
-  const cover = clamp(Math.round(Math.min(W * 0.075, H * 0.14)), 14, 42)
-  // The still note (reduced motion): taped, bottom centre.
-  const nw = 200
-  const nh = 46
-  const nx = cx - nw / 2
-  const ny = H - nh - 18
-  const still = `<g class="tk-still">${paper(nx, ny, nw, nh, 'rnote', sec ? P.black : P.paper, '#000', 2.4)}${tape(nx + 10, ny + 2, 26, 9, -32, 'rn1')}${tape(nx + nw - 10, ny + 2, 26, 9, 32, 'rn2')}<rect x="${nx + 10}" y="${ny + 8}" width="30" height="30" fill="${P.black}"/>${capriBust(nx + 11.4, ny + 9.2, 0.55)}${T(nx + 50, ny + 22, text, 16, 800, sec ? P.green : P.ink)}${T(nx + 50, ny + 36, 'Capri · only you can see her', 10, 600, sec ? P.green : '#4A4440')}</g>`
-  // The layer: scrim, torn paper, eyes, shards, bolts, Capri, the line.
-  const bgPaper = sec ? P.crim : P.crim
-  const figH = small ? H - 14 : Math.min(H * 0.7, (mid + Math.min(H * 0.24, 118)) - H * 0.1)
-  const k = r1(figH / 54)
-  const figW = 23.6 * k
-  const floor = small ? H - 6 : mid + Math.min(H * 0.24, 118)
-  const fx = small ? W * 0.3 : cx
-  let layer = `<rect class="tk-scrim" width="${W}" height="${H}" fill="${P.black}" style="animation-delay:${dly(0)}"/>`
-  layer += `<g class="tk-tear" style="animation-delay:${dly(0.2)}"><path d="${burst(cx, mid, W * 0.66, H * 0.6, 'tkc')}" fill="${bgPaper}"/><path d="${burst(cx, mid, W * 0.57, H * 0.52, 'tkm', 52, 0.26)}" fill="${P.mag}"/>${grain(0, 0, W, H, Math.min(220, Math.round((W * H) / 240)), 'tkg')}</g>`
-  layer += `<g class="tk-eye" style="animation-delay:${dly(0.4)}">${eyeRings(W * 0.16, H * 0.2, Math.min(W, H) * 0.12)}${eyeRings(W * 0.86, H * 0.78, Math.min(W, H) * 0.15)}</g>`
-  layer += `<g class="tk-sh" style="animation-delay:${dly(0.4)}" opacity=".95">${shards(W * 0.04, H * 0.05, W * 0.92, H * 0.9, 22, 'tkw', [P.paper, P.white, P.black], 6, 22)}</g>`
-  // Pink bolts strobe on once or twice (under 3 Hz).
-  layer += [[0.5, 0.18, 0.2, 0.02], [0.5, 0.2, 0.86, 0.06], [0.5, 0.6, 0.1, 0.9], [0.52, 0.6, 0.92, 0.94], [0.48, 0.3, 0.02, 0.42]]
-    .map(([a, b, c, d], i) => `<g class="tk-bolt" style="animation-delay:${dly(0.5 + (i % 2) * 0.2)}">${bolt(W * (a as number), H * (b as number), W * (c as number), H * (d as number), `tkb${i}`, 7, 9, 2.4)}</g>`)
-    .join('')
-  // A solid dark cut-out behind her, wide enough that the paper never shows through her shards.
-  layer += `<path d="${burst(fx, floor - figH * 0.5, figW * 1.45, figH * 0.62, 'tkh', 30, 0.16)}" fill="${P.black}"/>`
-  layer += `<g class="tk-big" style="animation-delay:${dly(0.6)}">${capriBig(fx - figW / 2, floor - figH, k, 'style="filter:drop-shadow(0 0 3px #FF2E7E)"')}</g>`
-  layer += small ? ransom(W * 0.62, H * 0.6, text, Math.min(30, H * 0.26), 'rn', dly, sec) : ransom(cx, floor + cover * 1.45 > H - 6 ? H - 10 : floor + cover * 1.45, text, cover, 'rn', dly, sec)
-  // The rip out: two copies of the layer, split by a jagged vertical seam, slide apart.
-  const R = rng('seam')
-  const seam: number[] = []
-  for (let y = 0; y <= H; y += 8) seam.push(r1(cx + (R() - 0.5) * 18))
-  const left = `M0 0L${seam.map((x, i) => `${x} ${i * 8}`).join('L')}L${seam[seam.length - 1]} ${H}L0 ${H}Z`
-  const right = `M${W} 0L${seam.map((x, i) => `${x} ${i * 8}`).join('L')}L${seam[seam.length - 1]} ${H}L${W} ${H}Z`
-  return `<defs><clipPath id="${id}l"><path d="${left}"/></clipPath><clipPath id="${id}r"><path d="${right}"/></clipPath><g id="${id}g">${layer}</g></defs><g class="tk" pointer-events="none"><g class="tk-L" style="animation-delay:${dly(2.9)}" clip-path="url(#${id}l)"><use href="#${id}g"/></g><g class="tk-R" style="animation-delay:${dly(2.9)}" clip-path="url(#${id}r)"><use href="#${id}g"/></g></g>${still}`
-}
-
-// --- Capri's own pieces for the roamer ----------------------------------------------------------
-/** Her peek at a spot on the band (the left end of the episode strip): her portrait, half size, leaning out, with one bolt; it glitches in and out like her other acts. */
+/** Her peek at a spot (the episode tag on the band): her bust leaning out, a pink / green split, glitching in and out like her other acts. */
 export const er2Peek = (x: number, y: number, plan: RoamPlan, tm: RoamTiming): string => {
   const dly = delayer(plan.startAt, tm)
   const dur = plan.durMs / 1000
-  return `<g class="rm-pk"><g class="rm-in" style="animation-delay:${dly(0)}"><g class="rm-out" style="animation-delay:${dly(dur - 0.45)}"><g transform="rotate(-10 ${r1(x - 9)} ${r1(y)})" style="filter:drop-shadow(0 0 2px ${P.hot})">${capriBust(x - 19.5, y - 17, 0.5)}</g>${bolt(x - 34, y - 14, x - 20, y - 6, 'pk1', 3, 2, 1.2)}</g></g></g>`
+  const bx = x - 19.5
+  const by = y - 17
+  return `<g class="rm-pk"><g class="rm-in" style="animation-delay:${dly(0)}"><g class="rm-out" style="animation-delay:${dly(dur - 0.45)}"><g transform="rotate(-10 ${r1(x - 9)} ${r1(y)})"><g class="v2-mo" opacity=".4">${pixels(ER_CAPRI_BUST, bx - 1.5, by, 0.5, { mono: K.hot })}${pixels(ER_CAPRI_BUST, bx + 1.5, by, 0.5, { mono: K.green })}</g>${pixels(ER_CAPRI_BUST, bx, by, 0.5, { rim: K.hot, rimOp: 0.5 })}</g>${streaks(x - 40, y - 14, 36, 14, 'pk', 4, { max: 22 })}</g></g></g>`
 }
-/** Where she peeks and sits on a pane card (W by H): out from the right strips, and on the chip's top. */
-export const er2PaneSpots = (W: number, H: number): { peek?: { x: number; y: number }; sit?: { x: number; y: number } } => ({ peek: { x: W - 30, y: Math.min(H - 6, 152) }, sit: { x: 150, y: 74 } })
-/** Past 95% context, shards creep in along the card's top edge (and a bolt), never under a label. */
-export const er2PaneCreep = (W: number, _H: number, ctxPct: number): string => (ctxPct >= 95 ? `<g class="er-drift">${shards(W * 0.3, -3, W * 0.65, 6, 12, 'pcreep', [P.hot, P.green, P.hotD], 2, 5)}${bolt(W * 0.32, 3, W * 0.45, 5, 'pcb', 5, 2, 1.1)}</g>` : '')
+/** Where she peeks and sits on a pane card (W by H): out of the top-right corner, and on the capsule's top (or the header's right). */
+export const er2PaneSpots = (W: number, H: number): { peek?: { x: number; y: number }; sit?: { x: number; y: number } } => ({ peek: { x: W - 24, y: 46 }, sit: H >= 300 ? { x: 100, y: 48 } : { x: W - 70, y: 40 } })
+/** Past 95% context, her streaks and motes creep in along the card's top margin (the pane's possession), never under a label. */
+export const er2PaneCreep = (W: number, _H: number, ctxPct: number): string => (ctxPct >= 95 ? `${streaks(Math.round(W * 0.4), 1, Math.round(W * 0.5), 4, `pcreep${W}`, 8, { max: 46 })}${motes(Math.round(W * 0.4), 1, Math.round(W * 0.5), 4, `pmo${W}`, 5)}` : '')
+
+// --- the takeover ----------------------------------------------------------------------------------
+/**
+ * D's HUD hijacked: a scrim, the red interference field slams in as a centre panel, strobes twice (2.5 Hz), a reticle
+ * frame materialises, big pixel Capri glitches in, the line types in a black dialogue bar and the whole layer
+ * collapses to a line like a CRT switching off (3.5 s). Reduced motion: a still holo note for 3 s. `H < 200` is the band layout.
+ */
+export const er2Takeover = (W: number, H: number, line: string, tm: RoamTiming, sec: boolean): string => {
+  const dly = delayer(tm.startAt, tm)
+  const P = palOf(sec)
+  const isBand = H < 200
+  const sp = ER_CAPRI_BIG
+  const id = did('tk', W, H, line)
+  const SH = isBand ? H * 0.88 : Math.min(H * 0.62, 400)
+  const sc = r1(SH / 96)
+  const cw = 42 * sc
+  const cx = isBand ? W * 0.3 : W / 2
+  const floor = isBand ? H - 4 : H * 0.73
+  const top = floor - 96 * sc
+  const fw = isBand ? Math.max(cw + 80, W * 0.2) : Math.max(cw + 80, W * 0.36)
+  const fx = cx - fw / 2
+  const D = (t: number) => `style="animation-delay:${dly(t)}"`
+  let a = `<g class="tk-anim"><rect class="tk-scrim" x="0" y="0" width="${W}" height="${H}" fill="#02030A" ${D(0)}/>`
+  a += `<defs>${scanDefs(`${id}s`, '#FFFFFF', 0.06)}</defs><rect x="0" y="0" width="${W}" height="${H}" fill="url(#${id}s)"/>`
+  a += `<g class="tk-field" ${D(0.2)}><g class="tk-strobe" ${D(0.5)}>${field(fx, 0, fw, H, `${line}|${W}`, { n: Math.round(H / 5) })}</g></g>`
+  a += `<g class="tk-field" ${D(0.3)}>${streaks(fx - 60, 0, fw + 120, H, `${id}leak`, isBand ? 10 : 22, { colors: [K.hot, K.pink, K.white], max: 120 })}</g>`
+  const rx = cx - cw / 2 - 14
+  const ry = top - 10
+  const rw = cw + 28
+  const rh = 96 * sc + 16
+  a += `<g class="tk-ret" ${D(0.45)}>${brackets(rx, ry, rw, rh, Math.max(8, rw * 0.18), K.white, 1.5)}<g class="tk-ring"><circle cx="${r1(cx)}" cy="${r1(top + 48 * sc)}" r="${r1(Math.max(rw, rh) * 0.62)}" fill="none" stroke="${K.green}" stroke-opacity=".5" stroke-dasharray="6 10"/></g><ellipse cx="${r1(cx)}" cy="${r1(floor + 2)}" rx="${r1(cw * 0.9)}" ry="${r1(4 * sc)}" fill="none" stroke="${K.green}" stroke-opacity=".7"/><ellipse cx="${r1(cx)}" cy="${r1(floor + 2)}" rx="${r1(cw * 0.55)}" ry="${r1(2.4 * sc)}" fill="none" stroke="${K.white}" stroke-opacity=".6"/></g>`
+  const bx = cx - cw / 2
+  a += `<g class="tk-in" ${D(0.65)}><g class="tk-g1" opacity="0">${pixels(sp, bx, top, sc, { mono: K.hot, op: 0.85 })}</g><g class="tk-g2" opacity="0">${pixels(sp, bx, top, sc, { mono: K.green, op: 0.85 })}</g>${pixels(sp, bx, top, sc)}</g>`
+  // The dialogue bar and the typed line.
+  const fs = isBand ? 18 : clamp(Math.round(W * 0.06), 18, 30)
+  const twd = mw(line, fs, 1)
+  const cap = 'CAPRI · PERSONALITY CONSTRUCT · ONLY YOU CAN SEE HER'
+  const bw = Math.max(twd + fs * 1.6, isBand ? 0 : mw(cap, 8, 1) + fs * 1.6)
+  const bh = fs * 1.75 + (isBand ? 0 : 14)
+  const bxx = isBand ? W * 0.62 - 20 : cx - bw / 2
+  const by2 = isBand ? H / 2 - bh / 2 : Math.min(H - bh - 24, H * 0.8)
+  const typeS = r1(0.07 * [...line].length)
+  a += `<g class="tk-bar" ${D(1)}><path d="${cham(bxx, by2, bw, bh, 8, 2)}" fill="#030308"/><path d="${cham(bxx, by2, bw, bh, 8, 2)}" fill="none" stroke="${K.hot}" stroke-opacity=".7"/>`
+  const tyy = by2 + fs * 1.22
+  const attrs = `font-family="${MONO}" font-size="${fs}" font-weight="700" letter-spacing="1"`
+  const tx = bxx + fs * 0.8
+  a += `<text x="${r1(tx - 2)}" y="${r1(tyy)}" ${attrs} fill="${K.hot}" opacity=".85">${esc(line)}</text><text x="${r1(tx + 2)}" y="${r1(tyy)}" ${attrs} fill="${K.green}" opacity=".85">${esc(line)}</text><text x="${r1(tx)}" y="${r1(tyy)}" ${attrs} fill="${K.white}">${esc(line)}</text>`
+  a += `<rect class="tk-ty" style="animation-delay:${dly(1.15)};animation-duration:${typeS}s;animation-timing-function:steps(${Math.max(1, [...line].length)},end)" x="${r1(tx - 4)}" y="${r1(by2 + 2)}" width="${r1(twd + 8)}" height="${r1(bh - 4)}" fill="#030308"/>`
+  a += `<rect class="tk-cur" x="${r1(tx + twd + 2)}" y="${r1(tyy - fs * 0.75)}" width="${Math.max(2, fs / 7)}" height="${r1(fs * 0.9)}" fill="${K.green}"/>`
+  if (!isBand) a += M(tx, by2 + bh - 9, cap, 8, K.pink, 'letter-spacing="1"')
+  a += '</g></g>'
+  const anim = `<g class="tk-off" ${D(2.9)}>${a}</g>`
+  // Reduced motion: a still holo note.
+  const nw = 236
+  const nh = 48
+  const nx = isBand ? W * 0.62 : W / 2 - nw / 2
+  const ny = isBand ? H / 2 - nh / 2 : H - nh - 16
+  let still = `<g class="tk-still" ${D(0)}>${pane(nx, ny, nw, nh, { sec, near: true, cut: 7, scan: false, fillOp: 0.96, fill: '#05060E', nodes: true })}`
+  still += `<path d="${cham(nx + 8, ny + 6, 32, 36, 4, 1)}" fill="${K.black}"/>${pixels(ER_CAPRI_BUST, nx + 11, ny + 7, 0.62)}`
+  still += `<text x="${r1(nx + 50)}" y="${r1(ny + 24)}" font-family="${MONO}" font-size="16" font-weight="700" fill="${K.white}">${esc(line)}</text>`
+  still += `${M(nx + 50, ny + 39, 'CAPRI · ONLY YOU CAN SEE HER', 8, K.pink, 'letter-spacing="1"')}</g>`
+  void P
+  return `<g pointer-events="none">${anim}${still}</g>`
+}

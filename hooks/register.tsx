@@ -9,8 +9,8 @@ import { TYGER_RE } from './mentalist'
 import { BB_SKIN_WORDS, BB_TOOLS, SAY_MY_NAME_RE } from './breakingbad'
 import { THEMES, themeKeyOf } from './themes'
 import { CAPRICORN_RE, ER2_FONT, ER2_TOOLS, ER2_WORDS, HI_CAPRI_MS, HI_CAPRI_RE } from './edgerunners2'
-import { overlayInto, roamOverlay, takeoverWithin } from './overlay'
-import type { ThemeEggs } from './themes'
+import { overlayInto, roamOnBand, roamOverlay, takeoverWithin } from './overlay'
+import type { ThemeCtx, ThemeEggs } from './themes'
 import { canNudge, nudge, pickQuiet, prBadge, quietOf, rememberTask, repoAndBranch, rescueText, retryOnHaiku, whatIf, whatIfText, whatIfTip } from './coach'
 import { flatSmiley, serifClip, serifW } from './mentalist-cards'
 import { BEATS_KEPT, BLANK_CRED, BOOT_H, award, rockerRankOf, bdHeight, bootStrip, braindanceCard, cleanCred, credCard, credHeight, levelOf, rankOf, shiftPick, stepPick } from './extras'
@@ -1714,43 +1714,43 @@ const HEISENBERG_SKIN: Skin = {
   tabs: { mission: '⚗\uFE0E Mission Control', skins: '⚗\uFE0E Skins' },
 }
 
-// Edgerunners 2 (fan homage, Cyberpunk Skins add-on): torn magenta paper pasted on black, paper tape and the
-// key art's eye, in a condensed face. Pink and acid green are Capri's own and show only when she is near.
-// Cyberpunk: Edgerunners belongs to CD PROJEKT RED, Studio Trigger and Netflix, used as fan homage only.
+// Edgerunners 2 v2 "D's optics" (fan homage, Cyberpunk Skins add-on): a next-gen netrunner HUD on holographic glass, D's
+// cobalt and cool white as the city layer, in a condensed face. Hot pink and acid green are Capri's own and show only
+// when she is near. Cyberpunk: Edgerunners belongs to CD PROJEKT RED, Studio Trigger and Netflix, used as fan homage only.
 const EDGERUNNERS2_SKIN: Skin = {
   id: 'edgerunners-2',
   cast: 'edgerunners2',
   name: 'Edgerunners 2',
-  description: 'Fan homage: D and the Kings on torn magenta paper and black. No signal, no survival.',
+  description: "Fan homage: D's optics, a cobalt glass HUD with a ghost in it. No signal, no survival.",
   font: ER2_FONT,
-  corners: 'round',
+  corners: 'chamfer',
   dark: true,
   colors: {
-    accent: '#FD0250',
-    accent2: '#E9E6D8',
-    done: '#8ED1BF',
-    warn: '#F5A35C',
-    alert: '#FF5A92',
+    accent: '#3E80F7',
+    accent2: '#8FB5FF',
+    done: '#5EE3C0',
+    warn: '#FFB547',
+    alert: '#FF3D71',
     meter: '#3E80F7',
-    text: '#F1EEE4',
-    subtext: '#C2B9B3',
-    muted: '#968B90',
-    tile: '#0A0709',
-    track: '#1A333C',
-    line: '#2C2128',
-    grid: '#1E161B',
+    text: '#EAF2FF',
+    subtext: '#AEBDD6',
+    muted: '#7A8AA8',
+    tile: '#070A12',
+    track: '#131B2E',
+    line: '#1C2740',
+    grid: '#0C1622',
   },
-  boss: ['#FD0250', '#E9E6D8', '#A02241', '#3E80F7', '#FD0250'],
-  roles: ['#FD0250', '#E9E6D8', '#3E80F7', '#8ED1BF', '#F5A35C', '#A02241'],
-  effects: { scanlines: false, glitch: false },
+  boss: ['#3E80F7', '#BFD8FF', '#131B2E', '#EAF2FF', '#3E80F7'],
+  roles: ['#3E80F7', '#BFD8FF', '#5EE3C0', '#FFB547', '#8FB5FF', '#7A8AA8'],
+  effects: { scanlines: true, glitch: false },
   chat: true,
   words: ER2_WORDS,
   toolWords: ER2_TOOLS,
-  backdrop: { fill: '#020A0D', pattern: 'none', ink: '' },
-  tabs: { mission: '✂\uFE0E Mission Control', skins: '✂\uFE0E Skins' },
+  backdrop: { fill: '#04060C', pattern: 'none', ink: '' },
+  tabs: { mission: '◈\uFE0E Mission Control', skins: '◈\uFE0E Skins' },
 }
 
-// CAPRICORN: the hidden skin of Edgerunners 2, where Capri owns the paper. Not in the picker or the list:
+// CAPRICORN: the hidden skin of Edgerunners 2, where Capri owns the HUD. Not in the picker or the list:
 // `/skin capricorn` finds it, or typing "0+2=1" (the third episode's title) while wearing Edgerunners 2, or
 // answering one of her takeovers with "hi capri" inside a minute. Typing "0+2=1" again takes it off.
 const CAPRICORN_SKIN: Skin = {
@@ -1758,33 +1758,33 @@ const CAPRICORN_SKIN: Skin = {
   cast: 'capricorn',
   hidden: true,
   name: 'CAPRICORN',
-  description: 'The hidden one: she owns the paper now. 0+2=1.',
+  description: 'The hidden one: she owns the HUD now. 0+2=1.',
   font: ER2_FONT,
-  corners: 'round',
+  corners: 'chamfer',
   dark: true,
   colors: {
-    accent: '#050305',
-    accent2: '#22030C',
-    done: '#050305',
-    warn: '#22030C',
-    alert: '#050305',
-    meter: '#050305',
-    text: '#050305',
-    subtext: '#22030C',
-    muted: '#2A0510',
-    tile: '#FD0250',
-    track: '#B0003A',
-    line: '#B8003A',
-    grid: '#E0023F',
+    accent: '#FF2E7E',
+    accent2: '#3DF27A',
+    done: '#3DF27A',
+    warn: '#FFB547',
+    alert: '#FF2E7E',
+    meter: '#FF2E7E',
+    text: '#FFF0F6',
+    subtext: '#E0B8CC',
+    muted: '#9A7A90',
+    tile: '#0C0410',
+    track: '#20101F',
+    line: '#2E1430',
+    grid: '#180818',
   },
-  boss: ['#050305', '#3DF27A', '#FF2E7E', '#050305', '#3DF27A'],
-  roles: ['#050305', '#3DF27A', '#FF2E7E', '#22030C', '#A02241', '#F7F4EA'],
-  effects: { scanlines: false, glitch: false },
+  boss: ['#FF2E7E', '#3DF27A', '#20101F', '#FFF0F6', '#FF2E7E'],
+  roles: ['#FF2E7E', '#3DF27A', '#FFD6E6', '#FFB547', '#E0B8CC', '#9A7A90'],
+  effects: { scanlines: true, glitch: false },
   chat: true,
   words: [...ER2_WORDS, "We're one now"],
   toolWords: ER2_TOOLS,
-  backdrop: { fill: '#FD0250', pattern: 'none', ink: '' },
-  tabs: { mission: '✂\uFE0E Mission Control', skins: '✂\uFE0E Skins' },
+  backdrop: { fill: '#07020A', pattern: 'none', ink: '' },
+  tabs: { mission: '◈\uFE0E Mission Control', skins: '◈\uFE0E Skins' },
 }
 
 const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, MENTALIST_SKIN, BREAKING_BAD_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN, SAMURAI_SKIN, RED_JOHN_SKIN, HEISENBERG_SKIN, EDGERUNNERS2_SKIN, CAPRICORN_SKIN]
@@ -5385,9 +5385,11 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   const Bd = (x: number, y: number, text: string, fill = c.subtext, extra = '') => `<text x="${r2(x)}" y="${y}" font-family="${FONT}" font-size="11.5" fill="${fill}" ${extra}>${xml(text)}</text>`
   const s: string[] = []
   s.push(`<style>.tea{animation:tea 1.6s ease-in-out infinite}@keyframes tea{50%{opacity:.6}}.rjs{animation:rjs2 3.6s ease-in-out infinite}@keyframes rjs2{50%{opacity:.12}}@media (prefers-reduced-motion: reduce){.tea,.rjs{animation:none}}${th.css}</style>`)
-  s.push(`<rect x=".5" y=".5" width="${W - 1}" height="${H - 1}" rx="10" class="tile"/><rect x=".5" y=".5" width="${W - 1}" height="${H - 1}" rx="10" fill="none" stroke="${edge}" stroke-opacity=".5"${d.isWorking ? ' class="hedge"' : ''}/>`)
+  // A theme that draws its own edge (a chamfered glass tile) leaves out the engine's rounded one.
+  if (!sl?.ownEdge) s.push(`<rect x=".5" y=".5" width="${W - 1}" height="${H - 1}" rx="10" class="tile"/><rect x=".5" y=".5" width="${W - 1}" height="${H - 1}" rx="10" fill="none" stroke="${edge}" stroke-opacity=".5"${d.isWorking ? ' class="hedge"' : ''}/>`)
   const overBudget = Boolean(d.budget && d.budget.usedMs > d.budget.min * 60_000)
-  if (sl) s.push(sl.foot(W, H, c, { ctxPct: d.ctxPct, overBudget, isWorking: d.isWorking }))
+  const tctx: ThemeCtx = { ctxPct: d.ctxPct, overBudget, isWorking: d.isWorking, capri: roamOnBand(th, d.at, d.ctxPct) }
+  if (sl) s.push(sl.foot(W, H, c, tctx))
   if (!sl?.ownEdge) s.push(`<rect x=".5" y="14" width="3" height="${H - 28}" rx="1.5" fill="${edge}"/>`)
   // ---- header (baseline 22)
   const y = 22
@@ -5395,7 +5397,7 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   if (lead.svg) s.push(lead.svg)
   const nx = lead.w ? x0 + lead.w + 10 : x0
   // A theme may draw the name in its own hand (a paper label, a patch, a line of identity).
-  const own = sl?.name?.(x0, y, W, c, FONT)
+  const own = sl?.name?.(x0, y, W, c, FONT, tctx)
   s.push(own ? own.svg : Lb(nx, y, 'MISSION CONTROL', 'start', c.accent2).replace('letter-spacing=".8"', 'letter-spacing="1.6"'))
   let hx = own ? x0 + own.w + 14 : nx + sw('MISSION CONTROL', 9.5, 1.6, true) + 16
   const chip = th.chip(hx, y, d.ctxPct, c, FONT)
@@ -5422,7 +5424,7 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   const rightEdge = (withEp: boolean) => xr - clockW - (withEp && epWof() ? epWof() + (clockW ? 28 : 0) : 0)
   let showModel = Boolean(model)
   // A theme's own gauge goes first when the room runs out, then the model, then the episode.
-  const pg0 = sl?.gauge(0, y, d.isWorking, d.steps.filter(st => st === 'done').length, d.steps.length, c, FONT)
+  const pg0 = sl?.gauge(0, y, d.isWorking, d.steps.filter(st => st === 'done').length, d.steps.length, c, FONT, tctx)
   const gW = pg0 ? pg0.w + 26 : 0
   let showGauge = Boolean(pg0)
   if (showGauge && rightEdge(true) - gW - (hx + (showModel ? modelW + 24 : 0)) < 24) showGauge = false
@@ -5446,7 +5448,7 @@ const slimBandSvg = (OW: number, d: HudData): string => {
     else s.push(`<text x="${r2(clockW ? ex - 4 : xr)}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11.5" fill="${c.muted}"><tspan font-size="9.5" font-weight="700" letter-spacing=".8">${xml(ep[0])}</tspan>${epMode === 0 ? `  <tspan font-style="italic" fill="${c.subtext}">${xml(ep[1])}</tspan>` : ''}</text>`)
     epLeft = (clockW ? ex - 4 : xr) - epWof()
   }
-  if (showGauge && sl) s.push(sl.gauge(epLeft - 26, y, d.isWorking, d.steps.filter(st => st === 'done').length, d.steps.length, c, FONT).svg)
+  if (showGauge && sl) s.push(sl.gauge(epLeft - 26, y, d.isWorking, d.steps.filter(st => st === 'done').length, d.steps.length, c, FONT, tctx).svg)
   const cold = th.coldLine?.(d.title) ?? ''
   const crRight = epLeft - 28
   if (cold && crRight - baseEnd > 220) s.push(`<text x="${r2(crRight)}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11.5" font-style="italic" fill="${c.muted}">${xml(serifClip(`“${cold}”`, 11.5, crRight - baseEnd))}</text>`)
@@ -5470,7 +5472,7 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   const px = tx + titleW + 12
   const statusOn = d.isWorking || d.isParty
   const pillFill = d.isParty ? c.done : d.isWorking ? c.accent : c.muted
-  s.push(`<rect x="${px}" y="41" width="${pillW}" height="18" rx="9" fill="${pillFill}" fill-opacity="${statusOn ? 1 : 0.25}"/><text x="${px + pillW / 2}" y="54" text-anchor="middle" font-family="${FONT}" font-size="11.5" font-weight="700" fill="${statusOn ? inkOn(pillFill) : c.text}">${xml(d.status)}</text>`)
+  s.push(`${sl?.pill ? sl.pill(px, 41, pillW, 18, pillFill, statusOn ? 1 : 0.25) : `<rect x="${px}" y="41" width="${pillW}" height="18" rx="9" fill="${pillFill}" fill-opacity="${statusOn ? 1 : 0.25}"/>`}<text x="${px + pillW / 2}" y="54" text-anchor="middle" font-family="${FONT}" font-size="11.5" font-weight="700" fill="${statusOn ? inkOn(pillFill) : c.text}">${xml(d.status)}</text>`)
   const ax = px + pillW + 12
   const actRoom = Math.max(0, (hasReadouts ? r0 - 18 : W - 14) - ax - 12)
   if (d.activity && actRoom >= 60) s.push(Bd(ax, 54, `› ${fitW(d.activity, 11.5, Math.max(0, actRoom - 14))}`))
@@ -5500,7 +5502,7 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   const gy = 66
   const litN = pct === null ? 0 : Math.round((pct / 100) * segs)
   if (segs > 0) {
-    if (sl?.tear) s.push(sl.tear(tx, 64, segs * 6 - 2, pct ?? 0, c))
+    if (sl?.tear) s.push(sl.tear(tx, 64, segs * 6 - 2, pct ?? 0, c, tctx))
     else if (pct !== null && climb) s.push(liveSegmentBar(tx, gy, segs * 6 - 2, d.at, t => Math.round(climb(t) * 100), d.isParty ? c.done : c.accent).replace(/height="8"/g, 'height="6"'))
     else s.push(`<g shape-rendering="crispEdges">${Array.from({ length: segs }, (_, i) => `<rect x="${tx + i * 6}" y="${gy}" width="4" height="6" fill="${i < litN ? (d.isParty ? c.done : c.accent) : c.track}"/>`).join('')}</g>`)
     if (pct !== null && climb && !sl?.tear) s.push(liveText(tx + segs * 6 + 8, 73, d.at, 13, `font-family="${FONT}" font-size="13" font-weight="700" fill="${c.text}" font-variant-numeric="tabular-nums"`, t => `${Math.round(climb(t) * 100)}%`))
@@ -5525,7 +5527,7 @@ const slimBandSvg = (OW: number, d: HudData): string => {
     const w = Math.round(sw(txt, 11.5) + 18)
     if (cx - w < leftEnd + figMin + 8) break
     cx -= w
-    pills.push(`<rect x="${cx}" y="${ya - 12}" width="${w}" height="16" rx="8" fill="${r.color}" fill-opacity=".14" stroke="${r.color}" stroke-opacity=".55"/><text x="${cx + w / 2}" y="${ya}" text-anchor="middle" font-family="${FONT}" font-size="11.5" fill="${lift(r.color)}">${xml(txt)}</text>`)
+    pills.push(`${sl?.pill ? sl.pill(cx, ya - 12, w, 16, r.color, 0.14, r.color) : `<rect x="${cx}" y="${ya - 12}" width="${w}" height="16" rx="8" fill="${r.color}" fill-opacity=".14" stroke="${r.color}" stroke-opacity=".55"/>`}<text x="${cx + w / 2}" y="${ya}" text-anchor="middle" font-family="${FONT}" font-size="11.5" fill="${lift(r.color)}">${xml(txt)}</text>`)
     cx -= 6
   }
   s.push(...pills.reverse())
@@ -7286,7 +7288,7 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="boot" marginBottom={1}>
                 <Svg
-                  source={th ? bootStrip(W, SKIN.colors, FONT, ...th.boot) : bootStrip(W, SKIN.colors, FONT, 'JACKING IN…', egg === 'corpo' ? 'ARASAKA NETWORK › IDENTITY VERIFIED › ACCESS GRANTED' : egg === 'samurai' ? 'WAKE UP, SAMURAI › AMPS ON › LIVE AT THE ATLANTIS' : egg === 'netrun' ? 'JACKED IN › DIVING THE NET › ICE BYPASSED' : 'LINK ESTABLISHED › NEURAL HANDSHAKE OK › ICE BYPASSED')}
+                  source={th ? (th.bootDraw ? th.bootDraw(W) : bootStrip(W, SKIN.colors, FONT, ...th.boot)) : bootStrip(W, SKIN.colors, FONT, 'JACKING IN…', egg === 'corpo' ? 'ARASAKA NETWORK › IDENTITY VERIFIED › ACCESS GRANTED' : egg === 'samurai' ? 'WAKE UP, SAMURAI › AMPS ON › LIVE AT THE ATLANTIS' : egg === 'netrun' ? 'JACKED IN › DIVING THE NET › ICE BYPASSED' : 'LINK ESTABLISHED › NEURAL HANDSHAKE OK › ICE BYPASSED')}
                   alt="Mission Control online"
                 />
               </Box>

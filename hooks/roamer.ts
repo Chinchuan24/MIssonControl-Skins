@@ -212,6 +212,8 @@ export type RoamTiming = {
   startAt?: number
   /** Where a peek stands, or a sit sits (its feet), instead of the spot picked from the plan: a theme names the edge she leans out of. */
   peekAt?: { x: number; y: number }
+  /** A theme's framing drawn behind her walk or sit, in a frame whose origin is her feet (`s` is her scale, `dir` her way). */
+  halo?: (s: number, dir: 1 | -1) => string
 }
 
 const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -259,7 +261,7 @@ export const roamerMarkup = (sprite: Sprite, plan: RoamPlan, W: number, H: numbe
       const w = i % 3 === 0 ? 2 : 1
       return `M${r2(-plan.dir * (9 + i * 7))} ${r2(-2 - unit(`${plan.bucket}|y${i}`) * 24 * s)}h${w}v${w}h${-w}z`
     }).join('')
-    return `${defs}<g transform="translate(0 ${floor})"><g class="rm-walk rm-mo" style="--a:${a}px;--b:${b}px;animation-duration:${r2(dur)}s;animation-delay:${dly(0)}"><path class="rm-trail" d="${bits}" fill="${t.accent2}" fill-opacity=".6"/>${figure(sprite, id, s, plan.dir === -1, true, t, ghostAt)}</g></g>`
+    return `${defs}<g transform="translate(0 ${floor})"><g class="rm-walk rm-mo" style="--a:${a}px;--b:${b}px;animation-duration:${r2(dur)}s;animation-delay:${dly(0)}"><path class="rm-trail" d="${bits}" fill="${t.accent2}" fill-opacity=".6"/>${tm.halo ? tm.halo(s, plan.dir) : ''}${figure(sprite, id, s, plan.dir === -1, true, t, ghostAt)}</g></g>`
   }
 
   // peek and sit: glitch in, stay, glitch out.
@@ -271,7 +273,7 @@ export const roamerMarkup = (sprite: Sprite, plan: RoamPlan, W: number, H: numbe
   const perch = isSit
     ? `<rect x="${r2(-pw / 2)}" y="1" width="${pw}" height="${plan.perch === 'bar' ? 4 : 2}" rx="1" fill="${plan.perch === 'bar' ? t.accent2 : t.accent}" fill-opacity=".75"/>`
     : ''
-  return `${defs}<g transform="translate(${x} ${y})"><g class="${isSit ? 'rm-mo ' : ''}rm-pk"><g class="rm-in" style="animation-delay:${dly(0)}"><g class="rm-out" style="animation-delay:${dly(dur - 0.45)}">${perch}${figure(sprite, id, s, false, false, t, ghostAt)}</g></g></g></g>`
+  return `${defs}<g transform="translate(${x} ${y})"><g class="${isSit ? 'rm-mo ' : ''}rm-pk"><g class="rm-in" style="animation-delay:${dly(0)}"><g class="rm-out" style="animation-delay:${dly(dur - 0.45)}">${perch}${isSit && tm.halo ? tm.halo(s, 1) : ''}${figure(sprite, id, s, false, false, t, ghostAt)}</g></g></g></g>`
 }
 
 /**

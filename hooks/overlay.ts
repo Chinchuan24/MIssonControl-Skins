@@ -19,7 +19,7 @@ export const roamOptsOf = (r: ThemeRoamer, ctxPct: number): RoamOpts => ({ chanc
 export const roamOverlay = (th: ThemeEggs, o: OverlayArgs): string => {
   const r = th.roamer
   if (!r) return ''
-  const creep = r.creep ? r.creep(o.W, o.H, o.ctxPct) : ''
+  const creep = r.creep && o.surface === 'pane' ? r.creep(o.W, o.H, o.ctxPct) : ''
   const plan = roamPlan(r.seed, o.at, roamOptsOf(r, o.ctxPct))
   if (!roamLive(plan, o.at)) return creep
   // Pinned to the wall clock: a redraw anywhere in the act resumes the same animation.
@@ -28,7 +28,7 @@ export const roamOverlay = (th: ThemeEggs, o: OverlayArgs): string => {
   if (plan.kind === 'takeover') return `${creep}${css}${th.takeover ? th.takeover(o.W, o.H, plan.line, tm) : takeoverMarkup(o.W, o.H, r.sprite, plan.line, r.colors, tm)}`
   const spot = plan.kind === 'sit' ? o.spots?.sit : o.spots?.peek
   if (plan.kind === 'peek' && spot && r.peek) return `${creep}${css}${r.peek(spot.x, spot.y, plan, tm)}`
-  const timing: RoamTiming = spot ? { ...tm, peekAt: spot, ...(plan.kind === 'sit' ? { perchY: spot.y } : {}) } : tm
+  const timing: RoamTiming = { ...(spot ? { ...tm, peekAt: spot, ...(plan.kind === 'sit' ? { perchY: spot.y } : {}) } : tm), ...(r.halo ? { halo: r.halo } : {}) }
   return `${creep}${css}${roamerMarkup(r.sprite, plan, o.W, o.H, o.surface, r.colors, timing)}`
 }
 
@@ -56,4 +56,12 @@ export const takeoverWithin = (th: ThemeEggs, now: number, ms: number): boolean 
     if (plan.kind === 'takeover' && plan.startAt <= now && now - plan.startAt <= ms) return true
   }
   return false
+}
+
+/** Is she out on the band right now (a walk, peek or sit, not a takeover)? The band's frame goes possessed while she is. */
+export const roamOnBand = (th: ThemeEggs, at: number, ctxPct: number): boolean => {
+  const r = th.roamer
+  if (!r) return false
+  const plan = roamPlan(r.seed, at, roamOptsOf(r, ctxPct))
+  return roamLive(plan, at) && plan.kind !== 'takeover'
 }

@@ -3,8 +3,10 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import { CASTS } from './cast'
 import * as cast from './cast'
-import { CAPRICORN_RE, ER2_CSS, ER2_EPISODES, HI_CAPRI_RE, er2EpisodeAt, er2W } from './edgerunners2'
-import { er2RankOf } from './edgerunners2-cards'
+import { CAPRICORN_RE, ER2_CSS, ER2_EPISODES, HI_CAPRI_RE, TK_CSS, er2EpisodeAt, er2Takeover, er2W, mw } from './edgerunners2'
+import { CARD_BUDGET, CARD_CSS, ER2_BADGES, er2RankOf, gigsCard, syncCard, syncPct, traceCard } from './edgerunners2-cards'
+import { BLANK_CRED, levelOf } from './extras'
+import type { Beat } from './extras'
 import { roamOptsOf, takeoverWithin } from './overlay'
 import { roamPlan } from './roamer'
 import { THEMES } from './themes'
@@ -68,36 +70,46 @@ const svgs = async ($: Engine, component: 'Pane' | 'AbovePrompt', W = 1250): Pro
   return all
 }
 const SEASON1 = ['BREACH PROTOCOL', 'STREET CRED', 'BRAINDANCE', 'AFTERLIFE', 'MAXTAC', 'MIKOSHI', 'JACKING IN', 'CYBERPSYCHOSIS', '€$']
+const TORN_PAPER = ['BIOCHIP', "ROMAN'S TAPE", 'WATSON WALL']
 const OTHERS = ['COLD READ', 'CBI CRED', 'CASE BOARD', 'PERIODIC TABLE', 'ON AIR', 'CLASSROOM', 'PURITY', 'HONOR ROLL']
 
-test('edgerunners-2: BIOCHIP, ROMAN\'S TAPE, WATSON WALL, the episode and the chip; no season-1 or other-skin words', async ($, on) => {
+test('edgerunners-2: NEURAL SYNC, NETRUN TRACE, CLOSED GIGS, the LINKED boot, the episode; no season-1, torn-paper or other-skin words', async ($, on) => {
   const now = findAt(null, 10)
   base(on, now)
   await start($, 'edgerunners-2')
   await job($)
   const paneSvg = (await svgs($, 'Pane')).join('')
   const bandSvg = (await svgs($, 'AbovePrompt')).join('')
-  for (const w of ['BIOCHIP', "ROMAN'S TAPE", 'WATSON WALL', 'NO SIGNAL', 'ENGRAM FRAGMENTS', 'SYNCING BIOCHIP', 'Pan']) expect(paneSvg).toContain(w)
+  for (const w of ['NEURAL SYNC', 'NETRUN TRACE', 'CLOSED GIGS', 'NO SIGNAL', 'ENGRAM FRAGMENTS', 'LINKING · handshake with D', 'LINKED · No signal, no survival.', 'SYNC 0%', 'NO ENGRAM']) expect(paneSvg).toContain(w)
   for (const w of ['MISSION CONTROL', 'SNAKE NATION', er2EpisodeAt(now).split(' ').slice(2).join(' ')]) expect(bandSvg).toContain(w)
   expect(bandSvg).toContain(er2EpisodeAt(now).slice(0, 5))
-  for (const w of [...SEASON1, ...OTHERS]) {
+  for (const w of [...SEASON1, ...TORN_PAPER, ...OTHERS]) {
     expect(paneSvg).not.toContain(w)
     expect(bandSvg).not.toContain(w)
   }
   expect(bandSvg).not.toContain('CHIP HOT')
+  expect(bandSvg).toContain('LINK') // the hex stream
   expect(ER2_EPISODES).toHaveLength(10)
   expect(er2EpisodeAt(2 * 3_600_000)).toBe('EP 03 0+2=1')
 })
 
 for (const [ctx, word, other] of [[88, 'CHIP HOT', "CAPRI'S AWAKE"], [96, "CAPRI'S AWAKE", 'CHIP HOT']] as const) {
-  test(`edgerunners-2 at ${ctx}%: ${word}`, async ($, on) => {
+  test(`edgerunners-2 at ${ctx}%: ${word}${ctx >= 95 ? ' and the possessed HUD' : ''}`, async ($, on) => {
     base(on, findAt(null, ctx), { ctx })
     await start($, 'edgerunners-2')
     await job($)
     const bandSvg = (await svgs($, 'AbovePrompt')).join('')
     expect(bandSvg).toContain(word)
     expect(bandSvg).not.toContain(other)
-    if (ctx >= 95) expect(bandSvg).toContain('class="er-eye"') // her eye in the corner
+    if (ctx >= 95) {
+      expect(bandSvg).toContain('class="v2-streak"') // pixel-sort streaks in the margins
+      expect(bandSvg).toContain('class="v2-chrom"') // the chromatic split on the name chip
+      expect(bandSvg).toContain('class="v2-psy"') // the chip jitters
+      expect(bandSvg).toContain('#FF2E7E') // her colours
+    } else {
+      expect(bandSvg).not.toContain('class="v2-streak"')
+      expect(bandSvg).not.toContain('class="v2-chrom"')
+    }
     expect(th.warning(ctx)).toBe(ctx >= 95 ? "Capri's awake. /compact now, choom." : "Chip's running hot. /compact soon.")
   })
 }
@@ -110,6 +122,7 @@ for (const [kind, marker] of [['walk', 'rm-walk'], ['peek', 'rm-pk'], ['sit', 'r
     const bandSvg = (await svgs($, 'AbovePrompt')).join('')
     expect(bandSvg).toContain(marker)
     expect(bandSvg).toContain('class="hair"') // the sprite's hair classes, never vector paths
+    if (kind === 'walk') expect(bandSvg).toContain('class="v2-streak"') // her holo framing: the possessed HUD and her slices
   })
 }
 test('capri is off at a quiet moment', async ($, on) => {
@@ -128,18 +141,19 @@ test('capri comes more often as the context climbs', () => {
   expect(n96).toBeGreaterThan(n10)
 })
 
-test('takeover: both panels, "hi, choom." among its lines, at most once per 30 min', async ($, on) => {
+test('takeover: both panels, the reticle, the typed dialogue; "hi, choom." among her lines, at most once per 30 min', async ($, on) => {
   const t0 = findAt('takeover', 10)
   base(on, t0)
   await start($, 'edgerunners-2')
   await job($)
   const bandSvg = (await svgs($, 'AbovePrompt')).join('')
   const paneSvg = (await svgs($, 'Pane')).join('')
+  const line = roamPlan(roamer.seed, t0, roamOptsOf(roamer, 10)).line
   for (const s of [bandSvg, paneSvg]) {
-    expect(s).toContain('class="tk"')
-    expect(s).toContain('tk-L')
-    expect(s).toContain('tk-still') // the reduced-motion note
+    for (const c of ['tk-anim', 'tk-field', 'tk-ret', 'tk-bar', 'tk-ty', 'tk-off', 'tk-still']) expect(s).toContain(c)
+    expect(s).toContain(`>${line}</text>`) // the dialogue
   }
+  expect(paneSvg).toContain('CAPRI · PERSONALITY CONSTRUCT')
   expect(roamer.lines).toContain('hi, choom.')
   const starts: number[] = []
   for (let t = BASE; t < BASE + 86_400_000; t += 30_000) {
@@ -150,10 +164,76 @@ test('takeover: both panels, "hi, choom." among its lines, at most once per 30 m
   for (let i = 1; i < starts.length; i++) expect((starts[i] as number) - (starts[i - 1] as number)).toBeGreaterThanOrEqual(30 * 60_000)
 })
 test('reduced motion: every animated rule has a reduced-motion entry and the takeover leaves one still note', () => {
-  const css = `${ER2_CSS}${roamer.css}`
-  expect(css).toContain('prefers-reduced-motion')
-  for (const c of ['rec', 'er-chip', 'er-eye', 'er-drift', 'er-ep', 'er-fresh', 'er-drop', 'er-in', 'er-cheer', 'tk-L', 'tk-R', 'tk-big', 'rn']) expect(css.split('prefers-reduced-motion').slice(1).join('|')).toContain(`.${c}`)
-  expect(css).toContain('.tk{display:none}.tk-still{display:block}')
+  for (const css of [ER2_CSS, TK_CSS, CARD_CSS]) {
+    const [main, ...rest] = css.split('@media (prefers-reduced-motion: reduce)')
+    expect(rest.length).toBe(1)
+    const reduced = rest.join('')
+    for (const m of (main as string).matchAll(/\.([\w-]+)\{animation:/g)) expect(reduced).toContain(`.${m[1]}`)
+  }
+  expect(TK_CSS).toContain('.tk-anim{display:none}')
+  expect(TK_CSS).toContain('.tk-still{display:block')
+})
+
+test('capri is only ever her pixel sprites: the bust and the big one are crisp pixel paths in her palette', () => {
+  const cred = { ...BLANK_CRED, xp: 10500, jobs: 60, badges: ['choom', 'merc', 'edgerunner'] }
+  const card = syncCard(480, cred, false)
+  expect(card).toContain('shape-rendering="crispEdges"')
+  for (const col of ['#FB1667', '#0CF878', '#F1F1F1']) expect(card).toContain(col) // ER_CAPRI_BUST's pink, green and white
+  const tk = er2Takeover(480, 560, 'hi, choom.', { delay: '0s' }, false)
+  expect(tk).toContain('shape-rendering="crispEdges"')
+  for (const col of new Set(Object.values(cast.ER_CAPRI_BIG.pal))) if (cast.ER_CAPRI_BIG.rows.join('').includes([...Object.entries(cast.ER_CAPRI_BIG.pal)].find(([, v]) => v === col)?.[0] as string)) expect(tk.toUpperCase()).toContain(col.toUpperCase())
+  expect(cast.ER_CAPRI_BIG.rim).toBe(false)
+  // No vector figure: the only <circle>/<ellipse> are rings, brackets and her eye icon, never filled with her palette.
+  for (const m of tk.matchAll(/<(circle|ellipse)[^>]*>/g)) expect(m[0]).not.toMatch(/fill="#(FB1667|EF1867|DA195F)"/i)
+})
+
+test('NEURAL SYNC: SYNC % is the share of the next level (levels 1, 4 and 21), and the capsule resolves eyes-first', () => {
+  const at = (xp: number) => syncCard(480, { ...BLANK_CRED, xp }, false)
+  expect(syncPct(0)).toBe(0)
+  expect(at(0)).toContain('SYNC 0%')
+  expect(levelOf(420)).toBe(4)
+  expect(syncPct(420)).toBe(84)
+  expect(at(420)).toContain('SYNC 84%')
+  expect(at(420)).toContain('420 / 500 XP')
+  expect(levelOf(10500)).toBe(21)
+  expect(syncPct(10500)).toBe(91)
+  expect(at(10500)).toContain('SYNC 91%')
+  expect(at(10500)).toContain('10500 / 11550 XP')
+  expect(at(10500)).toContain('v.21')
+  const some = syncCard(480, { ...BLANK_CRED, xp: 420, badges: ['choom', 'merc', 'edgerunner', 'legend', 'netrunner'] }, false)
+  expect(some).toContain('5 of 9')
+  expect(some).toContain('56%')
+  expect(some).not.toContain('NO ENGRAM')
+  expect(syncCard(480, { ...BLANK_CRED, badges: ER2_BADGES.map(b => b.id) }, false)).toContain('Every fragment recovered')
+})
+
+const beatsOf = (n: number): Beat[] => Array.from({ length: n }, (_, i) => ({ at: 1_000_000 + i * 4000, tool: ['Read', 'Edit', 'Bash', 'Agent', 'Grep'][i % 5] as string, text: `parser.test.ts step ${i}`, who: 'Engineer' }))
+test('NETRUN TRACE: four lanes, the REC viewfinder, and the pick controls state', () => {
+  const live = traceCard(560, beatsOf(12), -1, false)
+  for (const w of ['PROBE', 'WRITE', 'LINK', 'SYS', 'REC', 'NODE 12/12', 'first', '12 nodes · live']) expect(live).toContain(w)
+  const replay = traceCard(560, beatsOf(16), 7, false)
+  for (const w of ['PLAY', 'NODE 08/16', 'last 12 shown', 'node 08']) expect(replay).toContain(w)
+  expect(traceCard(560, [], -1, false)).toContain('standing by')
+  expect(THEMES.edgerunners2.log.hasControls).toBe(true)
+})
+
+test('card sizes: each ER2 card is lean (25 kB), and the whole pane with a takeover stays far under the pane budget', async ($, on) => {
+  const full = { ...BLANK_CRED, xp: 10500, jobs: 60, longJobs: 12, agents: 120, badges: ER2_BADGES.slice(0, 6).map(b => b.id) }
+  for (const sec of [false, true]) {
+    for (const W of [360, 480, 560]) {
+      for (const c of [BLANK_CRED, full]) expect(syncCard(W, c, sec).length).toBeLessThan(CARD_BUDGET)
+      expect(traceCard(W, beatsOf(40), -1, sec).length).toBeLessThan(CARD_BUDGET)
+      expect(traceCard(W, beatsOf(12), 3, sec).length).toBeLessThan(CARD_BUDGET)
+      expect(gigsCard(W, Array.from({ length: 5 }, (_, i) => ({ task: `Gig number ${i}`, costUsd: i, at: 0, ms: i * 400_000 })), sec).length).toBeLessThan(CARD_BUDGET)
+    }
+  }
+  base(on, findAt('takeover', 96), { ctx: 96 })
+  await start($, 'edgerunners-2')
+  await job($)
+  const all = await svgs($, 'Pane')
+  for (const s of all) expect(s.length).toBeLessThan(131_072)
+  const total = all.join('').length
+  expect(total).toBeLessThan(200_000)
 })
 
 test('capricorn: hidden until worn; "0+2=1" unlocks it and again takes it off; the prompt goes through unchanged', async ($, on) => {
@@ -166,8 +246,8 @@ test('capricorn: hidden until worn; "0+2=1" unlocks it and again takes it off; t
   expect(CAPRICORN_RE.test('type 0 + 2 = 1 now')).toBe(true)
   const back = (await $.prompt.submit({ text: 'what is 0+2=1?', cursor: 0 } as never)) as { text?: string }
   expect(back.text).toBe('what is 0+2=1?')
-  expect((await svgs($, 'AbovePrompt')).join('')).toContain('HOST · 0+2=1')
-  expect(toasts.join(' ')).toContain("We're one now")
+  expect((await svgs($, 'AbovePrompt')).join('')).toContain('PROJECT CAPRICORN')
+  expect(toasts.join(' ').toLowerCase()).toContain("we're one now")
   await $.prompt.submit({ text: 'again: 0+2=1', cursor: 0 } as never)
   expect((await svgs($, 'AbovePrompt')).join('')).toContain('SNAKE NATION')
 })
@@ -180,7 +260,7 @@ test('capricorn: "hi capri" within 60 s of a takeover unlocks it; later or witho
   base(on, start0 + 20_000)
   await start($, 'edgerunners-2')
   await $.prompt.submit({ text: 'hi capri!', cursor: 0 } as never)
-  expect((await svgs($, 'AbovePrompt')).join('')).toContain('HOST · 0+2=1')
+  expect((await svgs($, 'AbovePrompt')).join('')).toContain('PROJECT CAPRICORN')
 })
 test('capricorn: "hi capri" with no takeover near does nothing', async ($, on) => {
   base(on, findAt(null, 0, BASE + 3 * 3_600_000))
@@ -211,7 +291,9 @@ const boxes = (svg: string): Box[] => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue
     const s = (m[2] as string).replace(/<title>.*?<\/title>/gs, '').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
     if (!s.trim()) continue
-    const width = er2W(s, size, Number(at('letter-spacing') ?? 0), Number(at('font-weight') ?? 400))
+    if (/v2-chrom/.test(m[1] as string) || /fill-opacity="\.35"/.test(m[1] as string)) continue // the chromatic split sits on the name by design
+    const ls = Number(at('letter-spacing') ?? 0)
+    const width = /SF Mono/.test(m[1] as string) ? mw(s, size, ls) : er2W(s, size, ls, Number(at('font-weight') ?? 400))
     const anchor = at('text-anchor')
     const l = anchor === 'end' ? x - width : anchor === 'middle' ? x - width / 2 : x
     out.push({ l: l + 2, r: l + width - 2, t: y - size * 0.75, b: y + size * 0.15, s })

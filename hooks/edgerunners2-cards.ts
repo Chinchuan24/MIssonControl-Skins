@@ -1,15 +1,20 @@
-// Cyberpunk: Edgerunners 2, the pane's cards (fan homage; the hidden CAPRICORN skin draws the same
-// cards on magenta paper). BIOCHIP is the level card: a chip whose core wakes Capri's portrait (the
-// ER_CAPRI_BUST pixel sprite) as fragments are recovered. ROMAN'S TAPE is the tool-call log as a 35 mm
-// contact sheet. WATSON WALL pastes up each closed job. Pure SVG strings, no `$`, no state.
+// Cyberpunk: Edgerunners 2 v2, the pane's cards (fan homage; the hidden CAPRICORN skin draws the same cards in her
+// colours). NEURAL SYNC is the level card: Capri's engram (the ER_CAPRI_BUST pixel sprite) resolves eyes-first in a holo
+// capsule as fragments are recovered. NETRUN TRACE is the tool-call log on a four-lane oscilloscope with Roman's REC
+// viewfinder. CLOSED GIGS lists each closed job. Pure SVG strings, no `$`, no state. Kept lean (shared defs, merged
+// pixel runs): each card stays under CARD_BUDGET characters.
 import { levelOf, xpFor } from './extras'
 import type { Badge, Beat, Cred } from './extras'
 import type { Legend } from './eggs'
-import { BUST_H, ER2_FONT, ER2_TOOLS, MONO, P, T, capriBust, clamp, er2Clip, er2W, er2Wrap, esc, grain, hash, label, palOf, paper, r1, shards, tape, torn } from './edgerunners2'
+import { ER_CAPRI_BUST } from './cast'
+import { CJK, ER2_FONT, ER2_TOOLS, HEX_CODES, K, M, MONO, T, brackets, beam, cardDefs, cham, clamp, er2Clip, er2W, er2Wrap, esc, mw, palOf, pane, pixels, r1, rng, streaks } from './edgerunners2'
+
+/** What one card may weigh, in characters of SVG (the pane has a total budget too). */
+export const CARD_BUDGET = 25_000
 
 const share = (n: number, of: number): number => Math.max(0, Math.min(1, n / of))
 
-// --- 1. BIOCHIP ---------------------------------------------------------------------
+// --- NEURAL SYNC ---------------------------------------------------------------------
 export const ER2_BADGES: Badge[] = [
   { id: 'choom', name: 'FIRST SHARD', icon: '✦', how: 'Finish your first job', progress: c => share(c.jobs, 1) },
   { id: 'merc', name: 'CHOOMBA', icon: '◆', how: 'Finish 10 jobs', progress: c => share(c.jobs, 10) },
@@ -25,277 +30,289 @@ export const ER2_WORDS = { badges: ER2_BADGES, cases: 'JOBS', long: 'LONG JOBS',
 /** D's arc, with no spoilers: from a signal-less nomad to Capri's host. */
 export const er2RankOf = (lv: number): string => (lv >= 20 ? '0+2=1' : lv >= 15 ? "CAPRI'S HOST" : lv >= 10 ? 'CHIPPED' : lv >= 7 ? "KING'S CREW" : lv >= 4 ? 'RUNNER' : lv >= 2 ? 'SNAKE NATION' : 'NO SIGNAL')
 const NEXT_RANKS: [number, string][] = [[2, 'SNAKE NATION'], [4, 'RUNNER'], [7, "KING'S CREW"], [10, 'CHIPPED'], [15, "CAPRI'S HOST"], [20, '0+2=1']]
-export const er2Toast = (level: number): string => `BIOCHIP SYNC ↑ ${level} · ${er2RankOf(level)}`
+export const er2Toast = (level: number): string => `NEURAL SYNC ↑ ${level} · ${er2RankOf(level)}`
+/** SYNC %: the XP share of the next level's threshold, the same two numbers the card prints (10500 / 11550 XP is 91%). */
+export const syncPct = (xp: number): number => {
+  const next = xpFor(levelOf(xp) + 1)
+  return clamp(Math.round((Math.max(0, xp) / next) * 100), 0, 100)
+}
+
+/** Only the motion the cards use. Each card carries its own copy; `pieces` picks the rules it needs. */
+const CSS_RULES: Record<string, string> = {
+  led: '.v2-led{animation:v2led 1.4s steps(1) infinite}@keyframes v2led{50%{opacity:.25}}',
+  rec: '.v2-rec{animation:v2led 1.2s steps(1) infinite}',
+  streak: '.v2-streak{animation:v2streak 2.8s steps(1) infinite}@keyframes v2streak{0%,100%{transform:translateX(0)}30%{transform:translateX(-5px)}31%{transform:translateX(4px)}60%{transform:translateX(2px)}61%{transform:translateX(-6px)}}',
+  ring: '.v2-ring{animation:v2ring 9s linear infinite;transform-box:fill-box;transform-origin:center}@keyframes v2ring{to{transform:rotate(360deg)}}',
+  cone: '.v2-cone{animation:v2cone 3.6s ease-in-out infinite}@keyframes v2cone{50%{opacity:.55}}',
+  slide: '.v2-slide{animation:v2slide .3s cubic-bezier(.2,.9,.2,1) both}@keyframes v2slide{from{transform:translateX(6px);opacity:0}}',
+  sprite: '.hair{animation:v2sway 1.8s steps(1) infinite}@keyframes v2sway{50%{transform:translateX(1px)}}.vis{animation:v2vis 2.2s ease-in-out infinite}@keyframes v2vis{50%{opacity:.45}}.led{animation:v2led 1.2s steps(1) infinite}',
+}
+const cardCss = (...pieces: string[]): string => {
+  const names = pieces.flatMap(p => (p === 'sprite' ? ['sprite'] : [p]))
+  const classes = names.flatMap(p => ({ led: ['.v2-led'], rec: ['.v2-rec'], streak: ['.v2-streak'], ring: ['.v2-ring'], cone: ['.v2-cone'], slide: ['.v2-slide'], sprite: ['.hair', '.vis', '.led'] })[p] ?? [])
+  return `${names.map(p => CSS_RULES[p]).join('')}@media (prefers-reduced-motion: reduce){${classes.join(',')}{animation:none}}`
+}
+/** Every rule the cards may carry, for the reduced-motion check. */
+export const CARD_CSS = cardCss('led', 'rec', 'streak', 'ring', 'cone', 'slide', 'sprite')
+const open = (W: number, H: number, css: string): string => `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${ER2_FONT}" style="font-variant-numeric:tabular-nums"><style>${css}</style>`
+
+/** A card's frame: the glass pane, the accent bar, the title; `right` is more drawing at the far side. */
+const cardFrame = (W: number, H: number, title: string, right: string, sec: boolean, near: boolean, sid: string): string => {
+  const P = palOf(sec)
+  return `${cardDefs(sid, sec)}${pane(0.5, 0.5, W - 1, H - 1, { sec, near, cut: 10, fillOp: 1, fill: P.tile, scanId: sid, nodes: true, ghost: false, sheenH: 56 })}<rect x="16" y="17" width="3" height="13" fill="${near ? K.hot : P.a}"/>${T(26, 28, title, 11, 800, P.text, 'letter-spacing="1.6"')}${right}`
+}
+const monoRight = (W: number, P: { muted: string }, text: string): string => (W >= 400 ? `<text x="${W - 16}" y="28" text-anchor="end" font-family="${MONO}" font-size="8.5" fill="${P.muted}" letter-spacing=".6">${text}</text>` : '')
 
 const FRAG_W = 83
-const FRAG_H = 52
-const perRow = (W: number): number => Math.max(3, Math.floor((W - 24) / (FRAG_W + 8)))
-const STACK_DY = 214
-export const biochipHeight = (W: number): number => 274 + Math.ceil(9 / perRow(W)) * (FRAG_H + 14) + 30 + (W < 400 ? STACK_DY : 0)
+const perRow = (W: number): number => Math.max(3, Math.floor((W - 24) / 91))
+const STACK_DY = 236
+export const syncHeight = (W: number): number => 300 + Math.ceil(9 / perRow(W)) * 62 + 26 + (W < 400 ? STACK_DY : 0)
 
-/** A card's frame and its paper title; `right` is a line of flavour at the far side. */
-export const cardFrame = (W: number, H: number, title: string, right: string, sec: boolean): string => {
-  const C = palOf(sec)
-  const L = label(16, 11, title, { size: 11, ls: 1.6, h: 19, seed: `card${title}`, fill: C.lbl, ink: C.lblInk })
-  return `<rect x=".5" y=".5" width="${W - 1}" height="${H - 1}" rx="6" fill="${C.bg}" stroke="${C.line}"/>${sec ? grain(2, 2, W - 4, H - 4, Math.min(500, Math.round((W * H) / 400)), `cg${title}`, '#fff') : ''}${L.svg}${right && W >= 400 ? T(W - 16, 25, right, 11.5, 500, C.muted, 'text-anchor="end" font-style="italic"') : ''}`
-}
-const open = (W: number, H: number): string => `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${ER2_FONT}" style="font-variant-numeric:tabular-nums">`
-
-export const biochipCard = (W: number, c: Cred, sec: boolean): string => {
-  const C = palOf(sec)
-  const lv = levelOf(c.xp)
-  const lo = xpFor(lv)
-  const hi = xpFor(lv + 1)
-  const sync = clamp((c.xp - lo) / (hi - lo), 0, 1)
-  const k = ER2_BADGES.filter(b => c.badges.includes(b.id)).length
+export const syncCard = (W: number, c: Cred, sec: boolean): string => {
+  const P = palOf(sec)
+  const H = syncHeight(W)
+  const sid = `sc${W}${sec ? 's' : ''}`
+  const level = levelOf(c.xp)
+  const next = xpFor(level + 1)
+  const sync = syncPct(c.xp)
+  const earned = ER2_BADGES.filter(b => c.badges.includes(b.id)).length
   const stack = W < 400
-  const dy0 = stack ? STACK_DY : 0
-  const H = biochipHeight(W)
-  let s = `${open(W, H)}${cardFrame(W, H, 'BIOCHIP', 'Project Capricorn · Arasaka', sec)}`
-  // The chip: dark body, connector teeth along the foot, the etched maker line, the core dial.
-  const cx0 = stack ? Math.max(16, (W - 168) / 2) : 16
-  const cy0 = 46
+  const oy = stack ? STACK_DY : 0
+  const near = earned >= 9 || sec
+  const nr = NEXT_RANKS.find(([l]) => l > level)
+  const s: string[] = [open(W, H, cardCss('streak', 'ring', 'cone', 'sprite'))]
+  s.push(cardFrame(W, H, 'NEURAL SYNC', W >= 400 ? `<text x="${W - 16}" y="28" text-anchor="end" font-family="${MONO}" font-size="8.5" fill="${P.muted}" letter-spacing=".6">ARASAKA · PROJECT CAPRICORN · <tspan font-family="${CJK}">山羊座</tspan></text>` : '', sec, false, sid))
+  // The capsule.
   const cw = 168
-  const ch = 200
-  s += `<rect x="${cx0}" y="${cy0}" width="${cw}" height="${ch}" rx="8" fill="${C.raised}" stroke="${C.line}"/>`
-  for (let i = 0; i < 9; i++) s += `<rect x="${cx0 + 18 + i * 15}" y="${cy0 + ch - 2}" width="8" height="9" rx="1" fill="${sec ? P.black : P.paper2}"/>`
-  s += T(cx0 + 12, cy0 + 18, 'ARASAKA · CAPRICORN', 8.5, 800, C.muted, 'letter-spacing="1.4"') + T(cx0 + cw - 12, cy0 + 18, `v.${String(lv).padStart(2, '0')}`, 8.5, 800, C.muted, 'text-anchor="end" letter-spacing="1"')
-  // The dial: the outer ring is the sync to the next level (the XP share), torn at its end.
-  const dx = cx0 + cw / 2
-  const dy = cy0 + 92
-  const R = 58
-  s += `<circle cx="${dx}" cy="${dy}" r="${R}" fill="none" stroke="${C.track}" stroke-width="9"/>`
-  if (sync > 0.005) {
-    const a = sync * 2 * Math.PI - Math.PI / 2
-    const ex = dx + R * Math.cos(a)
-    const ey = dy + R * Math.sin(a)
-    s += `<path d="M${dx} ${dy - R}A${R} ${R} 0 ${sync > 0.5 ? 1 : 0} 1 ${r1(ex)} ${r1(ey)}" fill="none" stroke="${C.fill}" stroke-width="9"/>${shards(ex - 6, ey - 6, 12, 12, 4, `dialtip${lv}`, [C.fill, P.paper], 2, 4)}`
+  const cx0 = stack ? Math.max(16, Math.round((W - cw) / 2)) : 16
+  const cy0 = 46
+  const chh = 220
+  s.push(pane(cx0, cy0, cw, chh, { sec, near, cut: 8, scanId: sid, nodes: true, fillOp: 0.95, ghost: false, shared: sid }))
+  s.push(M(cx0 + 10, cy0 + 16, 'ENGRAM · CAPRI', 8, near ? K.green : P.aT, 'letter-spacing="1"'))
+  s.push(M(cx0 + cw - 10, cy0 + 16, `v.${String(level).padStart(2, '0')}`, 8, P.muted, 'text-anchor="end"'))
+  const mx = cx0 + cw / 2
+  const fy = cy0 + 176
+  s.push(`<defs><linearGradient id="${sid}c" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${near ? K.hot : P.a}" stop-opacity="0"/><stop offset="1" stop-color="${near ? K.hot : P.a}" stop-opacity=".2"/></linearGradient></defs>`)
+  s.push(`<path class="v2-cone" d="M${mx - 60} ${cy0 + 26}L${mx + 60} ${cy0 + 26}L${mx + 40} ${fy}L${mx - 40} ${fy}Z" fill="url(#${sid}c)"/>`)
+  s.push(`<g class="v2-ring"><ellipse cx="${mx}" cy="${fy + 2}" rx="56" ry="9" fill="none" stroke="${near ? K.green : P.a}" stroke-opacity=".55" stroke-dasharray="14 6"/></g><ellipse cx="${mx}" cy="${fy + 2}" rx="40" ry="6" fill="none" stroke="${near ? K.hot : P.aT}" stroke-opacity=".5"/><ellipse cx="${mx}" cy="${fy + 2}" rx="12" ry="2" fill="${near ? K.hot : P.ice}" fill-opacity=".6"/>`)
+  // The bust (ER_CAPRI_BUST, 42 by 48 at 3x): the rows within `half` of the eye row resolve in colour, the rest is a wireframe.
+  const bs = 3
+  const bx = mx - 21 * bs
+  const by = cy0 + 30
+  const EYE = 27
+  const half = earned === 0 ? 0 : Math.round(3 + (earned / 9) * 26)
+  const from = clamp(EYE - half, 0, 48)
+  const to = clamp(EYE + half + 1, 0, 48)
+  if (earned === 0) {
+    s.push(pixels(ER_CAPRI_BUST, bx, by, bs, { mono: P.a, op: 0.16 }))
+    s.push(M(mx, by + 76, 'NO ENGRAM', 9, P.aT, 'text-anchor="middle" letter-spacing="1.4"'))
+    s.push(streaks(bx, by + 20, 126, 100, 'noeng', 6, { colors: [P.a, P.ice], max: 40 }))
+  } else {
+    if (from > 0) s.push(pixels(ER_CAPRI_BUST, bx, by, bs, { mono: P.a, op: 0.16, rows: [0, from] }))
+    if (to < 48) s.push(pixels(ER_CAPRI_BUST, bx, by, bs, { mono: P.a, op: 0.16, rows: [to, 48] }))
+    s.push(pixels(ER_CAPRI_BUST, bx, by, bs, { rows: [from, to], rim: K.hot, rimOp: earned >= 9 ? 0.5 : 0.3 }))
+    if (earned < 9) {
+      s.push(`<rect x="${bx - 8}" y="${by + from * bs - 0.5}" width="${42 * bs + 16}" height="1" fill="${P.ice}" fill-opacity=".7"/><rect x="${bx - 8}" y="${by + to * bs - 0.5}" width="${42 * bs + 16}" height="1" fill="${P.ice}" fill-opacity=".7"/>`)
+      s.push(M(bx + 42 * bs + 8, by + to * bs + 3, `${Math.round((earned / 9) * 100)}%`, 7.5, P.aT, 'text-anchor="end"'))
+    }
   }
-  s += `<circle cx="${dx}" cy="${dy}" r="${R - 10}" fill="${P.black}"/><circle cx="${dx}" cy="${dy}" r="${R - 16}" fill="none" stroke="${P.crim}" stroke-width="3"/><circle cx="${dx}" cy="${dy}" r="${R - 27}" fill="none" stroke="${P.crim}" stroke-width="2"/>`
-  // In the core: Capri's portrait wakes from the crown down, so the eyes show from the third fragment
-  // and the mouth at the ninth. With no fragments the core is static.
-  if (k === 0) s += `${grain(dx - 26, dy - 26, 52, 52, 60, 'static', P.muted)}${T(dx, dy + 4, 'NO ENGRAM', 9.5, 800, P.muted, 'text-anchor="middle" letter-spacing=".8"')}`
-  else {
-    const kk = 1.55
-    const hgt = BUST_H * kk
-    const top = dy - 38
-    const cut = top + hgt * (0.4 + (0.6 * k) / 9)
-    const cid = `core${lv}k${k}`
-    s += `<clipPath id="${cid}"><circle cx="${dx}" cy="${dy}" r="${R - 17.5}"/></clipPath><g clip-path="url(#${cid})">${capriBust(dx - 21 * kk, top, kk)}${k < 9 ? `<path d="${torn(dx - 44, cut, 88, top + hgt - cut + 20, `veil${k}`, 3.5, 't')}" fill="${P.black}"/>` : ''}</g>`
-  }
-  s += T(dx, cy0 + 172, `SYNC ${Math.round(sync * 100)}%`, 15, 800, C.text, 'text-anchor="middle"') + T(dx, cy0 + 186, `${c.xp} / ${hi} XP`, 10, 600, C.muted, 'text-anchor="middle"')
-  // Right: the host line, the rank, three pasted strips (jobs, long jobs, crew called).
-  const rx0 = stack ? 16 : 204
-  const rw = W - 16 - rx0
-  const o = dy0
-  s += T(rx0, 60 + o, 'HOST', 9.5, 800, C.muted, 'letter-spacing="1.2"') + T(rx0 + 36, 60 + o, 'D', 9.5, 800, C.accentT, 'letter-spacing="1.2"') + T(rx0 + rw, 60 + o, `LEVEL ${lv}`, 9.5, 800, C.muted, 'text-anchor="end" letter-spacing="1.2"')
-  const rank = er2RankOf(lv)
-  s += `<g class="er-fresh">${T(rx0, 88 + o, rank, rank.length > 11 ? 22 : 26, 800, C.text, 'letter-spacing=".4"')}</g>`
-  const nr = NEXT_RANKS.find(([l]) => l > lv)
-  s += T(rx0, 104 + o, nr ? `next: ${nr[1]} at level ${nr[0]}` : 'top of the arc', 11.5, 500, C.sub, 'font-style="italic"')
-  const rows: [number, string, string, string][] = [[c.jobs, 'JOBS DONE', C.fill, C.fillInk], [c.longJobs, 'LONG JOBS', P.paper, P.ink], [c.agents, 'CREW CALLED', C.fill, C.fillInk]]
-  rows.forEach(([n, lab, fill, ink], i) => {
-    const y = 118 + o + i * 34
-    const rot = [-1.4, 0.9, -0.6][i] as number
-    const w = rw - ([0, 14, 6][i] as number)
-    const num = n ? String(n) : '—'
-    s += `<g transform="rotate(${rot} ${r1(rx0 + w / 2)} ${y + 13})">${paper(rx0, y, w, 26, `row${lab}`, fill, fill === P.paper ? '#000' : C.under, 2)}${T(rx0 + 10, y + 19.5, num, 19, 800, ink)}${T(rx0 + 10 + Math.max(30, er2W(num, 19, 0, 800) + 10), y + 17.5, lab, 10, 800, ink, 'letter-spacing="1.3"')}</g>`
+  s.push(`<rect x="${bx}" y="${by}" width="${42 * bs}" height="${48 * bs}" fill="url(#${sid})"/>`)
+  s.push(T(cx0 + 12, cy0 + 205, `SYNC ${sync}%`, 15, 800, P.text))
+  s.push(M(cx0 + cw - 12, cy0 + 205, `${c.xp} / ${next} XP`, 8.5, P.muted, 'text-anchor="end"'))
+  s.push(beam(cx0 + 12, cy0 + 210, cw - 24, 4, sync, { sec, near }))
+  // The right column (under the capsule when narrow).
+  const rx = stack ? 16 : 204
+  const rwid = W - 16 - rx
+  const ry = stack ? cy0 + chh + 14 : cy0
+  s.push(M(rx, ry + 14, 'HOST', 8.5, P.muted, 'letter-spacing="1.2"'))
+  s.push(`<path d="${cham(rx + 34, ry + 2, 15, 15, 3, 1)}" fill="${P.a}"/>${T(rx + 38, ry + 14, 'D', 11, 800, '#FFFFFF')}`)
+  s.push(T(rx + 55, ry + 14, 'SNAKE NATION', 9.5, 800, P.aT, 'letter-spacing="1.2"'))
+  s.push(M(W - 16, ry + 14, `LEVEL ${String(level).padStart(2, '0')}`, 8.5, P.muted, 'text-anchor="end" letter-spacing="1.2"'))
+  const rank = er2RankOf(level)
+  s.push(T(rx, ry + 50, rank, rank.length > 11 ? 22 : 26, 800, P.text, 'letter-spacing=".5"'))
+  s.push(T(rx, ry + 67, nr ? `next: ${nr[1]} at level ${nr[0]}` : 'top of the arc, choom.', 11.5, 500, P.sub, 'font-style="italic"'))
+  const py = ry + 80
+  s.push(pane(rx, py, rwid, 82, { sec, cut: 5, scanId: sid, fillOp: 0.6, ghost: false, shared: sid }))
+  const rows: [string, number][] = [['JOBS DONE', c.jobs], ['LONG JOBS', c.longJobs], ['CREW CALLED', c.agents]]
+  rows.forEach(([k, v], i) => {
+    const y = py + 22 + i * 24
+    const val = v ? String(v) : '—'
+    const lw = er2W(k, 9.5, 1.2, 800)
+    const vw = er2W(val, 15, 0, 800)
+    s.push(T(rx + 12, y, k, 9.5, 800, P.muted, 'letter-spacing="1.2"'))
+    s.push(`<line x1="${r1(rx + 12 + lw + 8)}" y1="${y - 3}" x2="${r1(rx + rwid - 12 - vw - 8)}" y2="${y - 3}" stroke="${P.line}" stroke-dasharray="1 3"/>`)
+    s.push(T(rx + rwid - 12, y + 1, val, 15, 800, v ? P.text : P.muted, 'text-anchor="end"'))
+    if (i === 0 && v) s.push(`<rect x="${rx + 1}" y="${y - 11}" width="2" height="14" fill="${P.a}"/>`)
   })
-  s += tape(rx0 + rw - 6, 118 + o, 22, 8, 32, 'tp1') + tape(rx0 + 2, 186 + o, 18, 7, -28, 'tp2')
-  const xpA = `${c.xp} XP`
-  s += T(rx0, 232 + o, xpA, 12.5, 800, C.text) + T(rx0 + er2W(xpA, 12.5, 0, 800) + 6, 232 + o, `· ${hi - c.xp} to level ${lv + 1}`, 12.5, 500, C.sub)
-  const kA = `${k} of 9`
-  s += T(rx0, 248 + o, kA, 12.5, 800, C.text) + T(rx0 + er2W(kA, 12.5, 0, 800) + 5, 248 + o, 'engram fragments recovered', 12.5, 500, C.sub)
-  // Engram fragments: torn shard tiles. Recovered is paper with a Capri decal; corrupt is dark.
+  s.push(`<text x="${rx}" y="${py + 104}" font-size="12.5" font-weight="500" fill="${P.sub}"><tspan font-weight="800" fill="${P.text}">${c.xp} XP</tspan> · ${Math.max(0, next - c.xp)} to level ${level + 1}</text>`)
+  s.push(`<text x="${rx}" y="${py + 122}" font-size="12.5" font-weight="500" fill="${P.sub}"><tspan font-weight="800" fill="${P.text}">${earned} of 9</tspan> engram fragments recovered</text>`)
+  s.push(beam(rx, py + 131, rwid, 3, (earned / 9) * 100, { sec, near, color: P.a }))
+  // The fragments.
+  const fy0 = cy0 + chh + 18 + oy
+  s.push(T(16, fy0, 'ENGRAM FRAGMENTS', 9.5, 800, P.muted, 'letter-spacing="1.2"'))
   const per = perRow(W)
-  const fy0 = 286 + o
-  s += T(16, fy0 - 6, 'ENGRAM FRAGMENTS', 9.5, 800, C.muted, 'letter-spacing="1.3"')
-  const gap = per > 1 ? (W - 32 - per * FRAG_W) / (per - 1) : 0
-  let next: [Badge, number] | null = null
+  const gap = Math.floor((W - 32 - per * FRAG_W) / Math.max(1, per - 1))
+  let nextB: [Badge, number] | undefined
   ER2_BADGES.forEach((b, i) => {
-    const col = i % per
-    const row = Math.floor(i / per)
-    const x = 16 + col * (FRAG_W + gap)
-    const y = fy0 + 4 + row * (FRAG_H + 14)
-    const on = c.badges.includes(b.id)
-    const pr = clamp(b.progress(c), 0, 1)
-    if (!on && !next) next = [b, pr]
-    if (on) {
-      const rot = ((hash(b.id) % 5) - 2) * 1.3
-      const deco = i % 3 === 0 ? P.green : i % 3 === 1 ? P.hot : P.mag
-      const fs = er2W(b.name, 10, 0.3, 800) <= FRAG_W - 14 ? 10 : 9
-      s += `<g transform="rotate(${r1(rot)} ${r1(x + FRAG_W / 2)} ${r1(y + FRAG_H / 2)})"><title>${esc(b.name)}: ${esc(b.how)}</title>${paper(x, y, FRAG_W, FRAG_H, `fr${b.id}`, P.paper, '#000', 2.6)}<path d="M${r1(x + FRAG_W - 22)} ${y + 2}L${r1(x + FRAG_W - 2)} ${y + 2}L${r1(x + FRAG_W - 2)} ${y + 20}Z" fill="${deco}"/>${T(x + 7, y + 22, b.icon, 15, 700, P.ink, `font-family="'Apple Symbols','Segoe UI Symbol',sans-serif"`)}${T(x + FRAG_W - 26, y + 15, `No. ${String(i + 1).padStart(2, '0')}`, 8.5, 700, '#4A4440', 'text-anchor="end"')}${T(x + 7, y + 42, er2Clip(b.name, fs, FRAG_W - 12, 0, 800), fs, 800, P.ink, fs === 10 ? 'letter-spacing=".3"' : '')}</g>`
+    const tx = 16 + (i % per) * (FRAG_W + gap)
+    const ty = fy0 + 8 + Math.floor(i / per) * 62
+    const got = c.badges.includes(b.id)
+    const prog = clamp(b.progress(c), 0, 1)
+    if (!got && !nextB) nextB = [b, prog]
+    if (got) {
+      s.push(pane(tx, ty, FRAG_W, 50, { sec, cut: 6, scanId: sid, fillOp: 0.75, ghost: false, shared: sid }))
+      s.push(T(tx + 10, ty + 23, b.icon, 15, 500, P.aT))
+      s.push(M(tx + FRAG_W - 8, ty + 14, `No. ${String(i + 1).padStart(2, '0')}`, 7.5, P.muted, 'text-anchor="end"'))
+      const ns = er2W(b.name, 10, 0.3, 800) > 69 ? 9 : 10
+      s.push(T(tx + 8, ty + 41, b.name, ns, 800, P.text, 'letter-spacing=".3"'))
+      // Her signature on a recovered fragment: a hairline in pink and green along the foot.
+      s.push(`<rect x="${tx + 6}" y="${ty + 48}" width="${(FRAG_W - 12) / 2}" height="1" fill="${K.hot}"/><rect x="${tx + 6 + (FRAG_W - 12) / 2}" y="${ty + 48}" width="${(FRAG_W - 12) / 2}" height="1" fill="${K.green}"/>`)
     } else {
-      s += `<g><title>${esc(b.name)}: ${esc(b.how)} (${Math.round(pr * 100)}%)</title><path d="${torn(x, y, FRAG_W, FRAG_H, `fr${b.id}`, 2.6)}" fill="${C.raised}" stroke="${C.muted}" stroke-width=".8" stroke-dasharray="3 3"/>${T(x + 9, y + 26, 'CORRUPT', 10, 800, C.muted, 'letter-spacing="1.4"')}<rect x="${x + 9}" y="${y + 36}" width="${FRAG_W - 18}" height="3" fill="${C.track}"/><rect x="${x + 9}" y="${y + 36}" width="${r1((FRAG_W - 18) * pr)}" height="3" fill="${C.accentT}"/></g>`
+      s.push(`<path d="${cham(tx, ty, FRAG_W, 50, 6, 2)}" fill="${P.tile2}" fill-opacity=".4" stroke="${P.muted}" stroke-opacity=".6" stroke-dasharray="3 3"><title>${esc(`${b.name} · ${b.how} · ${Math.round(prog * 100)}%`)}</title></path>`)
+      s.push(T(tx + 8, ty + 22, 'CORRUPT', 9.5, 800, P.muted, 'letter-spacing="1.4"'))
+      const r = rng(b.id)
+      s.push(`<g fill="${P.muted}" fill-opacity=".5">${Array.from({ length: 3 }, () => `<rect x="${r1(tx + 50 + r() * 24)}" y="${r1(ty + 10 + r() * 12)}" width="${r1(2 + r() * 6)}" height="${r() < 0.5 ? 1 : 2}"/>`).join('')}</g>`)
+      s.push(`<rect x="${tx + 8}" y="${ty + 37}" width="${FRAG_W - 16}" height="3" fill="${P.track}"/><rect x="${tx + 8}" y="${ty + 37}" width="${r1((FRAG_W - 16) * prog)}" height="3" fill="${P.aT}"/>`)
+      s.push(M(tx + FRAG_W - 8, ty + 31, `${Math.round(prog * 100)}%`, 7.5, P.muted, 'text-anchor="end"'))
     }
   })
-  const nx = next as [Badge, number] | null
-  s += T(16, H - 14, nx ? er2Clip(`Next: ${nx[0].name} · ${nx[0].how} · ${Math.round(nx[1] * 100)}%`, 11.5, W - 32, 0, 500) : 'Every fragment recovered. She remembers you, choom.', 11.5, 500, C.sub, 'font-style="italic"')
-  return `${s}</svg>`
+  const nb = nextB as [Badge, number] | undefined
+  s.push(T(16, H - 12, nb ? er2Clip(`Next: ${nb[0].name} · ${nb[0].how} · ${Math.round(nb[1] * 100)}%`, 11.5, W - 32, 0, 500) : 'Every fragment recovered. She remembers you, choom.', 11.5, 500, P.sub, 'font-style="italic"'))
+  return `${s.join('')}</svg>`
 }
-export const biochipAlt = (c: Cred): string => `BIOCHIP: level ${levelOf(c.xp)} ${er2RankOf(levelOf(c.xp))}, ${c.xp} XP, ${c.badges.length} of 9 engram fragments recovered`
+export const syncAlt = (c: Cred): string => `Neural sync: level ${levelOf(c.xp)} ${er2RankOf(levelOf(c.xp))}, ${c.xp} XP, sync ${syncPct(c.xp)}%, ${c.badges.length} of 9 engram fragments recovered`
 
-// --- 2. ROMAN'S TAPE ------------------------------------------------------------------------
-type Kind = 'read' | 'change' | 'ask' | 'other'
-const kindOf = (tool: string): Kind => (/^(Read|Grep|Glob|LS)$/.test(tool) ? 'read' : /^(Edit|MultiEdit|Write|NotebookEdit|Bash|PowerShell)$/.test(tool) ? 'change' : /^(Agent|Web|ToolSearch)/.test(tool) ? 'ask' : 'other')
-const KIND: Record<Kind, string> = { read: P.cobaltT, change: P.mag, ask: P.paper, other: P.muted }
+// --- NETRUN TRACE ----------------------------------------------------------------------
+type Kind = 'read' | 'write' | 'link' | 'sys'
+const KIND: Record<string, Kind> = { Read: 'read', Grep: 'read', Glob: 'read', LS: 'read', WebFetch: 'read', WebSearch: 'read', Edit: 'write', MultiEdit: 'write', NotebookEdit: 'write', Write: 'write', Agent: 'link', ToolSearch: 'link', Bash: 'sys', PowerShell: 'sys' }
+const LANES: Kind[] = ['read', 'write', 'link', 'sys']
+const LANE_LABEL: Record<Kind, string> = { read: 'PROBE', write: 'WRITE', link: 'LINK', sys: 'SYS' }
 const verbOf = (tool: string): string => ER2_TOOLS[tool] ?? tool
-const picto = (k: Kind, cx: number, cy: number, col = P.paper): string =>
-  k === 'read'
-    ? `<path d="M${cx - 9} ${cy}Q${cx} ${cy - 8} ${cx + 9} ${cy}Q${cx} ${cy + 8} ${cx - 9} ${cy}Z" fill="none" stroke="${col}" stroke-width="1.4"/><circle cx="${cx}" cy="${cy}" r="2.6" fill="${col}"/>`
-    : k === 'change'
-      ? `<path d="M${cx - 7} ${cy + 6}L${cx + 5} ${cy - 6}L${cx + 8} ${cy - 3}L${cx - 4} ${cy + 9}L${cx - 8} ${cy + 10}Z" fill="none" stroke="${col}" stroke-width="1.4" stroke-linejoin="round"/>`
-      : k === 'ask'
-        ? `<circle cx="${cx}" cy="${cy - 4}" r="3.6" fill="none" stroke="${col}" stroke-width="1.4"/><path d="M${cx - 7} ${cy + 8}Q${cx} ${cy - 1} ${cx + 7} ${cy + 8}" fill="none" stroke="${col}" stroke-width="1.4"/>`
-        : `<circle cx="${cx}" cy="${cy}" r="3" fill="${col}"/>`
-const fmtT = (ms: number): string => {
-  const s2 = Math.max(0, Math.floor(ms / 1000))
-  const h = Math.floor(s2 / 3600)
-  const m = Math.floor((s2 % 3600) / 60)
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s2 % 60).padStart(2, '0')}`
-}
-export const TAPE_H = 214
-export const TAPE_CAP = 12
-/** A wax-pencil ring: an open loop that overshoots, the way a contact sheet's keeper gets marked. */
-const grease = (x: number, y: number, w: number, h: number, seed: string): string => {
-  const cx = x + w / 2
-  const cy = y + h / 2
-  const rx = w / 2 + 5
-  const ry = h / 2 + 5
-  let d = ''
-  for (let i = 0; i <= 26; i++) {
-    const a = -2.2 + (i / 26) * 6.9
-    const j = 1 + (((hash(`${seed}${i}`) % 100) / 100) - 0.5) * 0.06
-    d += `${i ? 'L' : 'M'}${r1(cx + Math.cos(a) * rx * j)} ${r1(cy + Math.sin(a) * ry * j)}`
-  }
-  return `<path d="${d}" fill="none" stroke="${P.mag}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" opacity=".95"/>`
-}
-/** The beat the card plays (the picked one, or the newest when live). */
+export const TRACE_H = 214
+export const TRACE_CAP = 12
 const selOf = (n: number, pick: number): number => (n ? (pick < 0 ? n - 1 : Math.min(pick, n - 1)) : -1)
-export const tapeCard = (W: number, beats: Beat[], pick: number, sec: boolean): string => {
-  const C = palOf(sec)
-  const H = TAPE_H
-  const n = beats.length
+const timecode = (ms: number): string => [3_600_000, 60_000, 1000].map(u => String(Math.floor((Math.max(0, ms) / u) % (u === 3_600_000 ? 100 : 60))).padStart(2, '0')).join(':')
+
+export const traceCard = (W: number, beats: Beat[], pick: number, sec: boolean): string => {
+  const P = palOf(sec)
+  const H = TRACE_H
+  const sid = `tc${W}${sec ? 's' : ''}`
   const live = pick < 0
-  const sel = selOf(n, pick)
-  // The newest twelve; a picked shot older than that slides the window back to it.
-  const start = n <= TAPE_CAP ? 0 : sel < n - TAPE_CAP ? clamp(sel - 6, 0, n - TAPE_CAP) : n - TAPE_CAP
-  const shown = beats.slice(start, start + TAPE_CAP)
-  const state = n === 0 ? 'standing by' : n > TAPE_CAP ? `${n} shots · last ${TAPE_CAP} printed${live ? ' · rec' : ''}` : `${n} shot${n === 1 ? '' : 's'}${live ? ' · rec' : ` · playing no. ${sel + 1}`}`
-  const lw = label(16, 11, "ROMAN'S TAPE", { size: 11, ls: 1.6, h: 19 }).w
-  let s = `${open(W, H)}${cardFrame(W, H, "ROMAN'S TAPE", '', sec)}`
-  s += (live && n ? `<circle class="rec" cx="${16 + lw + 16}" cy="21" r="3.4" fill="${sec ? P.black : P.mag}"/>` : '') + T(16 + lw + (live && n ? 25 : 12), 25, state, 11.5, 500, live && n ? C.hotT : C.sub, 'font-style="italic"')
-  if (W >= 480) {
-    let lx = W - 16
-    const parts = (['other', 'ask', 'change', 'read'] as Kind[]).map(kd => {
-      const w = er2W(kd, 11, 0, 500)
-      lx -= w
-      const tx = lx
-      lx -= 13
-      const sq = lx + 2
-      lx -= 10
-      return `<rect x="${sq}" y="16" width="8" height="8" fill="${sec && kd === 'change' ? P.black : KIND[kd]}"/>${T(tx, 24.5, kd, 11, 500, C.muted)}`
-    })
-    s += parts.join('')
-  }
-  // The camcorder (Roman's white handheld): paper body, ink outline, a cel shade, the LCD.
+  const n = beats.length
+  const p = selOf(n, pick)
+  let first = Math.max(0, n - TRACE_CAP)
+  if (p >= 0 && p < first) first = p
+  const win = beats.slice(first, first + TRACE_CAP)
+  const pi = p - first
+  const state = n === 0 ? 'standing by' : `${n} node${n === 1 ? '' : 's'}${n > TRACE_CAP ? ` · last ${win.length} shown` : ''}${live ? ' · live' : ` · node ${String(p + 1).padStart(2, '0')}`}`
+  const laneColor: Record<Kind, string> = { read: P.a, write: P.ice, link: P.done, sys: P.muted }
+  const tw0 = er2W('NETRUN TRACE', 11, 1.6, 800)
+  const s: string[] = [open(W, H, cardCss('led', 'rec', 'slide'))]
+  s.push(cardFrame(W, H, 'NETRUN TRACE', `${live && n ? `<circle class="v2-rec" cx="${r1(26 + tw0 + 14)}" cy="24.5" r="2.8" fill="${P.alert}"/>` : ''}${T(26 + tw0 + (live && n ? 22 : 12), 28, state, 11.5, 500, live && n ? P.text : P.sub, 'font-style="italic"')}`, sec, false, sid))
+  // The preview: Roman's viewfinder.
   const vx = 14
   const vy = 38
-  const vw = W >= 520 ? 212 : 176
-  const vh = H - vy - 12
-  s += `<rect x="${vx + 2}" y="${vy + 3}" width="${vw}" height="${vh}" rx="10" fill="#000" opacity=".6"/><rect x="${vx}" y="${vy}" width="${vw}" height="${vh}" rx="10" fill="${P.paper}" stroke="${P.ink}" stroke-width="1.5"/><path d="M${vx + vw - 10} ${vy + 1}Q${vx + vw - 1} ${vy + 1} ${vx + vw - 1} ${vy + 10}L${vx + vw - 1} ${vy + vh - 10}Q${vx + vw - 1} ${vy + vh - 1} ${vx + vw - 10} ${vy + vh - 1}L${vx + 22} ${vy + vh - 1}L${vx + vw - 18} ${vy + vh - 9}L${vx + vw - 9} ${vy + 12}Z" fill="${P.paper2}"/>`
-  const lx0 = vx + 9
-  const ly0 = vy + 9
-  const lW = vw - 18
-  const lH = vh - 30
-  s += `<rect x="${lx0}" y="${ly0}" width="${lW}" height="${lH}" rx="3" fill="#0B1417" stroke="${P.ink}"/><rect x="${lx0 + 10}" y="${ly0 + 20}" width="${lW - 20}" height="${lH - 34}" fill="none" stroke="${P.paper}" stroke-opacity=".22" stroke-dasharray="2 3"/>`
-  s += `<circle cx="${vx + vw - 16}" cy="${vy + vh - 11}" r="4" fill="${P.ink}"/><circle cx="${vx + vw - 16}" cy="${vy + vh - 11}" r="1.6" fill="#3A6B7A"/>`
-  s += `<g transform="rotate(-2 ${vx + 40} ${vy + vh - 11})">${paper(vx + 12, vy + vh - 18, 56, 13, 'roman', P.mag, P.crim, 1.2, 'trbl', [1, 1.2])}${T(vx + 18, vy + vh - 8.6, 'ROMAN', 8.5, 800, P.ink, 'letter-spacing="1.6"')}</g>`
-  if (n === 0) {
-    s += T(lx0 + 8, ly0 + 13, 'STBY', 9.5, 800, P.paper, 'letter-spacing="1.2"') + T(lx0 + lW - 8, ly0 + 13, '00:00:00', 9.5, 600, P.paper, `text-anchor="end" font-family="${MONO}"`)
-    s += T(lx0 + lW / 2, ly0 + lH / 2 - 2, 'Nothing on tape yet.', 13, 700, P.text, 'text-anchor="middle"') + T(lx0 + lW / 2, ly0 + lH / 2 + 15, 'Every tool call is a shot.', 11.5, 500, P.sub, 'text-anchor="middle"')
+  const vw = W < 520 ? 176 : 212
+  const vh = H - 52
+  s.push(pane(vx, vy, vw, vh, { sec, cut: 7, scanId: sid, fillOp: 0.9, nodes: true, ghost: false, shared: sid }))
+  s.push(brackets(vx + 10, vy + 24, vw - 20, vh - 46, 8, P.done, 1, 0.55))
+  const b = p >= 0 ? (beats[p] as Beat) : undefined
+  if (!b) {
+    s.push(M(vx + 10, vy + 15, 'STBY', 8, P.muted, 'letter-spacing="1.2"'))
+    s.push(T(vx + 20, vy + 72, 'No trace yet.', 13, 700, P.text))
+    s.push(T(vx + 20, vy + 90, 'Every tool call is a node.', 11.5, 500, P.sub))
   } else {
-    const b = beats[sel] as Beat
-    const kd = kindOf(b.tool)
-    const t0 = (beats[0] as Beat).at
-    s += (live ? `<circle class="rec" cx="${lx0 + 11}" cy="${ly0 + 10}" r="3.2" fill="${P.mag}"/>${T(lx0 + 18, ly0 + 13.4, 'REC', 9.5, 800, P.paper, 'letter-spacing="1.2"')}` : T(lx0 + 8, ly0 + 13.4, '▶ PLAY', 9.5, 800, P.paper, 'letter-spacing="1.2"')) + T(lx0 + lW - 8, ly0 + 13.4, fmtT(b.at - t0), 9.5, 600, P.paper, `text-anchor="end" font-family="${MONO}"`)
-    s += `<rect x="${lx0 + 14}" y="${ly0 + 28}" width="3" height="18" fill="${KIND[kd]}"/>${T(lx0 + 22, ly0 + 43, verbOf(b.tool), 19, 800, P.text)}${T(lx0 + 22, ly0 + 58, er2Clip(`${b.tool} · ${b.who}`, 10.5, lW - 36, 0, 700), 10.5, 600, P.muted)}`
-    er2Wrap(b.text, 11.5, lW - 36, 3, 500).forEach((ln, i) => {
-      s += T(lx0 + 14, ly0 + 76 + i * 15, ln, 11.5, 500, P.sub)
-    })
-    s += T(lx0 + 8, ly0 + lH - 7, `SHOT ${String(sel + 1).padStart(2, '0')}/${String(n).padStart(2, '0')}`, 9, 800, P.paper, 'letter-spacing="1"')
+    const kind = KIND[b.tool] ?? 'sys'
+    s.push(`<circle${live ? ' class="v2-rec"' : ''} cx="${vx + 13}" cy="${vy + 12}" r="2.5" fill="${live ? P.alert : P.done}"/>`)
+    s.push(M(vx + 20, vy + 15, live ? 'REC' : 'PLAY', 8, live ? P.alert : P.done, 'letter-spacing="1.2"'))
+    s.push(M(vx + vw - 10, vy + 15, timecode(b.at - (beats[0] as Beat).at), 9, P.sub, 'text-anchor="end"'))
+    s.push(`<rect x="${vx + 20}" y="${vy + 36}" width="3" height="18" fill="${laneColor[kind]}"/>`)
+    s.push(T(vx + 30, vy + 51, verbOf(b.tool).toUpperCase(), 19, 800, P.text, 'letter-spacing=".5"'))
+    s.push(T(vx + 30, vy + 66, `${b.tool} · ${b.who}`, 10.5, 600, P.muted))
+    er2Wrap(b.text, 11.5, vw - 40, 3).forEach((ln, i) => s.push(T(vx + 20, vy + 86 + i * 15, ln, 11.5, 500, P.sub)))
+    s.push(M(vx + 10, vy + vh - 9, `NODE ${String(p + 1).padStart(2, '0')}/${String(n).padStart(2, '0')}`, 8.5, P.aT, 'letter-spacing=".8"'))
+    s.push(M(vx + vw - 10, vy + vh - 9, `0x${HEX_CODES[p % 6]}·${HEX_CODES[(p + 2) % 6]}`, 8, P.muted, 'text-anchor="end"'))
   }
-  // The film: two strips of six frames, laid at slight angles and taped, read left to right.
-  const fx0 = vx + vw + 14
-  const fw = W - 14 - fx0
-  const perStrip = 6
-  const frW = (fw - 16 - (perStrip - 1) * 4) / perStrip
-  for (let st = 0; st < 2; st++) {
-    const sy = 42 + st * 84
-    const rot = st ? 0.7 : -0.9
-    const items = shown.slice(st * perStrip, st * perStrip + perStrip)
-    s += `<g transform="rotate(${rot} ${r1(fx0 + fw / 2)} ${sy + 35})"><rect x="${r1(fx0)}" y="${sy}" width="${r1(fw)}" height="74" fill="#17100E"/>`
-    for (let h2 = 0; h2 < Math.floor(fw / 9); h2++) s += `<rect x="${r1(fx0 + 4 + h2 * 9)}" y="${sy + 3}" width="4.4" height="3.4" rx=".8" fill="#4A3C35"/><rect x="${r1(fx0 + 4 + h2 * 9)}" y="${sy + 67.6}" width="4.4" height="3.4" rx=".8" fill="#4A3C35"/>`
-    for (let i = 0; i < perStrip; i++) {
-      const x = fx0 + 8 + i * (frW + 4)
-      const y = sy + 10
-      const idx = st * perStrip + i
-      const b = items[i]
-      if (!b) {
-        s += `<rect x="${r1(x)}" y="${y}" width="${r1(frW)}" height="44" fill="#0D0908"/>`
-        continue
+  // The four-lane trace.
+  const gx = vx + vw + 16 + 38
+  const gr = W - 16
+  const gw = gr - gx
+  const ly = (i: number) => vy + 22 + i * 32
+  LANES.forEach((k, i) => {
+    s.push(M(gx - 8, ly(i) + 3, LANE_LABEL[k], 7.5, laneColor[k], 'text-anchor="end" letter-spacing=".8"'))
+    s.push(`<line x1="${gx}" y1="${ly(i)}" x2="${gr}" y2="${ly(i)}" stroke="${P.line}"/>`)
+  })
+  const axY = vy + vh - 10
+  s.push(`<line x1="${gx}" y1="${axY}" x2="${gr}" y2="${axY}" stroke="${P.line}"/>`)
+  if (!n) s.push(M(gx, axY + 10, 'standing by', 7.5, P.muted))
+  if (win.length) {
+    const step = win.length > 1 ? (gw - 12) / 11 : 0
+    const pickX = gx + 6 + pi * step
+    if (pickX > gx + 30) s.push(M(gx, axY + 10, 'first', 7.5, P.muted))
+    if (pickX < gr - 30) s.push(M(gr, axY + 10, live ? 'now' : 'last', 7.5, P.muted, 'text-anchor="end"'))
+    const pts = win.map((bt, i) => [r1(gx + 6 + i * step), ly(LANES.indexOf(KIND[bt.tool] ?? 'sys'))] as [number, number])
+    if (pts.length > 1) s.push(`<polyline points="${pts.map(q => q.join(',')).join(' ')}" fill="none" stroke="${P.a}" stroke-opacity=".45"/>`)
+    pts.forEach(([x, y], i) => {
+      const k = KIND[(win[i] as Beat).tool] ?? 'sys'
+      const last = i === win.length - 1 && live && first + i === n - 1
+      s.push(`<g${last && i !== pi ? ' class="v2-slide"' : ''}><path d="${cham(x - 3.5, y - 3.5, 7, 7, 2, 1)}" fill="${laneColor[k]}"${k === 'sys' ? ' fill-opacity=".8"' : ''}/>${last ? `<path class="v2-led" d="${cham(x - 6, y - 6, 12, 12, 3, 1)}" fill="none" stroke="${laneColor[k]}" stroke-opacity=".8"/>` : ''}</g>`)
+      if (i === pi) {
+        s.push(brackets(x - 9, y - 9, 18, 18, 5, P.ice, 1.3))
+        s.push(`<line x1="${x}" y1="${y + 10}" x2="${x}" y2="${axY}" stroke="${P.ice}" stroke-opacity=".5" stroke-dasharray="2 2"/>`)
+        s.push(`<rect x="${r1(x - 9)}" y="${axY + 2}" width="18" height="11" fill="${P.ice}"/>${M(x, axY + 10.5, String(first + i + 1).padStart(2, '0'), 8, '#07101C', 'text-anchor="middle" font-weight="700"')}`)
       }
-      const kd = kindOf(b.tool)
-      const gi = start + idx
-      const isNew = live && gi === n - 1
-      s += `<g${isNew ? ' class="er-in"' : ''}><rect x="${r1(x)}" y="${y}" width="${r1(frW)}" height="44" fill="#16303A"/><rect x="${r1(x)}" y="${y}" width="${r1(frW)}" height="3" fill="${KIND[kd]}"/>${picto(kd, r1(x + frW / 2), y + 19)}${T(x + frW / 2, y + 39.5, er2Clip(verbOf(b.tool), 9.5, frW - 6, 0, 700), 9.5, 700, P.paper, 'text-anchor="middle"')}</g>`
-      s += T(x + 2, sy + 63, `${gi + 1}`, 7.5, 700, '#A8957F') + T(x + frW - 2, sy + 63, '▸', 7.5, 700, '#A8957F', 'text-anchor="end"')
-      if (gi === sel) s += grease(x, y, frW, 44, `gp${gi}`)
-      if (live && gi === n - 1 && gi !== sel) s += `<circle class="rec" cx="${r1(x + frW - 5)}" cy="${y + 8}" r="2.4" fill="${P.mag}"/>`
-    }
-    s += `</g>${tape(fx0 + 6, sy + 4, 22, 8, -30, `ft${st}`)}${tape(fx0 + fw - 6, sy + 70, 22, 8, -26, `fb${st}`)}`
+    })
   }
-  if (n === 0) s += T(fx0 + fw / 2, 42 + 84 + 41, 'unexposed', 10, 600, '#6E5F58', 'text-anchor="middle" font-style="italic"')
-  return `${s}</svg>`
+  return `${s.join('')}</svg>`
 }
-export const tapeAlt = (beats: Beat[], pick: number): string => {
-  const n = beats.length
-  if (!n) return "Roman's tape: nothing on tape yet"
-  const sel = selOf(n, pick)
-  const b = beats[sel] as Beat
-  return `Roman's tape: shot ${sel + 1} of ${n}, ${b.who} ${verbOf(b.tool).toLowerCase()}: ${b.text} at ${fmtT(b.at - (beats[0] as Beat).at)}`
+export const traceAlt = (beats: Beat[], pick: number): string => {
+  const p = selOf(beats.length, pick)
+  const b = beats[p]
+  return b ? `Netrun trace: node ${p + 1} of ${beats.length}, ${b.who} ${verbOf(b.tool)} ${b.text}` : 'Netrun trace: no nodes yet'
 }
 
-// --- 3. WATSON WALL ----------------------------------------------------------------------------
-export const wallHeight = (n: number): number => 50 + Math.max(1, n) * 26 + 24
-const durOf = (ms: number): string => (ms >= 3_600_000 ? `${Math.floor(ms / 3_600_000)}h ${Math.floor((ms % 3_600_000) / 60_000)}m` : `${Math.max(1, Math.round(ms / 60_000))}m`)
-/** Each closed job is a torn flyer pasted up, newest on top. */
-export const wallCard = (W: number, list: Legend[], sec: boolean): string => {
-  const C = palOf(sec)
-  const H = wallHeight(list.length)
-  let s = `${open(W, H)}${cardFrame(W, H, 'WATSON WALL', 'jobs done, pasted up', sec)}`
-  s += `<g opacity="${sec ? 0.35 : 0.55}">${shards(12, 44, W - 24, H - 56, 26, 'wallold', sec ? ['#E0023F', '#C8023A'] : ['#1C1418', '#21181C', '#2A1C22'], 8, 22)}</g>`
+// --- CLOSED GIGS -------------------------------------------------------------------------------
+export const gigsHeight = (n: number): number => 50 + Math.max(1, n) * 26 + 24
+const durOf = (ms: number): string => (ms >= 3_600_000 ? `${Math.floor(ms / 3_600_000)}h ${Math.floor((ms % 3_600_000) / 60_000)}m` : ms >= 60_000 ? `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s` : `${Math.floor(ms / 1000)}s`)
+export const gigsCard = (W: number, list: Legend[], sec: boolean): string => {
+  const P = palOf(sec)
+  const H = gigsHeight(list.length)
+  const sid = `gg${W}${sec ? 's' : ''}`
+  const s: string[] = [open(W, H, '')]
+  s.push(cardFrame(W, H, 'CLOSED GIGS', monoRight(W, P, 'WATSON · NET LOG'), sec, false, sid))
   if (!list.length) {
-    s += `<g transform="rotate(-1.5 ${W / 2} 66)">${paper(28, 50, W - 56, 30, 'empty', P.paper, '#000', 2.4)}${T(40, 70, er2Clip('Bare wall. Finish a job and paste it up.', 13, W - 90, 0, 700), 13, 700, P.ink)}</g>${tape(36, 52, 24, 8, -34, 'e1')}${tape(W - 34, 76, 24, 8, -34, 'e2')}`
-    return `${s}</svg>`
+    s.push(`<path d="${cham(16, 44, W - 32, 26, 5, 1)}" fill="${P.tile2}" fill-opacity=".5" stroke="${P.line}" stroke-dasharray="3 3"/>`)
+    s.push(T(28, 61, 'No gigs closed yet. Finish one and it posts here.', 12, 500, P.sub, 'font-style="italic"'))
   }
-  const money = (u: number) => (u < 0.005 ? '$0' : `$${u.toFixed(2)}`)
-  list.forEach((L, i) => {
-    const y = 46 + i * 26
-    const rot = ([-0.9, 0.6, -0.4, 0.8, -0.7, 0.5][i % 6] as number)
-    const dark = i % 2 === 0
-    const fill = dark ? (sec ? P.black : P.mag) : P.paper
-    const ink = dark && sec ? P.green : P.ink
-    const w = W - 32 - (hash(L.task) % 18)
-    const x = 16 + (i % 2) * 6
-    const dur = durOf(L.ms)
-    const right = money(L.costUsd)
-    const rw = er2W(right, 13, 0, 800)
-    const dw = er2W(dur, 11, 0, 600)
-    s += `<g transform="rotate(${rot} ${r1(x + w / 2)} ${y + 13})">${paper(x, y, w, 26, `job${i}`, fill, dark ? (sec ? '#000' : P.crim) : '#000', 2.4)}${T(x + 12, y + 18, er2Clip(L.task, 13, w - rw - dw - 44, 0, 700), 13, 700, ink)}${T(x + w - 12, y + 18, right, 13, 800, ink, 'text-anchor="end"')}${T(x + w - 20 - rw, y + 18, dur, 11, 600, dark ? (sec ? P.green : '#3A0716') : '#4A4440', 'text-anchor="end"')}</g>`
+  list.forEach((g, i) => {
+    const y = 44 + i * 26
+    const tier = g.costUsd >= 1 ? P.warn : g.ms >= 10 * 60_000 ? P.done : P.a
+    if (i % 2 === 0) s.push(`<rect x="16" y="${y}" width="${W - 32}" height="26" fill="${P.tile2}" fill-opacity=".55"/>`)
+    s.push(`<rect x="16" y="${y + 6}" width="2" height="14" fill="${tier}"/>`)
+    const cost = `$${g.costUsd.toFixed(2)}`
+    const dur = durOf(g.ms)
+    const costW = er2W(cost, 13, 0, 800)
+    const durW = mw(dur, 9)
+    s.push(T(W - 20, y + 17.5, cost, 13, 800, P.aT, 'text-anchor="end"'))
+    s.push(M(W - 20 - costW - 14, y + 17, dur, 9, P.muted, 'text-anchor="end"'))
+    s.push(T(28, y + 17.5, er2Clip(g.task, 13, W - 20 - costW - 14 - durW - 14 - 28, 0, 700), 13, 700, P.text))
+    s.push(`<line x1="16" y1="${y + 26}" x2="${W - 16}" y2="${y + 26}" stroke="${P.line}" stroke-opacity=".6"/>`)
   })
-  s += tape(22, 48, 22, 8, -36, 'w1') + tape(W - 22, 46 + list.length * 26 - 4, 22, 8, -30, 'w2')
-  s += T(16, H - 9, `${list.length} job${list.length === 1 ? '' : 's'} on the wall · newest on top`, 10.5, 500, C.muted, 'font-style="italic"')
-  return `${s}</svg>`
+  s.push(T(16, H - 10, list.length ? `${list.length} gig${list.length === 1 ? '' : 's'} closed · newest first` : 'The log fills as jobs close.', 10.5, 500, P.muted, 'font-style="italic"'))
+  return `${s.join('')}</svg>`
 }
-export const wallAlt = (list: Legend[]): string => `Watson Wall: ${list.map(l => l.task).join(', ') || 'bare'}`
+export const gigsAlt = (list: Legend[]): string => `Closed gigs: ${list.map(l => l.task).join(', ') || 'none yet'}`
+
+// --- the boot line ----------------------------------------------------------------------------
+/** The neural link handshake, 30 tall: LINKING (a hex scramble, the beam at 38%), then after 1.8 s LINKED. Plays once, then rests. */
+export const bootLine = (W: number, sec: boolean, words: [string, string]): string => {
+  const P = palOf(sec)
+  const hasBar = W >= 360
+  const bx = W - 16 - 120
+  const css = `.bl1{animation:bl1 1.8s steps(1) both}@keyframes bl1{0%,99%{opacity:1}100%{opacity:0}}.bl2{animation:bl2 1.8s steps(1) both}@keyframes bl2{0%,99%{opacity:0}100%{opacity:1}}.v2-hex{animation:v2hex 1.2s steps(1) infinite}@keyframes v2hex{0%,100%{opacity:1}33%{opacity:0}66%{opacity:0}}.v2-hex2{animation:v2hex 1.2s steps(1) infinite -.4s}.v2-hex3{animation:v2hex 1.2s steps(1) infinite -.8s}@media (prefers-reduced-motion: reduce){.bl1,.v2-hex,.v2-hex2,.v2-hex3{animation:none}.bl1,.v2-hex2,.v2-hex3{display:none}.bl2{animation:none;opacity:1}}`
+  const room = (hasBar ? bx - 12 : W - 12) - 44
+  const linking = `<g class="bl1">${['0x3F2A', '0xE91C', '0x7A55'].map((h, i) => (hasBar ? M(bx - 12, 19, h, 9, P.aT, `text-anchor="end" class="v2-hex${i ? i + 1 : ''}"`) : '')).join('')}${T(36, 19, er2Clip(words[0], 11.5, room - 70, 0, 600), 11.5, 600, P.sub)}${hasBar ? beam(bx, 12, 120, 3, 38, { sec }) : ''}</g>`
+  const linked = `<g class="bl2" opacity="0">${T(36, 19, er2Clip(words[1], 11.5, room, 0, 700), 11.5, 700, P.text)}${hasBar ? beam(bx, 12, 120, 3, 100, { sec }) : ''}</g>`
+  const glyph = (c: string) => `<g transform="translate(16 10) scale(1.1)" fill="${c}"><path d="${cham(2, 0, 8, 8, 2, 1)}" fill="none" stroke="${c}" stroke-width="1.2"/><rect x="4.5" y="2.5" width="3" height="3"/></g>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="30" viewBox="0 0 ${W} 30" font-family="${ER2_FONT}"><style>${css}</style>${glyph(P.a)}${linking}${linked}</svg>`
+}

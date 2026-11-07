@@ -26,8 +26,8 @@ import {
 } from './mentalist'
 import { MENT_EXTRA_CSS, cardGlyphs, hypnosis, mentSkyline, redJohnHeat, smileGlitch, teaSteam } from './mentalist-extra'
 import { caseBoard, caseBoardAlt, ctxChip, personnelFile } from './mentalist-cards'
-import { CAPRICORN_GREETING, ER2_BAND_H, ER2_BOOT, ER2_CSS, ER2_GREETING, ER2_TITLE_WORDS, ER2_TOOLS, ER2_WARNING, TK_CSS, er2Cheer, er2Chip, er2Crew, er2EpW, er2Ep, er2EpisodeAt, er2Figure, er2Foot, er2Name, er2PaneCreep, er2PaneSpots, er2Peek, er2Pip, er2Takeover, er2Tear, er2W } from './edgerunners2'
-import { ER2_BADGES, ER2_WORDS as ER2_CRED_WORDS, biochipAlt, biochipCard, er2RankOf, er2Toast, tapeAlt, tapeCard, wallAlt, wallCard } from './edgerunners2-cards'
+import { CAPRICORN_GREETING, ER2_BAND_H, ER2_BOOT, ER2_CSS, ER2_GREETING, ER2_TITLE_WORDS, ER2_TOOLS, ER2_WARNING, TK_CSS, er2Cheer, er2Chip, er2Crew, er2EpW, er2Ep, er2EpisodeAt, er2Figure, er2Foot, er2Gauge, er2Halo, er2Name, er2PaneCreep, er2PaneSpots, er2Peek, er2Pill, er2Pip, er2Takeover, er2Tear, er2W, isNear } from './edgerunners2'
+import { ER2_BADGES, ER2_WORDS as ER2_CRED_WORDS, bootLine, er2RankOf, er2Toast, gigsAlt, gigsCard, syncCard, traceAlt, traceCard } from './edgerunners2-cards'
 import { ER_CAPRI } from './cast'
 import type { Sprite } from './cast'
 import type { RoamColors, RoamPlan, RoamTiming } from './roamer'
@@ -38,7 +38,7 @@ export type ThemeKey = 'mentalist' | 'redjohn' | 'breakingbad' | 'heisenberg' | 
 /** The skin colours a theme's drawers read. */
 export type ThemeColors = { accent: string; accent2: string; done: string; warn: string; alert: string; text: string; subtext: string; muted: string; tile: string; track: string; line: string }
 /** What the band knows when it asks for its corner egg. */
-export type ThemeCtx = { ctxPct: number; overBudget: boolean; /** Is a job running (the Edgerunners 2 edge is magenta while it works). */ isWorking?: boolean }
+export type ThemeCtx = { ctxPct: number; overBudget: boolean; /** Is a job running (the Edgerunners 2 frame runs a beam while it works). */ isWorking?: boolean; /** Is a roaming character out on the band (the Edgerunners 2 HUD turns hers). */ capri?: boolean }
 
 /** A character who wanders through both panels now and then (roamer.ts): her sprite, rim colours, lines and chance. */
 export type ThemeRoamer = {
@@ -57,6 +57,8 @@ export type ThemeRoamer = {
   spots?: (W: number, H: number) => { peek?: { x: number; y: number }; sit?: { x: number; y: number } }
   /** Always drawn over a card past 95% context (shards creeping in along the edge). */
   creep?: (W: number, H: number, ctxPct: number) => string
+  /** The framing drawn behind her walk and sit (feet at the origin; `s` her scale). */
+  halo?: (s: number, dir: 1 | -1) => string
   /** Keyframes for her own pieces (the takeover's), with a reduced-motion rule. */
   css?: string
   /** The band's spots in place of the engine's (a peek ledge), for a band W by H; the sit on the step bar comes from `sitBar`. */
@@ -89,6 +91,8 @@ export type ThemeEggs = {
   /** The pane's log of tool calls. `hasControls`: it has the First/Back/Next/Live buttons (a replay timeline). */
   log: { draw: (W: number, beats: Beat[], pick: number, t: ThemeColors, font: string, frame: Frame) => string; hasControls: boolean; alt?: (beats: Beat[], pick: number) => string }
   boot: [string, string]
+  /** The pane's boot strip in the theme's own hand, in place of the shared one (W by 30). */
+  bootDraw?: (W: number) => string
   greeting: string
   words: string[]
   tools: Record<string, string>
@@ -110,15 +114,17 @@ export type ThemeEggs = {
     /** A step pip, centred at (cx, cy). */
     pip: (state: string, cx: number, cy: number, t: ThemeColors) => string
     /** A right-aligned gauge before the episode; dropped first when there is no room. */
-    gauge: (xr: number, y: number, isWorking: boolean, done: number, total: number, t: ThemeColors, font: string) => { svg: string; w: number }
+    gauge: (xr: number, y: number, isWorking: boolean, done: number, total: number, t: ThemeColors, font: string, ctx?: ThemeCtx) => { svg: string; w: number }
     /** The strip along the foot, with the hidden corner egg. */
     foot: (W: number, H: number, t: ThemeColors, ctx: ThemeCtx) => string
     /** The header's name in the theme's own hand (a paper label, a patch, a line of identity), in place of the plain label; `w` is what it takes. */
-    name?: (x: number, y: number, W: number, t: ThemeColors, font: string) => { svg: string; w: number }
+    name?: (x: number, y: number, W: number, t: ThemeColors, font: string, ctx?: ThemeCtx) => { svg: string; w: number }
     /** The episode in place of the plain text: its width, and it drawn right-aligned at `xr`; `full` shows the title, else only the code. */
     ep?: { w: (code: string, title: string, full: boolean) => number; draw: (xr: number, y: number, code: string, title: string, full: boolean, t: ThemeColors) => string }
     /** The task row's gauge (x, y, width, percent) in place of the segment bar. */
-    tear?: (x: number, y: number, w: number, pct: number, t: ThemeColors) => string
+    tear?: (x: number, y: number, w: number, pct: number, t: ThemeColors, ctx?: ThemeCtx) => string
+    /** A chamfered (or other) pill for the status and the role chips, in place of the round rect. */
+    pill?: (x: number, y: number, w: number, h: number, fill: string, opacity: number, stroke?: string) => string
     /** The foot draws the band's left edge itself: the engine's thin status edge is left out. */
     ownEdge?: boolean
   }
@@ -228,8 +234,9 @@ const bbTheme = (heis: boolean): ThemeEggs => ({
 })
 
 
-// Edgerunners 2 (and its secret CAPRICORN skin): torn magenta paper on black. The band is the slim band in
-// the theme's own hand; BIOCHIP is the level card, ROMAN'S TAPE the log, WATSON WALL the closed jobs.
+// Edgerunners 2 v2 "D's optics" (and its secret CAPRICORN skin): a glass HUD in cobalt and ice, Capri's pink and green
+// only when she is near. The band is the slim band in the theme's own hand; NEURAL SYNC is the level card, NETRUN TRACE
+// the log, CLOSED GIGS the closed jobs.
 const er2Theme = (sec: boolean): ThemeEggs => ({
   ticker: er2EpisodeAt,
   css: ER2_CSS,
@@ -240,32 +247,34 @@ const er2Theme = (sec: boolean): ThemeEggs => ({
     h: ER2_BAND_H,
     sw: (s, size, ls = 0, bold = false) => er2W(s, size, ls, bold ? 700 : 500),
     head: () => ({ svg: '', w: 0 }),
-    name: (x, y, W) => er2Name(x, y, W, sec),
+    name: (x, y, W, _t, _f, ctx) => er2Name(x, y, W, sec, isNear(ctx, sec)),
     ep: { w: er2EpW, draw: (xr, y, code, title, full) => er2Ep(xr, y, code, title, full, sec) },
-    tear: (x, y, w, pct) => er2Tear(x, y, w, pct, sec),
+    tear: (x, y, w, pct, _t, ctx) => er2Tear(x, y, w, pct, sec, isNear(ctx, sec)),
+    pill: er2Pill,
     ownEdge: true,
     figure: () => er2Figure(sec),
-    crew: (x, y, color) => er2Crew(x, y, color, sec),
-    pip: (st, cx, cy, t) => er2Pip(st, cx, cy, t, sec),
-    gauge: () => ({ svg: '', w: 0 }),
+    crew: (x, y, color) => er2Crew(x, y, color),
+    pip: (st, cx, cy) => er2Pip(st, cx, cy, sec),
+    gauge: (xr, y, isWorking, _d, _t, _c, _f, ctx) => er2Gauge(xr, y, isWorking, isNear(ctx, sec), sec),
     foot: (W, H, _t, ctx) => er2Foot(W, H, sec, ctx),
   },
   warning: ER2_WARNING,
-  cheer: (W, H, font, t, startAt) => er2Cheer(W, H, font, t, startAt, sec),
-  cred: { title: 'BIOCHIP', ranks: er2RankOf, words: ER2_CRED_WORDS, badges: ER2_BADGES, toast: er2Toast, card: (W, c) => biochipCard(W, c, sec) },
+  cheer: (W, H) => er2Cheer(W, H, sec),
+  cred: { title: 'NEURAL SYNC', ranks: er2RankOf, words: ER2_CRED_WORDS, badges: ER2_BADGES, toast: er2Toast, card: (W, c) => syncCard(W, c, sec) },
   card: {
-    draw: (W, _task, _isWorking, _done, _total, _t, _font, _frame, legends) => wallCard(W, legends, sec),
-    alt: () => 'Watson Wall',
+    draw: (W, _task, _isWorking, _done, _total, _t, _font, _frame, legends) => gigsCard(W, legends, sec),
+    alt: () => 'Closed gigs',
   },
-  legends: { title: 'WATSON WALL', empty: 'Bare wall. Finish a job and paste it up.', icon: '✂', alt: 'Watson Wall', toast: 'Pasted up on the Watson Wall.', hidden: true },
-  log: { draw: (W, beats, pick) => tapeCard(W, beats, pick, sec), hasControls: true, alt: tapeAlt },
+  legends: { title: 'CLOSED GIGS', empty: 'No gigs closed yet. Finish one and it posts here.', icon: '◢', alt: 'Closed gigs', toast: 'Gig posted to the net log.', hidden: true },
+  log: { draw: (W, beats, pick) => traceCard(W, beats, pick, sec), hasControls: true, alt: traceAlt },
   boot: ER2_BOOT,
+  bootDraw: W => bootLine(W, sec, ER2_BOOT),
   greeting: sec ? CAPRICORN_GREETING : ER2_GREETING,
   words: ER2_TITLE_WORDS,
   tools: ER2_TOOLS,
   roamer: {
     sprite: ER_CAPRI,
-    // Her pink rim is what keeps a black sprite visible on black; the data trail she sheds is acid green.
+    // Her pink rim keeps a dark sprite visible on glass; the data trail she sheds is acid green.
     colors: { accent: '#FF2E7E', accent2: '#3DF27A', text: '#F7F4EA' },
     seed: sec ? 'capricorn' : 'er2',
     lines: sec ? ["we're one now."] : ['hi, choom.', 'hi.', 'just me, choom.', 'bye-bye, choomba!'],
@@ -274,6 +283,7 @@ const er2Theme = (sec: boolean): ThemeEggs => ({
     peek: (x, y, plan, tm) => er2Peek(x, y, plan, tm),
     spots: er2PaneSpots,
     creep: er2PaneCreep,
+    halo: er2Halo,
     css: TK_CSS,
   },
   takeover: (W, H, line, tm) => er2Takeover(W, H, line, tm, sec),
