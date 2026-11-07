@@ -36,6 +36,7 @@ import { mikeCameo, mikeRoamer } from './bettercallsaul-mike'
 import { bcsExtras } from './bettercallsaul-extra'
 import { zoomWrap } from './bettercallsaul-fx'
 import type { Fx } from './bettercallsaul-fx'
+import { invTheme } from './invincible-theme'
 import { roamPlan } from './roamer'
 import type { HackArgs } from './edgerunners2-hack'
 import { ER_CAPRI } from './cast'
@@ -46,11 +47,11 @@ import type { Legend } from './eggs'
 
 /** What the band's figure slot knows: the clock, the context, and whether the job-done celebration is drawing. */
 export type FigureCtx = { at: number; ctxPct: number; party?: boolean; fx?: { kind: string; at: number } }
-export type ThemeKey = 'mentalist' | 'redjohn' | 'breakingbad' | 'heisenberg' | 'edgerunners2' | 'capricorn' | 'bettercallsaul' | 'gene'
+export type ThemeKey = 'mentalist' | 'redjohn' | 'breakingbad' | 'heisenberg' | 'edgerunners2' | 'capricorn' | 'bettercallsaul' | 'gene' | 'invincible' | 'invincible2'
 /** The pane cards a roaming act can belong to: the level card, the task card, the log. */
 export type PaneCard = 'cred' | 'task' | 'log'
 /** What a theme's rare scheduled eggs know (all from the clock, so an idle draw still shows them). */
-export type ExtraArgs = { W: number; H: number; surface: 'band' | 'pane'; at: number; ctxPct: number; party?: boolean; card?: PaneCard; unplugAt?: number; fx?: { kind: string; at: number } }
+export type ExtraArgs = { W: number; H: number; surface: 'band' | 'pane'; at: number; ctxPct: number; party?: boolean; card?: PaneCard; unplugAt?: number; fx?: { kind: string; at: number }; /** A job is running (a theme's fights only play then). */ working?: boolean; /** When the last era swap started (Invincible's title-card slam transition). */ swapAt?: number }
 /** The skin colours a theme's drawers read. */
 export type ThemeColors = { accent: string; accent2: string; done: string; warn: string; alert: string; text: string; subtext: string; muted: string; tile: string; track: string; line: string }
 /** What the band knows when it asks for its corner egg. */
@@ -123,6 +124,12 @@ export type ThemeEggs = {
   words: string[]
   tools: Record<string, string>
   // --- optional slots: leave out and nothing is drawn ---
+  /** Invincible only: which of the skin's two eras this entry draws (1 the classic suit, 2 the new suit). */
+  era?: 1 | 2
+  /** Characters the pane keeps free for this theme's big eggs while a job works (the layers between `<!--dl-->` markers are not counted, this is instead): the pane never changes layout as they come and go. */
+  paneReserve?: number
+  /** The panel's camera shake while a fight plays: a CSS animation list for a wrapper group, or '' (see overlay.ts shakeInto). */
+  shake?: (o: { W: number; H: number; surface: 'band' | 'pane'; at: number; card?: PaneCard; working?: boolean; fx?: { kind: string; at: number }; swapAt?: number }) => string
   /** Edgerunners 2 only: which of the skin's two modes this entry draws. CAPRI mode has glitches in place of the roamer and the duets. */
   mode?: 'd' | 'capri'
   /** The slim band (two info rows, one quiet cold-read line, no skin chip, beam or brackets) in place of the full HUD band. */
@@ -153,6 +160,8 @@ export type ThemeEggs = {
     tear?: (x: number, y: number, w: number, pct: number, t: ThemeColors, ctx?: ThemeCtx) => string
     /** A chamfered (or other) pill for the status and the role chips, in place of the round rect. */
     pill?: (x: number, y: number, w: number, h: number, fill: string, opacity: number, stroke?: string) => string
+    /** The cache bar's own colours (Invincible: Atom Eve's pink energy with a pale core), in place of the state's tone. */
+    cache?: { fill: string; core?: string }
     /** The foot draws the band's left edge itself: the engine's thin status edge is left out. */
     ownEdge?: boolean
   }
@@ -371,6 +380,8 @@ const saulTheme = (gene: boolean): ThemeEggs => ({
 })
 
 export const THEMES: Record<ThemeKey, ThemeEggs> = {
+  invincible: invTheme(1),
+  invincible2: invTheme(2),
   bettercallsaul: saulTheme(false),
   gene: saulTheme(true),
   mentalist: caseTheme(false),

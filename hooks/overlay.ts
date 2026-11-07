@@ -132,13 +132,27 @@ export const transitionInto = (svg: string, th: ThemeEggs | undefined, o: { sinc
 }
 
 /** A card's drawing with the theme's rare scheduled eggs spliced in before its closing tag (Lalo through the floor, Chuck's dim). */
-export const extrasInto = (svg: string, th: ThemeEggs, o: { at: number; ctxPct: number; card: PaneCard; party?: boolean; unplugAt?: number; fx?: { kind: string; at: number } }): string => {
+export const extrasInto = (svg: string, th: ThemeEggs, o: { at: number; ctxPct: number; card: PaneCard; party?: boolean; unplugAt?: number; fx?: { kind: string; at: number }; working?: boolean; swapAt?: number }): string => {
   const root = /^<svg\b[^>]*>/.exec(svg)?.[0]
   if (!th.extras || !root) return svg
   const W = Number(/\bwidth="([\d.]+)"/.exec(root)?.[1])
   const H = Number(/\bheight="([\d.]+)"/.exec(root)?.[1])
   if (!Number.isFinite(W) || !Number.isFinite(H)) return svg
-  const x: ExtraArgs = { W, H, surface: 'pane', at: o.at, ctxPct: o.ctxPct, card: o.card, ...(o.party ? { party: true } : {}), ...(o.unplugAt !== undefined ? { unplugAt: o.unplugAt } : {}), ...(o.fx ? { fx: o.fx } : {}) }
+  const x: ExtraArgs = { W, H, surface: 'pane', at: o.at, ctxPct: o.ctxPct, card: o.card, ...(o.party ? { party: true } : {}), ...(o.unplugAt !== undefined ? { unplugAt: o.unplugAt } : {}), ...(o.fx ? { fx: o.fx } : {}), ...(o.working !== undefined ? { working: o.working } : {}), ...(o.swapAt !== undefined ? { swapAt: o.swapAt } : {}) }
   const over = th.extras(x)
   return over ? `${svg.slice(0, svg.lastIndexOf('</svg>'))}${over}</svg>` : svg
+}
+
+/**
+ * A panel's drawing with the theme's camera shake applied (THE FIGHT): the panel's whole content goes in one group whose CSS
+ * animations are the shake events (`th.shake` returns the list, pinned to the fight's start); the sprites never move on their own.
+ * The drawing is returned as it was when no fight is due. `.dl-cam` is stopped under reduced motion by the fight's own CSS.
+ */
+export const shakeInto = (svg: string, th: ThemeEggs | undefined, o: { W: number; H: number; surface: 'band' | 'pane'; at: number; card?: PaneCard; working?: boolean; party?: boolean; fx?: { kind: string; at: number }; swapAt?: number }): string => {
+  if (!th?.shake || o.party) return svg
+  const anim = th.shake({ W: o.W, H: o.H, surface: o.surface, at: o.at, ...(o.card ? { card: o.card } : {}), ...(o.working !== undefined ? { working: o.working } : {}), ...(o.fx ? { fx: o.fx } : {}), ...(o.swapAt !== undefined ? { swapAt: o.swapAt } : {}) })
+  const root = /^<svg\b[^>]*>/.exec(svg)?.[0]
+  const end = svg.lastIndexOf('</svg>')
+  if (!anim || !root || end < 0) return svg
+  return `${root}<g class="dl-cam" style="animation:${anim}">${svg.slice(root.length, end)}</g></svg>`
 }

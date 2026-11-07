@@ -4,7 +4,7 @@ Skins for the **Mission Control** mod: the band above the prompt, the Mission Co
 
 Skins load from, in order: the folder you used last, a `Custom Claude Skins/` folder in your working folder (on Linux, or a case-sensitive Mac drive, the name must match exactly), then the `skins/` examples shipped with the mod. The JSON files here are copies of the built-in skins: copy one to start your own. `mentalist.json` is The Mentalist, a fan-homage skin with Jane and the CBI team as its pixel cast. `breaking-bad.json` is the Breaking Bad fan-homage skin (Mr. White, Jesse and the lab). `better-call-saul.json` is the Better Call Saul fan-homage skin (Saul's strip-mall law office). The cyberpunk ones live in `addons/cyberpunk/skins/` (Cyberpunk Skins add-on).
 
-> Unofficial, non-commercial fan project. Cyberpunk 2077, Cyberpunk: Edgerunners and all related names and characters belong to their respective owners (CD PROJEKT S.A., Studio Trigger, Netflix) and are used as fan homage only. The Mentalist and its characters belong to CBS and Warner Bros. Television, likewise used as fan homage only. Breaking Bad and its characters belong to Sony Pictures Television and AMC, used as fan homage only. Better Call Saul and its characters belong to Sony Pictures Television and AMC, used as fan homage only.
+> Unofficial, non-commercial fan project. Cyberpunk 2077, Cyberpunk: Edgerunners and all related names and characters belong to their respective owners (CD PROJEKT S.A., Studio Trigger, Netflix) and are used as fan homage only. The Mentalist and its characters belong to CBS and Warner Bros. Television, likewise used as fan homage only. Breaking Bad and its characters belong to Sony Pictures Television and AMC, used as fan homage only. Invincible and its characters belong to Robert Kirkman, Cory Walker, Ryan Ottley, Image Comics, Skybound and Amazon MGM Studios, used as fan homage only. Better Call Saul and its characters belong to Sony Pictures Television and AMC, used as fan homage only.
 
 ## Use
 
@@ -14,6 +14,7 @@ Skins load from, in order: the folder you used last, a `Custom Claude Skins/` fo
 - `/skin mentalist`: Jane and the CBI team (dark, its own pixel cast)
 - `/skin breaking-bad`: Mr. White, Jesse and the lab (dark, crystal blue, its own pixel cast)
 - `/skin better-call-saul`: Saul's strip-mall law office (dark walnut, powder blue and gold, Mike roams). A hidden black-and-white skin hides inside it
+- `/skin invincible`: the comic page that became the show (ink navy and suit yellow). Mark and Omni-Man fight across the band and the pane now and then, the Guardians take on Omni-Man once a day (or type `guardians`), and a second era hides behind `new suit` (`classic suit` goes back).
 - `/skin off`: back to Default (no skin)
 - `/skin reload`: re-read this folder after you edit or add a file
 - `/skin new <idea>`: Claude drafts a skin from a one-line idea and saves it

@@ -85,3 +85,23 @@ test('core edition: Better Call Saul and GENE need no add-on', async ($, on) => 
   expect(await run('gene')).toContain('Skin: GENE')
   expect(await run('')).toContain('▸ gene')
 })
+
+// Invincible ships with the core edition too (its second era is the same skin, not a hidden one).
+test('core edition: Invincible needs no add-on', async ($, on) => {
+  mock.clock(on, { now: Date.parse('2026-10-20T10:00:00Z') })
+  mock.env(on, { LANG: 'en_US.UTF-8' })
+  mock.store(on, {})
+  on('fs.exists', async () => ({ value: false }) as never)
+  on('settings.read', async () => ({ value: {} }) as never)
+  on('tool.register', async () => ({ value: undefined }) as never)
+  on('command.register', async () => ({ value: undefined }) as never)
+  on('ui.open', async () => ({ value: { isPlaced: true } }) as never)
+  on('ui.panes', async () => ({ value: [] }) as never)
+  on('session.start', async () => ({ cwd: '/repo' }) as never)
+  await $.session.start({ source: 'startup', cwd: '/repo', surface: 'desktop', isInteractive: true } as never)
+  const run = async (args: string) => String(((await $.command.run({ command: 'skin', args } as never)) as { text?: string }).text)
+  expect(await run('')).toContain('invincible')
+  expect(await run('invincible')).toContain('Skin: Invincible')
+  expect(await run('')).toContain('▸ invincible')
+  expect(await run('')).not.toContain('invincible2')
+})
