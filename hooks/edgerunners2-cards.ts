@@ -7,7 +7,7 @@ import { levelOf, xpFor } from './extras'
 import type { Badge, Beat, Cred } from './extras'
 import type { Legend } from './eggs'
 import { ER_CAPRI_BUST } from './cast'
-import { CJK, ER2_FONT, ER2_TOOLS, HEX_CODES, K, M, MONO, T, brackets, beam, cardDefs, cham, clamp, er2Clip, er2W, er2Wrap, esc, mw, palOf, pane, pixels, r1, rng, streaks } from './edgerunners2'
+import { CJK, D_TRACE, ER2_FONT, ER2_TOOLS, HEX_CODES, K, M, MONO, T, brackets, beam, cardDefs, cham, clamp, er2Clip, er2W, er2Wrap, esc, kOf, mw, palOf, pane, pixels, r1, rng, streaks } from './edgerunners2'
 
 /** What one card may weigh, in characters of SVG (the pane has a total budget too). */
 export const CARD_BUDGET = 25_000
@@ -58,10 +58,20 @@ const open = (W: number, H: number, css: string): string => `<svg xmlns="http://
 
 /** A card's frame: the glass pane, the accent bar, the title; `right` is more drawing at the far side. */
 const cardFrame = (W: number, H: number, title: string, right: string, sec: boolean, near: boolean, sid: string): string => {
+  const K = kOf(sec)
   const P = palOf(sec)
   return `${cardDefs(sid, sec)}${pane(0.5, 0.5, W - 1, H - 1, { sec, near, cut: 10, fillOp: 1, fill: P.tile, scanId: sid, nodes: true, ghost: false, sheenH: 56 })}<rect x="16" y="17" width="3" height="13" fill="${near ? K.hot : P.a}"/>${T(26, 28, title, 11, 800, P.text, 'letter-spacing="1.6"')}${right}`
 }
 const monoRight = (W: number, P: { muted: string }, text: string): string => (W >= 400 ? `<text x="${W - 16}" y="28" text-anchor="end" font-family="${MONO}" font-size="8.5" fill="${P.muted}" letter-spacing=".6">${text}</text>` : '')
+
+/** The mode switch's pill on the NEURAL SYNC header, 20 tall, right-aligned at `xr`: LET CAPRI IN (D mode, a cobalt outline) or BACK TO D (CAPRI mode, cobalt fill). */
+export const modeButton = (xr: number, y: number, capri: boolean): { svg: string; w: number } => {
+  const label = capri ? '⇄  BACK TO D' : '⇄  LET CAPRI IN'
+  const w = r1(er2W(label, 9.5, 1.2, 800) + 22)
+  const x = xr - w
+  const text = capri ? '#FFFFFF' : '#BFD8FF'
+  return { svg: `<g><path d="${cham(x, y - 14, w, 20, 5, 1)}" fill="${D_TRACE}" fill-opacity="${capri ? 0.9 : 0.1}" stroke="${capri ? D_TRACE : '#8FB5FF'}" stroke-opacity=".9"/><text x="${r1(x + 11)}" y="${y}" font-size="9.5" font-weight="800" letter-spacing="1.2" fill="${text}">${esc(label)}</text></g>`, w }
+}
 
 const FRAG_W = 83
 const perRow = (W: number): number => Math.max(3, Math.floor((W - 24) / 91))
@@ -69,6 +79,7 @@ const STACK_DY = 236
 export const syncHeight = (W: number): number => 300 + Math.ceil(9 / perRow(W)) * 62 + 26 + (W < 400 ? STACK_DY : 0)
 
 export const syncCard = (W: number, c: Cred, sec: boolean): string => {
+  const K = kOf(sec)
   const P = palOf(sec)
   const H = syncHeight(W)
   const sid = `sc${W}${sec ? 's' : ''}`
@@ -81,7 +92,9 @@ export const syncCard = (W: number, c: Cred, sec: boolean): string => {
   const near = earned >= 9 || sec
   const nr = NEXT_RANKS.find(([l]) => l > level)
   const s: string[] = [open(W, H, cardCss('streak', 'ring', 'cone', 'sprite'))]
-  s.push(cardFrame(W, H, 'NEURAL SYNC', W >= 400 ? `<text x="${W - 16}" y="28" text-anchor="end" font-family="${MONO}" font-size="8.5" fill="${P.muted}" letter-spacing=".6">ARASAKA · PROJECT CAPRICORN · <tspan font-family="${CJK}">山羊座</tspan></text>` : '', sec, false, sid))
+  // The mode switch on the header: "LET CAPRI IN" (D mode) / "BACK TO D" (CAPRI mode). The pill is the cue; the press is the Button under the card.
+  const mb = W >= 400 ? modeButton(W - 14, 26, sec) : null
+  s.push(cardFrame(W, H, 'NEURAL SYNC', W >= 400 ? `<text x="${r1(W - 16 - (mb ? mb.w + 12 : 0))}" y="28" text-anchor="end" font-family="${MONO}" font-size="8.5" fill="${P.muted}" letter-spacing=".6">ARASAKA · PROJECT CAPRICORN · <tspan font-family="${CJK}">山羊座</tspan></text>${mb ? mb.svg : ''}` : '', sec, false, sid))
   // The capsule.
   const cw = 168
   const cx0 = stack ? Math.max(16, Math.round((W - cw) / 2)) : 16

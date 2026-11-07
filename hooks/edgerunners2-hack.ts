@@ -29,17 +29,23 @@ export type HackLine = { /** Seconds after the event starts. */ t: number; on: H
 export type HackPlan = { on: boolean; seed: string; bucket: number; startAt: number; endAt: number; burst: boolean; paneCard: HackCard; lines: HackLine[] }
 
 /**
- * The chance that a 30 s window holds an event. Rare at a normal context (about 0.12 per window; with her own
- * walks and peeks about one event per 2.5 min), more often from 85%, nearly always from 95%; her takeover
+ * The chance that a 30 s window holds an event. Easy to see at a normal context (0.35 per window; with her own
+ * walks and peeks about one event per minute), more often from 85%, nearly always from 95%; her takeover
  * always has one, and a walk, peek or sit makes it likelier.
  */
 export const hackChance = (ctxPct: number, sec: boolean, roam: RoamPlan['kind']): number => {
   if (roam === 'takeover') return 1
-  const base = ctxPct >= 95 ? 0.6 : ctxPct >= 85 ? 0.4 : sec ? 0.15 : 0.12
+  const base = ctxPct >= 95 ? 0.9 : ctxPct >= 85 ? 0.65 : sec ? 0.45 : 0.35
   return roam ? Math.min(1, base + 0.3) : base
 }
 
+/** The longest a line lives (its draw, hold and fade). */
+export const LINE_MAX_S = 1.9
 const END_PAD_S = 1.5
+/** A draw includes every event starting within this long (the idle band redraws about once a minute). */
+export const HACK_AHEAD_MS = 75_000
+/** At most this many events that have not begun are drawn in one Svg. */
+const MAX_AHEAD = 3
 const LATEST_S = 26
 
 /** The event in the window containing `at`; the same for every moment inside it. `roam` is her plan for that window. */
@@ -68,20 +74,20 @@ export const hackPlan = (seed: string, at: number, ctxPct: number, sec: boolean,
   const raw = kind && roam ? roam.startAt + (kind === 'takeover' ? 300 : kind === 'walk' ? Math.round(roam.durMs * 0.2) : kind === 'peek' ? 800 : 1500) : w0 + 500 + Math.floor(where * 24_000)
   const startAt = Math.max(w0 + 200, Math.min(w0 + LATEST_S * 1000, raw))
   const last = (lines[lines.length - 1] as HackLine).t
-  return { on: true, seed, bucket, startAt, endAt: startAt + Math.round((last + 1.3 + END_PAD_S) * 1000), burst, paneCard: card < 0.55 ? 'cred' : 'log', lines }
+  return { on: true, seed, bucket, startAt, endAt: startAt + Math.round((last + LINE_MAX_S + END_PAD_S) * 1000), burst, paneCard: card < 0.55 ? 'cred' : 'log', lines }
 }
 
 /** Is the event under way at `now`? */
 export const hackLive = (p: HackPlan, now: number): boolean => p.on && now >= p.startAt && now < p.endAt
 
 // --- the CSS -----------------------------------------------------------------------
-// A line draws on in 28% of its time (0.27 to 0.36 s), holds to 46%, and retracts from its start while it fades
-// (0.5 to 0.7 s). The head is a 3 px dash that leads the draw. Under reduced motion nothing shows.
-export const HACK_CSS = `.hk-d{stroke:var(--c,#FF1F4E);stroke-dasharray:var(--l) var(--l);animation:hkd 1.1s linear both}
-.hk-h{stroke:#FFE6EC;stroke-width:2.4;stroke-linecap:round;stroke-dasharray:3 var(--l);animation:hkh 1.1s linear both}
+// A line draws on in 22% of its time (about 0.35 s), holds to 60% (about 0.6 s), and retracts from its start while
+// it fades (about 0.65 s). The head is a 3 px dash that leads the draw. Under reduced motion nothing shows.
+export const HACK_CSS = `.hk-d{stroke:var(--c,#FF1F4E);stroke-dasharray:var(--l) var(--l);animation:hkd 1.7s linear both}
+.hk-h{stroke:#FFE6EC;stroke-width:2.6;stroke-linecap:round;stroke-dasharray:3 var(--l);animation:hkh 1.7s linear both}
 .hk-g{stroke:#FF2E7E;stroke-width:1.4;animation:hkg .26s steps(1) both}
-@keyframes hkd{0%{stroke-dashoffset:var(--l);opacity:0}2%{opacity:1}28%,46%{stroke-dashoffset:0;opacity:1}100%{stroke-dashoffset:var(--n);opacity:0}}
-@keyframes hkh{0%{stroke-dashoffset:3;opacity:0}2%{opacity:1}28%{stroke-dashoffset:var(--h);opacity:1}29%,100%{stroke-dashoffset:var(--h);opacity:0}}
+@keyframes hkd{0%{stroke-dashoffset:var(--l);opacity:0}2%{opacity:1}22%,60%{stroke-dashoffset:0;opacity:1}100%{stroke-dashoffset:var(--n);opacity:0}}
+@keyframes hkh{0%{stroke-dashoffset:3;opacity:0}2%{opacity:1}22%{stroke-dashoffset:var(--h);opacity:1}23%,100%{stroke-dashoffset:var(--h);opacity:0}}
 @keyframes hkg{0%{opacity:0}1%{opacity:1;transform:translate(2px,0)}40%{opacity:.5;transform:translate(-2px,0)}70%{opacity:1;transform:none}100%{opacity:0}}
 @media (prefers-reduced-motion: reduce){.hk{display:none}.hk-d,.hk-h,.hk-g{animation:none}}`
 
@@ -165,8 +171,8 @@ const lineOf = (seed: string, bucket: number, surface: HackSurface, i: number, m
   const pts = rd(useBolt ? bolt(rnd, W, H, H >= 150 && rnd() < 0.35) : trace(rnd, W, H, ys))
   if (pts.length < 2) return { svg: '', branched: false }
   const L = lenOf(pts)
-  const D = num(0.95 + rnd() * 0.35)
-  const draw = D * 0.28
+  const D = num(1.55 + rnd() * 0.3)
+  const draw = D * 0.22
   const alt = rnd() < 0.3 ? '--c:#F43444;' : ''
   const at = STAMP(ms)
   const sty = `--l:${L};--n:${-L};--h:${3 - L};${alt}animation-duration:${D}s;animation-delay:${at}`
@@ -208,30 +214,63 @@ export type HackArgs = {
   ctxPct: number
   /** The job-done celebration is drawing: nothing here. */
   party?: boolean
-  /** Her plan for this window (null: she is not out). */
+  /** Her plan for the window containing `at` (null: she is not out). */
   roam: RoamPlan | null
+  /** Her plan for the window starting at a given time, for the events a draw schedules ahead (absent: not out). */
+  roamFor?: (windowStart: number) => RoamPlan | null
 }
 
 /**
- * The red lines for a panel as an SVG fragment to lay over it (W × H), or '' when there is no event, it is not
- * under way at `args.at`, this panel carries none of its lines, or a celebration is drawing. Includes its CSS.
+ * The red lines for a panel as an SVG fragment to lay over it (W × H), or '' when there is nothing to draw, this
+ * panel carries none of the lines, or a celebration is drawing. Includes its CSS.
+ *
+ * The draw schedules ahead: it holds every event under way at `args.at` and the first few that start within
+ * HACK_AHEAD_MS, each line pinned to the wall clock (a future one waits through its positive delay, one under way
+ * resumes mid-animation, one finished is left out), so the lines show without any redraw at the moment.
  */
 export const er2Hack = (seed: string, a: HackArgs, sec: boolean): string => {
   if (a.party) return ''
   if (a.surface === 'pane' && (a.W < 200 || a.H < 40)) return ''
-  const plan = hackPlan(`${seed}|hack`, a.at, a.ctxPct, sec, a.roam)
-  if (!hackLive(plan, a.at)) return ''
-  if (a.surface === 'pane' && (a.card ?? 'cred') !== plan.paneCard) return ''
-  const mine = plan.lines.filter(l => l.on === a.surface)
-  if (!mine.length) return ''
   const ys = a.surface === 'band' ? bandYs(a.H) : paneYs(a.H)
-  let branches = 0
-  const body = mine
-    .map(l => {
-      const r = lineOf(plan.seed, plan.bucket, a.surface, l.i, plan.startAt + Math.round(l.t * 1000), a.W, a.H, ys, branches < 2)
+  const here = Math.floor(a.at / HACK_WINDOW_MS)
+  let ahead = 0
+  let body = ''
+  for (let b = here; b <= Math.floor((a.at + HACK_AHEAD_MS) / HACK_WINDOW_MS); b++) {
+    const w0 = b * HACK_WINDOW_MS
+    const plan = hackPlan(`${seed}|hack`, w0, a.ctxPct, sec, b === here ? a.roam : (a.roamFor?.(w0) ?? null))
+    if (!plan.on || plan.endAt <= a.at || plan.startAt > a.at + HACK_AHEAD_MS) continue
+    if (a.surface === 'pane' && (a.card ?? 'cred') !== plan.paneCard) continue
+    if (plan.startAt > a.at && ++ahead > MAX_AHEAD) break
+    let branches = 0
+    for (const l of plan.lines) {
+      if (l.on !== a.surface) continue
+      const ms = plan.startAt + Math.round(l.t * 1000)
+      if (ms + LINE_MAX_S * 1000 <= a.at) continue
+      const r = lineOf(plan.seed, plan.bucket, a.surface, l.i, ms, a.W, a.H, ys, branches < 2)
       if (r.branched) branches++
-      return r.svg
-    })
-    .join('')
-  return body ? `<style>${HACK_CSS}</style><g class="hk" fill="none" stroke-width="1.3" pointer-events="none" style="filter:drop-shadow(0 0 2px #FF2E7E)">${body}</g>` : ''
+      body += r.svg
+    }
+  }
+  return body ? `<style>${HACK_CSS}</style><g class="hk" fill="none" stroke-width="1.5" pointer-events="none" style="filter:drop-shadow(0 0 3px #FF2E7E)">${body}</g>` : ''
+}
+
+/** How long a switch's burst lives, start to the last line gone. */
+export const BURST_LIVE_MS = 3500
+/**
+ * The burst of five red lines that fires when the skin switches mode (D to CAPRI: "CAPRI'S AWAKE"), pinned to `since`:
+ * 0.37 s apart (under 3 a second), the band takes lines 0, 2 and 4 and the first pane card lines 1 and 3. '' once over.
+ */
+export const er2HackBurst = (seed: string, a: HackArgs, since: number, sec: boolean): string => {
+  if (a.party || since <= 0 || a.at - since >= BURST_LIVE_MS || a.at < since - 1000) return ''
+  if (a.surface === 'pane' && (a.W < 200 || a.H < 40)) return ''
+  const ys = a.surface === 'band' ? bandYs(a.H) : paneYs(a.H)
+  let body = ''
+  for (let i = 0; i < 5; i++) {
+    if ((i % 2 === 0) !== (a.surface === 'band')) continue
+    const ms = since + Math.round(i * 0.37 * 1000)
+    if (ms + LINE_MAX_S * 1000 <= a.at) continue
+    body += lineOf(`${seed}|burst`, Math.floor(since / 1000), a.surface, i, ms, a.W, a.H, ys, true).svg
+  }
+  void sec
+  return body ? `<style>${HACK_CSS}</style><g class="hk" fill="none" stroke-width="1.5" pointer-events="none" style="filter:drop-shadow(0 0 3px #FF2E7E)">${body}</g>` : ''
 }

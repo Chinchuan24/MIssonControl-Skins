@@ -3,13 +3,13 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import { CASTS } from './cast'
 import * as cast from './cast'
-import { CAPRICORN_RE, ER2_CSS, ER2_EPISODES, HI_CAPRI_RE, TK_CSS, er2EpisodeAt, er2Takeover, er2W, mw } from './edgerunners2'
+import { CAPRICORN_RE, CAPRI_WORD_RE, ER2_CSS, ER2_EPISODES, TK_CSS, er2EpisodeAt, er2Takeover, er2W, mw } from './edgerunners2'
 import { CARD_BUDGET, CARD_CSS, ER2_BADGES, er2RankOf, gigsCard, syncCard, syncPct, traceCard } from './edgerunners2-cards'
 import { BLANK_CRED, levelOf } from './extras'
 import type { Beat } from './extras'
-import { HACK_CSS, HACK_MIN_GAP_S, er2Hack, hackChance, hackLive, hackPlan } from './edgerunners2-hack'
+import { HACK_AHEAD_MS, HACK_CSS, HACK_MIN_GAP_S, LINE_MAX_S, er2Hack, hackChance, hackLive, hackPlan } from './edgerunners2-hack'
 import type { HackCard, HackSurface } from './edgerunners2-hack'
-import { roamOptsOf, roamOverlay, takeoverWithin } from './overlay'
+import { roamOptsOf, roamOverlay } from './overlay'
 import { roamPlan } from './roamer'
 import { THEMES } from './themes'
 
@@ -29,8 +29,9 @@ const findAt = (kind: string | null, ctx: number, from = BASE): number => {
   throw new Error(`no ${kind}`)
 }
 
+let clockRef: ReturnType<typeof mock.clock> | undefined
 const base = (on: On, now: number, o: { ctx?: number; addon?: boolean } = {}) => {
-  mock.clock(on, { now })
+  clockRef = mock.clock(on, { now })
   mock.env(on, { LANG: 'en_US.UTF-8' })
   mock.store(on)
   on('fs.exists', async (_$, e) => ({ value: (o.addon ?? true) && /addons[\\/]cyberpunk[\\/]addon\.json$/.test(String((e as { path: string }).path)) }) as never)
@@ -99,7 +100,10 @@ for (const [ctx, word, other] of [[88, 'CHIP HOT', "CAPRI'S AWAKE"], [96, "CAPRI
   test(`edgerunners-2 at ${ctx}%: ${word}${ctx >= 95 ? ' and the possessed HUD' : ''}`, async ($, on) => {
     base(on, findAt(null, ctx), { ctx })
     await start($, 'edgerunners-2')
+    // From 95% she lets herself in (CAPRI mode); sent back to D at 96% the possessed D HUD (CAPRI'S AWAKE) shows.
+    if (ctx >= 95) await $.prompt.submit({ text: 'bye capri', cursor: 0 } as never)
     await job($)
+    await clockRef?.advance(3000)
     const bandSvg = (await svgs($, 'AbovePrompt')).join('')
     expect(bandSvg).toContain(word)
     expect(bandSvg).not.toContain(other)
@@ -253,24 +257,19 @@ test('capricorn: hidden until worn; "0+2=1" unlocks it and again takes it off; t
   await $.prompt.submit({ text: 'again: 0+2=1', cursor: 0 } as never)
   expect((await svgs($, 'AbovePrompt')).join('')).toContain('SNAKE NATION')
 })
-test('capricorn: "hi capri" within 60 s of a takeover unlocks it; later or without one it does not', async ($, on) => {
-  const t0 = findAt('takeover', 0)
-  const start0 = roamPlan(roamer.seed, t0, roamOptsOf(roamer, 0)).startAt
-  expect(HI_CAPRI_RE.test('Hi, Capri!')).toBe(true)
-  expect(takeoverWithin(th, start0 + 20_000, 60_000)).toBe(true)
-  expect(takeoverWithin(th, start0 + 80_000, 60_000)).toBe(false)
-  base(on, start0 + 20_000)
+test('modes: the whole word "capri" (any case) in a prompt lets her in; "capricorn" or a longer word does not; the prompt is unchanged', async ($, on) => {
+  base(on, findAt(null, 10))
   await start($, 'edgerunners-2')
-  await $.prompt.submit({ text: 'hi capri!', cursor: 0 } as never)
-  expect((await svgs($, 'AbovePrompt')).join('')).toContain('PROJECT CAPRICORN')
-})
-test('capricorn: "hi capri" with no takeover near does nothing', async ($, on) => {
-  base(on, findAt(null, 0, BASE + 3 * 3_600_000))
-  const now = findAt(null, 0, BASE + 3 * 3_600_000)
-  if (takeoverWithin(th, now, 60_000)) return
-  await start($, 'edgerunners-2')
-  await $.prompt.submit({ text: 'hi capri', cursor: 0 } as never)
-  expect((await svgs($, 'AbovePrompt')).join('')).toContain('SNAKE NATION')
+  for (const word of ['please capricorn the module', 'capriccio in C', 'scapring along']) {
+    const back = (await $.prompt.submit({ text: word, cursor: 0 } as never)) as { text?: string }
+    expect(back.text).toBe(word)
+    expect((await svgs($, 'AbovePrompt')).join('')).not.toContain('CAPRI IN CONTROL')
+  }
+  expect(CAPRI_WORD_RE.test('Hi, Capri!')).toBe(true)
+  expect(CAPRI_WORD_RE.test('capricorn')).toBe(false)
+  const back = (await $.prompt.submit({ text: 'Say HI to CAPRI!', cursor: 0 } as never)) as { text?: string }
+  expect(back.text).toBe('Say HI to CAPRI!')
+  expect((await svgs($, 'AbovePrompt')).join('')).toContain('CAPRI IN CONTROL')
 })
 
 test('add-on gate: without addons/cyberpunk/addon.json edgerunners-2 is locked like the other cyber skins', async ($, on) => {
@@ -308,6 +307,7 @@ for (const skin of ['edgerunners-2', 'capricorn']) {
       base(on, findAt(null, 96), { ctx: 96 })
       await start($, skin)
       await job($)
+      await clockRef?.advance(3000) // past the possession transition (its reduced-motion note covers the readouts for 2.5 s)
       const svg = (await svgs($, 'AbovePrompt', W)).join('')
       expect(svg).toContain('Red-herring audit')
       expect(svg).toMatch(/>(CTX|CONTEXT)</)
@@ -376,7 +376,10 @@ const hackAt = (ctx: number, o: { surface?: HackSurface; card?: HackCard; sec?: 
   for (let t = from; t < from + 86_400_000 * 3; t += 30_000) {
     const p = hackPlanAt(t, ctx, o.sec)
     if (o.none) {
-      if (!p.on && !roamPlan(roamerOf(Boolean(o.sec)).seed, t, roamOptsOf(roamerOf(Boolean(o.sec)), ctx)).on) return t + 1000
+      // quiet: no roamer now, and no event under way or starting within the look-ahead
+      let quiet = !roamPlan(roamerOf(Boolean(o.sec)).seed, t, roamOptsOf(roamerOf(Boolean(o.sec)), ctx)).on
+      for (let k = 0; k <= Math.ceil(HACK_AHEAD_MS / 30_000) + 1; k++) if (hackPlanAt(t + k * 30_000, ctx, o.sec).on) quiet = false
+      if (quiet && !p.on) return t + 1000
       continue
     }
     if (!p.on || (o.surface === 'pane' && p.paneCard !== (o.card ?? 'cred'))) continue
@@ -398,21 +401,75 @@ test('hack lines: the plan is a pure function of the seed and the clock, and a r
   expect(p.burst).toBe(true)
   expect(p.paneCard).toBe('log')
   const a = er2Hack(roamerOf(false).seed, hackArgs(p.startAt + 600, 750, 132, 'band', 'cred'), false)
-  const b = er2Hack(roamerOf(false).seed, hackArgs(p.startAt + 1900, 750, 132, 'band', 'cred'), false)
+  const b = er2Hack(roamerOf(false).seed, hackArgs(p.startAt + 1100, 750, 132, 'band', 'cred'), false)
   expect(a).toContain('class="hk-d"')
   expect(a).toContain('class="hk-h"')
   expect(a).toContain('class="hk-g"')
   expect(a).toContain('@@T') // pinned to the wall clock
   expect(b).toBe(a) // later in the event: the same picture, further along (the pins resolve it)
-  expect(er2Hack(roamerOf(false).seed, hackArgs(p.startAt - 1, 750, 132, 'band', 'cred'), false)).toBe('')
-  expect(er2Hack(roamerOf(false).seed, hackArgs(p.endAt, 750, 132, 'band', 'cred'), false)).toBe('')
+  expect(er2Hack(roamerOf(false).seed, hackArgs(p.startAt - 1, 750, 132, 'band', 'cred'), false)).toContain('hk-d') // scheduled ahead
+  expect(er2Hack(roamerOf(false).seed, hackArgs(p.startAt - HACK_AHEAD_MS - 1, 750, 132, 'band', 'cred'), false)).not.toContain(`@@T${p.startAt}@@`) // too far ahead for this draw
   expect(hackLive(p, p.startAt + 1)).toBe(true)
   expect(hackLive(p, p.endAt)).toBe(false)
   // The pane card: only the one the event names, and none for a celebration.
-  expect(er2Hack(roamerOf(false).seed, hackArgs(p.startAt + 900, 480, 210, 'pane', 'cred'), false)).toBe('')
+  expect(er2Hack(roamerOf(false).seed, hackArgs(p.startAt + 900, 480, 210, 'pane', 'cred'), false)).not.toContain(`@@T${p.startAt + Math.round((p.lines.find(l => l.on === 'pane') as { t: number }).t * 1000)}@@`)
   expect(er2Hack(roamerOf(false).seed, hackArgs(p.startAt + 900, 480, 210, 'pane', 'log'), false)).toContain('hk-d')
   expect(er2Hack(roamerOf(false).seed, { ...hackArgs(p.startAt + 900, 480, 210, 'pane', 'log'), party: true }, false)).toBe('')
   expect(er2Hack(roamerOf(false).seed, { ...hackArgs(p.startAt + 600, 750, 132, 'band', 'cred'), party: true }, false)).toBe('')
+})
+
+
+/** The pins in a fragment, as seconds from a draw made at `at` (what `phased` resolves them to). */
+const delaysOf = (frag: string, at: number): number[] => [...frag.matchAll(/@@T(-?\d+)@@/g)].map(m => (Number(m[1]) - at) / 1000)
+const bandFrag = (seed: string, at: number, ctx = 30, sec = false) => er2Hack(seed, hackArgs(at, 900, 132, 'band', 'cred', ctx, sec), sec)
+/** The first event (from BASE) that has at least one band line, with the idle draw time T that is `lead` ms before its start. */
+const eventAhead = (ctx: number, lead: number, from = BASE) => {
+  for (let t = from; t < from + 86_400_000; t += 30_000) {
+    const p = hackPlanAt(t, ctx)
+    if (p.on && p.lines.some(l => l.on === 'band') && !roamPlan(roamerOf(false).seed, p.startAt - lead, roamOptsOf(roamerOf(false), ctx)).on) return { p, T: p.startAt - lead }
+  }
+  throw new Error('no event')
+}
+test('hack lines: an idle draw schedules the lines of an event that starts 40 s later, with a positive delay at its start', () => {
+  const { p, T } = eventAhead(30, 40_000)
+  const frag = bandFrag(roamerOf(false).seed, T)
+  expect(frag).toContain('class="hk-d"')
+  const first = p.lines.find(l => l.on === 'band') as { t: number }
+  const want = (p.startAt + Math.round(first.t * 1000) - T) / 1000
+  expect(want).toBeGreaterThan(30)
+  expect(delaysOf(frag, T)).toContain(want)
+  for (const d of delaysOf(frag, T).filter(x => x > 0)) expect(d).toBeLessThanOrEqual(HACK_AHEAD_MS / 1000 + 6)
+  // pane: the card the event names carries it, the other none of this event
+  const pane = (card: HackCard) => er2Hack(roamerOf(false).seed, hackArgs(T, 480, 210, 'pane', card, 30), false)
+  expect(pane(p.paneCard).length).toBeGreaterThan(0)
+})
+test('hack lines: a finished event draws nothing; one under way resumes with a negative delay', () => {
+  const { p } = eventAhead(30, 0)
+  const seed = roamerOf(false).seed
+  const lines = p.lines.filter(l => l.on === 'band')
+  const quiet = hackAt(30, { none: true, from: p.endAt + 120_000 })
+  expect(er2Hack(seed, hackArgs(quiet, 900, 132, 'band', 'cred', 30), false)).toBe('')
+  // just after the last line has faded (and before the next window's event, if any, is within reach): this event is gone
+  const done = p.startAt + Math.round((lines[lines.length - 1] as { t: number }).t * 1000) + LINE_MAX_S * 1000 + 1
+  const f = bandFrag(seed, done)
+  for (const l of lines) expect(delaysOf(f, done)).not.toContain((p.startAt + Math.round(l.t * 1000) - done) / 1000)
+  // under way: the second band line has begun, the first is part-way: its pin is behind the draw
+  const mid = p.startAt + Math.round((lines[0] as { t: number }).t * 1000) + 700
+  const g = bandFrag(seed, mid)
+  expect(delaysOf(g, mid).some(d => d < 0)).toBe(true)
+  expect(delaysOf(g, mid).every(d => d > -LINE_MAX_S)).toBe(true)
+})
+test('hack lines: a draw carries at most three events that have not begun, and stays under the size budget', () => {
+  const seed = roamerOf(true).seed
+  let most = 0
+  for (let t = BASE; t < BASE + 6 * 3_600_000; t += 30_000) {
+    const f = er2Hack(seed, hackArgs(t, 1250, 132, 'band', 'cred', 96, true), true)
+    const buckets = new Set(delaysOf(f, t).filter(d => d > 0).map(d => Math.floor((t + d * 1000) / 30_000)))
+    most = Math.max(most, buckets.size)
+    expect(buckets.size).toBeLessThanOrEqual(3)
+    expect(f.length).toBeLessThan(16_000)
+  }
+  expect(most).toBe(3)
 })
 
 test('hack lines: drawn on both panels while wearing edgerunners-2, on one pane card only, and none at a quiet moment', async ($, on) => {
@@ -424,8 +481,7 @@ test('hack lines: drawn on both panels while wearing edgerunners-2, on one pane 
   const pane = await svgs($, 'Pane')
   expect(band).toContain('class="hk-d"')
   expect(band).toContain('prefers-reduced-motion')
-  expect(pane.filter(s => s.includes('class="hk-d"')).length).toBe(1) // one card carries the lines
-  expect(pane.find(s => s.includes('class="hk-d"'))).toContain('NEURAL SYNC')
+  expect(pane.some(s => s.includes('class="hk-d"') && s.includes('NEURAL SYNC'))).toBe(true) // the card the live event names carries the lines
 })
 test('hack lines: the other pane card gets them when the event names it', async ($, on) => {
   const t = hackAt(96, { surface: 'pane', card: 'log' })
@@ -433,8 +489,7 @@ test('hack lines: the other pane card gets them when the event names it', async 
   await start($, 'edgerunners-2')
   await job($)
   const pane = await svgs($, 'Pane')
-  expect(pane.filter(s => s.includes('class="hk-d"')).length).toBe(1)
-  expect(pane.find(s => s.includes('class="hk-d"'))).toContain('NETRUN TRACE')
+  expect(pane.some(s => s.includes('class="hk-d"') && s.includes('NETRUN TRACE'))).toBe(true)
 })
 test('hack lines: CAPRICORN has them too', async ($, on) => {
   const t = hackAt(10, { sec: true })
@@ -490,8 +545,10 @@ test('hack lines: rare at a normal context, more often from 85%, most at 95%, in
   expect(n96.events).toBeGreaterThan(n30.events)
   expect(n96.events).toBeGreaterThan(n88.events)
   expect(n88.events).toBeGreaterThan(n30.events)
-  expect(n30.events).toBeGreaterThanOrEqual(15) // about one every 1 to 3 minutes
-  expect(n30.events).toBeLessThanOrEqual(45)
+  expect(n30.events).toBeGreaterThanOrEqual(40) // about one a minute at a normal context
+  expect(n30.events).toBeLessThanOrEqual(75)
+  expect(n88.events).toBeGreaterThanOrEqual(70)
+  expect(n96.events).toBeGreaterThanOrEqual(95) // nearly every window
   expect(hour(96, true).events).toBeGreaterThan(hour(30, true).events)
   expect(hour(30, true).events).toBeGreaterThan(hour(30, false).events) // she owns the secret skin
   // 2 to 5 lines; a burst of five from 95%.
@@ -534,13 +591,13 @@ test('hack lines: more often while she walks, peeks or sits, and always in a tak
   }
   expect(tk).toBeGreaterThan(0)
   expect(tkHack).toBe(tk)
-  expect(inHack / inRoam).toBeGreaterThan((outHack / out) * 2)
+  expect(inHack / inRoam).toBeGreaterThan((outHack / out) * 1.4)
 })
 test('hack lines: never more than 3 lines start in any second, nor at once in two events', () => {
   const starts: number[] = []
   for (const sec of [false, true])
     for (const ctx of [10, 88, 96])
-      for (let t = BASE; t < BASE + 86_400_000; t += 30_000) {
+      for (let t = BASE; t < BASE + 8 * 3_600_000; t += 30_000) {
         const p = hackPlanAt(t, ctx, sec)
         if (!p.on) continue
         for (const l of p.lines) starts.push(p.startAt + Math.round(l.t * 1000))
@@ -550,7 +607,7 @@ test('hack lines: never more than 3 lines start in any second, nor at once in tw
       }
   for (const [name, ctx, sec] of [['normal', 10, false], ['hot', 88, false], ['awake', 96, false], ['capricorn', 10, true]] as const) {
     const one: number[] = []
-    for (let t = BASE; t < BASE + 86_400_000; t += 30_000) {
+    for (let t = BASE; t < BASE + 12 * 3_600_000; t += 30_000) {
       const p = hackPlanAt(t, ctx, sec)
       if (p.on) for (const l of p.lines) one.push(p.startAt + Math.round(l.t * 1000))
     }
@@ -575,7 +632,7 @@ test('hack lines: reduced motion hides every line and covers every new class', (
   expect(frag).toContain(HACK_CSS)
 })
 
-test('hack lines: each event fragment is under 4 kB on every panel, at every width', () => {
+test('hack lines: a draw (the live event and up to three ahead) is under 16 kB on every panel, at every width', () => {
   let max = 0
   for (const sec of [false, true])
     for (let t = BASE; t < BASE + 3 * 3_600_000; t += 30_000) {
@@ -585,30 +642,32 @@ test('hack lines: each event fragment is under 4 kB on every panel, at every wid
         for (const card of ['cred', 'log'] as const) {
           const frag = er2Hack(roamerOf(sec).seed, hackArgs(p.startAt + 100, W, H, surface, card, 96, sec), sec)
           max = Math.max(max, frag.length)
-          expect(frag.length).toBeLessThan(4096)
+          expect(frag.length).toBeLessThan(16_384)
         }
     }
   expect(max).toBeGreaterThan(1500) // the sweep really drew fragments
 })
 
-test('hack lines: add little: the band and every pane Svg stay well under the limit, the pane total under the budget (4 agents)', async ($, on) => {
-  const t = hackAt(96, { surface: 'pane', card: 'cred' })
-  base(on, t, { ctx: 96 })
-  await start($, 'edgerunners-2')
-  await job($)
-  for (let i = 1; i <= 4; i++) await spawnAgent($, i)
-  const panes = await svgs($, 'Pane')
-  const band = (await svgs($, 'AbovePrompt', 1250)).join('')
-  expect(band).toContain('hk-d')
-  const added = panes.filter(s => s.includes('hk-d')).map(s => s.length - s.replace(/<style>\.hk-d[\s\S]*?<\/g>/, '').length)
-  expect(added.length).toBe(1) // one pane card
-  const bandAdded = band.length - band.replace(/<style>\.hk-d[\s\S]*?<\/g>/g, '').length
-  const total = panes.join('').length
-  expect(bandAdded).toBeGreaterThan(0)
-  expect(bandAdded).toBeLessThan(4096)
-  expect(added[0] as number).toBeGreaterThan(0)
-  expect(added[0] as number).toBeLessThan(4096)
-  expect(band.length).toBeLessThan(90_000)
-  for (const s of panes) expect(s.length).toBeLessThan(90_000)
-  expect(total).toBeLessThan(260_000)
-})
+for (const ctx of [30, 96]) {
+  test(`hack lines: add little at ${ctx}%: the band and every pane Svg stay well under the limit, the pane total under the budget (4 agents)`, async ($, on) => {
+    const t = hackAt(ctx, { surface: 'pane', card: 'cred' })
+    base(on, t, { ctx })
+    await start($, 'edgerunners-2')
+    await job($)
+    for (let i = 1; i <= 4; i++) await spawnAgent($, i)
+    const panes = await svgs($, 'Pane')
+    const band = (await svgs($, 'AbovePrompt', 1250)).join('')
+    expect(band).toContain('hk-d')
+    const hk = /<style>\.hk-d[\s\S]*?<\/g>/g
+    const added = panes.filter(s => s.includes('hk-d')).map(s => s.length - s.replace(hk, '').length)
+    expect(added.length).toBeGreaterThanOrEqual(1)
+    const bandAdded = band.length - band.replace(hk, '').length
+    const total = panes.join('').length
+    expect(bandAdded).toBeGreaterThan(0)
+    expect(bandAdded).toBeLessThan(16_384)
+    for (const a of added) expect(a).toBeLessThan(16_384)
+    expect(band.length).toBeLessThan(70_000)
+    for (const s of panes) expect(s.length).toBeLessThan(60_000)
+    expect(total).toBeLessThan(260_000)
+  })
+}

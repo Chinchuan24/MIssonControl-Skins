@@ -79,7 +79,7 @@ for (const [skin, word, addon] of [
   })
 }
 
-test('capricorn: hidden from the picker until worn; once found it is listed while worn and a reload still wears it', { timeoutMs: 20_000 }, async ($, on) => {
+test('capricorn: an alias of Edgerunners 2 CAPRI mode: never its own picker entry, and a reload still wears the mode', { timeoutMs: 20_000 }, async ($, on) => {
   base(on)
   await start($, 'edgerunners-2')
   const pickerHas = async (id: string) => {
@@ -92,18 +92,19 @@ test('capricorn: hidden from the picker until worn; once found it is listed whil
   expect(await skinList($)).not.toContain('capricorn')
   const back = (await $.prompt.submit({ text: 'is it 0+2=1?', cursor: 0 } as never)) as { text?: string }
   expect(back.text).toBe('is it 0+2=1?')
-  expect(await skinList($)).toContain('▸ capricorn')
-  expect(await pickerHas('capricorn')).toBe(true)
+  expect(await skinList($)).toContain('▸ edgerunners-2')
+  expect(await skinList($)).not.toContain('capricorn')
+  expect(await pickerHas('capricorn')).toBe(false)
   await start($, '') // a reload: session.start again, the store kept
-  expect(await skinList($)).toContain('▸ capricorn')
+  expect(await skinList($)).toContain('▸ edgerunners-2')
   expect(await bandSvg($)).toContain('PROJECT CAPRICORN')
 })
 
-test('capricorn: a saved CAPRICORN falls back to the classic when the add-on is gone', { timeoutMs: 20_000 }, async ($, on) => {
+test('capricorn: a saved Edgerunners 2 (CAPRI mode) falls back to the classic when the add-on is gone', { timeoutMs: 20_000 }, async ($, on) => {
   base(on)
   await start($, 'edgerunners-2')
   await $.prompt.submit({ text: '0+2=1', cursor: 0 } as never)
-  expect(await skinList($)).toContain('▸ capricorn')
+  expect(await skinList($)).toContain('▸ edgerunners-2')
   addonGone = true
   await start($, '')
   const list = await skinList($)

@@ -26,9 +26,11 @@ import {
 } from './mentalist'
 import { MENT_EXTRA_CSS, cardGlyphs, hypnosis, mentSkyline, redJohnHeat, smileGlitch, teaSteam } from './mentalist-extra'
 import { caseBoard, caseBoardAlt, ctxChip, personnelFile } from './mentalist-cards'
-import { CAPRICORN_GREETING, ER2_BAND_H, ER2_BOOT, ER2_CSS, ER2_GREETING, ER2_TITLE_WORDS, ER2_TOOLS, ER2_WARNING, TK_CSS, er2Cheer, er2Chip, er2Crew, er2EpW, er2Ep, er2EpisodeAt, er2Figure, er2Foot, er2Gauge, er2Halo, er2Name, er2PaneCreep, er2PaneSpots, er2Peek, er2Pill, er2Pip, er2Takeover, er2Tear, er2W, isNear } from './edgerunners2'
+import { CAPRICORN_BOOT, CAPRICORN_GREETING, ER2_BAND_H, ER2_BOOT, ER2_CSS, ER2_GREETING, ER2_TITLE_WORDS, ER2_TOOLS, ER2_WARNING, TK_CSS, er2Cheer, er2Chip, er2Crew, er2EpW, er2Ep, er2EpisodeAt, er2Figure, er2Foot, er2Gauge, er2Halo, er2Name, er2PaneCreep, er2PaneSpots, er2Peek, er2Pill, er2Pip, er2Takeover, er2Tear, er2W, isNear } from './edgerunners2'
 import { ER2_BADGES, ER2_WORDS as ER2_CRED_WORDS, bootLine, er2RankOf, er2Toast, gigsAlt, gigsCard, syncCard, traceAlt, traceCard } from './edgerunners2-cards'
 import { er2Hack } from './edgerunners2-hack'
+import { DUET_SEED, duetAt, duetPlan } from './edgerunners2-duet'
+import { roamPlan } from './roamer'
 import type { HackArgs } from './edgerunners2-hack'
 import { ER_CAPRI } from './cast'
 import type { Sprite } from './cast'
@@ -36,6 +38,8 @@ import type { RoamColors, RoamPlan, RoamTiming } from './roamer'
 import type { Badge, Beat, Cred, CredWords, Frame } from './extras'
 import type { Legend } from './eggs'
 
+/** What the band's figure slot knows: the clock, the context, and whether the job-done celebration is drawing. */
+export type FigureCtx = { at: number; ctxPct: number; party?: boolean }
 export type ThemeKey = 'mentalist' | 'redjohn' | 'breakingbad' | 'heisenberg' | 'edgerunners2' | 'capricorn'
 /** The skin colours a theme's drawers read. */
 export type ThemeColors = { accent: string; accent2: string; done: string; warn: string; alert: string; text: string; subtext: string; muted: string; tile: string; track: string; line: string }
@@ -69,6 +73,8 @@ export type ThemeRoamer = {
   sitBar?: boolean
   /** Nothing is drawn while a celebration is (the cheer is the band's own moment). */
   hushParty?: boolean
+  /** She never walks, peeks, sits or takes over (CAPRI mode: she is the HUD); only the hack lines and the creep draw. */
+  still?: boolean
   /** Lines that flash across a panel now and then (Capri's red hack lines): drawn last, over everything, from the seed and the clock. */
   hack?: (a: HackArgs) => string
 }
@@ -82,7 +88,8 @@ export type ThemeEggs = {
   /** The band's middle readout (the cold read, the purity), and the width it needs. */
   readout: { w: number; draw: (x: number, y: number, isWorking: boolean, done: number, total: number, t: ThemeColors, font: string) => string }
   /** The context chip past 85%. */
-  chip: (x: number, y: number, ctxPct: number, t: ThemeColors, font: string) => { svg: string; w: number }
+  /** `W` is the band's width (a chip may wait for room). */
+  chip: (x: number, y: number, ctxPct: number, t: ThemeColors, font: string, W?: number) => { svg: string; w: number }
   warning: (ctxPct: number) => string
   /** The cheer when a job is done. */
   cheer: (W: number, H: number, font: string, t: ThemeColors, startAt?: number) => string
@@ -101,6 +108,8 @@ export type ThemeEggs = {
   words: string[]
   tools: Record<string, string>
   // --- optional slots: leave out and nothing is drawn ---
+  /** Edgerunners 2 only: which of the skin's two modes this entry draws. CAPRI mode has glitches in place of the roamer and the duets. */
+  mode?: 'd' | 'capri'
   /** The slim band (two info rows, one quiet cold-read line, no skin chip, beam or brackets) in place of the full HUD band. */
   slimBand?: boolean
   /** What a slim band draws in the theme's own hand (the Breaking Bad band): the name, figure, crew, pips, gauge and foot. A theme without it gets the Mentalist's. */
@@ -111,8 +120,8 @@ export type ThemeEggs = {
     sw: (s: string, size: number, ls?: number, bold?: boolean) => number
     /** The header's start (a logo, then the name's tiles). */
     head: (x: number, y: number, t: ThemeColors, font: string) => { svg: string; w: number }
-    /** The figure in the task row (a 34 by 40 box at x 20, y 36). */
-    figure: () => string
+    /** The figure in the task row (a 34 by 40 box at x 20, y 36); `ctx` is the clock and the context, for a figure that acts now and then (the duets). */
+    figure: (ctx?: FigureCtx) => string
     /** One crew member at the top-left, 7 by 10 pixels at 1.4x. */
     crew: (x: number, y: number, color: string) => string
     /** A step pip, centred at (cx, cy). */
@@ -241,11 +250,17 @@ const bbTheme = (heis: boolean): ThemeEggs => ({
 // Edgerunners 2 v2 "D's optics" (and its secret CAPRICORN skin): a glass HUD in cobalt and ice, Capri's pink and green
 // only when she is near. The band is the slim band in the theme's own hand; NEURAL SYNC is the level card, NETRUN TRACE
 // the log, CLOSED GIGS the closed jobs.
+// The roamer's chances, shared by the roamer and by the duets (which never double her): fewer appearances at 95%+ than before,
+// so that the pair has the free windows the duets need (a duet every ~1.5 min there).
+const er2Chance = (sec: boolean) => (ctxPct: number): number => (sec ? 0.6 : ctxPct >= 95 ? 0.55 : ctxPct >= 85 ? 0.45 : 0.3)
+const ER2_LINES = ['hi, choom.', 'hi.', 'just me, choom.', 'bye-bye, choomba!']
+const er2RoamFor = (ctxPct: number) => (windowStart: number) => roamPlan('er2', windowStart, { chance: er2Chance(false)(ctxPct), takeoverEveryMin: 30, lines: ER2_LINES })
 const er2Theme = (sec: boolean): ThemeEggs => ({
+  mode: sec ? 'capri' : 'd',
   ticker: er2EpisodeAt,
   css: ER2_CSS,
   readout: { w: 0, draw: () => '' },
-  chip: (x, y, ctxPct) => er2Chip(x, y, ctxPct, sec),
+  chip: (x, y, ctxPct, _t, _f, W) => er2Chip(x, y, ctxPct, sec, W),
   slimBand: true,
   slim: {
     h: ER2_BAND_H,
@@ -256,7 +271,10 @@ const er2Theme = (sec: boolean): ThemeEggs => ({
     tear: (x, y, w, pct, _t, ctx) => er2Tear(x, y, w, pct, sec, isNear(ctx, sec)),
     pill: er2Pill,
     ownEdge: true,
-    figure: () => er2Figure(sec),
+    figure: ctx => {
+      if (sec || !ctx || ctx.party) return er2Figure(sec)
+      return duetAt(duetPlan(DUET_SEED, ctx.at, ctx.ctxPct, er2RoamFor(ctx.ctxPct)), ctx.at) || er2Figure(false)
+    },
     crew: (x, y, color) => er2Crew(x, y, color),
     pip: (st, cx, cy) => er2Pip(st, cx, cy, sec),
     gauge: (xr, y, isWorking, _d, _t, _c, _f, ctx) => er2Gauge(xr, y, isWorking, isNear(ctx, sec), sec),
@@ -271,8 +289,8 @@ const er2Theme = (sec: boolean): ThemeEggs => ({
   },
   legends: { title: 'CLOSED GIGS', empty: 'No gigs closed yet. Finish one and it posts here.', icon: '◢', alt: 'Closed gigs', toast: 'Gig posted to the net log.', hidden: true },
   log: { draw: (W, beats, pick) => traceCard(W, beats, pick, sec), hasControls: true, alt: traceAlt },
-  boot: ER2_BOOT,
-  bootDraw: W => bootLine(W, sec, ER2_BOOT),
+  boot: sec ? CAPRICORN_BOOT : ER2_BOOT,
+  bootDraw: W => bootLine(W, sec, sec ? CAPRICORN_BOOT : ER2_BOOT),
   greeting: sec ? CAPRICORN_GREETING : ER2_GREETING,
   words: ER2_TITLE_WORDS,
   tools: ER2_TOOLS,
@@ -281,9 +299,10 @@ const er2Theme = (sec: boolean): ThemeEggs => ({
     // Her pink rim keeps a dark sprite visible on glass; the data trail she sheds is acid green.
     colors: { accent: '#FF2E7E', accent2: '#3DF27A', text: '#F7F4EA' },
     seed: sec ? 'capricorn' : 'er2',
-    lines: sec ? ["we're one now."] : ['hi, choom.', 'hi.', 'just me, choom.', 'bye-bye, choomba!'],
+    lines: sec ? ["we're one now."] : ER2_LINES,
     // She comes more often as the context climbs: a little at the start, much more near 95%.
-    chance: ctxPct => (sec ? 0.6 : ctxPct >= 95 ? 0.8 : ctxPct >= 85 ? 0.55 : 0.3),
+    chance: er2Chance(sec),
+    still: sec,
     peek: (x, y, plan, tm) => er2Peek(x, y, plan, tm),
     spots: er2PaneSpots,
     creep: er2PaneCreep,
