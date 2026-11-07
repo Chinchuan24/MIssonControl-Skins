@@ -8,8 +8,10 @@ import type { CyberEgg, Egg, Legend } from './eggs'
 import { TYGER_RE } from './mentalist'
 import { BB_SKIN_WORDS, BB_TOOLS, SAY_MY_NAME_RE } from './breakingbad'
 import { THEMES, themeKeyOf } from './themes'
-import { CAPRICORN_RE, ER2_FONT, ER2_TOOLS, ER2_WORDS, HI_CAPRI_MS, HI_CAPRI_RE } from './edgerunners2'
-import { hackInto, overlayInto, roamOnBand, roamOverlay, takeoverWithin } from './overlay'
+import { BYE_CAPRI_RE, CAPRICORN_RE, CAPRI_WORD_RE, ER2_FONT, ER2_TOOLS, ER2_WORDS } from './edgerunners2'
+import { CAPRI_MODE, ER2_MODE_DEFAULT } from './edgerunners2-duet'
+import type { Er2Mode, Er2ModeName } from './edgerunners2-duet'
+import { glitchPanel, hackInto, overlayInto, roamOnBand, roamOverlay, transitionInto, transitionLayer } from './overlay'
 import type { ThemeCtx, ThemeEggs } from './themes'
 import { canNudge, nudge, pickQuiet, prBadge, quietOf, rememberTask, repoAndBranch, rescueText, retryOnHaiku, whatIf, whatIfText, whatIfTip } from './coach'
 import { flatSmiley, serifClip, serifW } from './mentalist-cards'
@@ -1230,6 +1232,7 @@ async function refreshEnvNow($: EngineInterface, isBaseline: boolean): Promise<v
   })
   const was = await read($, env)
   if (!isSame(fresh(was), was)) await update($, env, fresh)
+  await er2ContextRule($, Math.max(0, Math.min(100, Math.round(pct)))).catch(() => undefined)
   const cost = usage?.cost?.usd
   if (isBaseline || typeof cost !== 'number') return
   // The ledger starts over at /clear: after a drop, the whole new total is new spend.
@@ -1840,6 +1843,17 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
 }
 
 const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.id)
+// Edgerunners 2 is one skin with two modes, D and CAPRI, that switch in place. `since` is the wall-clock ms of the last switch (it
+// pins the possession transition, and is 0 after a restart: no replay); `auto` is true when the context rule did it. The store
+// keeps the mode across restarts (mirrored here to redraw); `ER2` is the same state for the drawers, kept in step by `useSkin`.
+const er2Mode = atom({ plugin: 'crab-progress', key: 'er2Mode' } as const, 'd|0|0')
+// The atom holds `mode|since|auto` as one string (a plain type keeps the plugin's state contract shallow).
+const er2Pack = (m: Er2Mode): string => `${m.mode}|${m.since}|${m.auto ? 1 : 0}`
+const er2Unpack = (s: string): Er2Mode => {
+  const [mode, since, auto] = s.split('|')
+  return { mode: mode === 'capri' ? 'capri' : 'd', since: Number(since) || 0, auto: auto === '1' }
+}
+let ER2: Er2Mode = ER2_MODE_DEFAULT
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
 const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, crewAlways: false, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, ultraBy: 'me' as UltraBy, dailyUsd: 0, autopilot: false, keepWarm: false, budgetUsd: 0, tkOn: true, tkJobMin: 60, tkAgentMin: 20, ramLimit: 'auto', maxAgents: 0, killSwitch: 'on' })
 // Machine Guard (hooks/machineguard.ts): what the Settings pane and the band draw. Written only when it changes.
@@ -2148,6 +2162,19 @@ async function loadSkins($: EngineInterface): Promise<{ folder: string; loaded: 
 }
 
 function applySkin(k: Skin): void {
+  // The hidden CAPRICORN id is an alias: Edgerunners 2 in CAPRI mode, the palette of the mode below.
+  if (k.id === 'capricorn') k = EDGERUNNERS2_SKIN
+  if (k.id === 'edgerunners-2' && ER2.mode === 'capri') {
+    k = {
+      ...k,
+      cast: 'capricorn',
+      colors: { ...CAPRI_MODE.colors },
+      boss: [...CAPRI_MODE.boss],
+      roles: [...CAPRI_MODE.roles],
+      backdrop: { ...CAPRI_MODE.backdrop },
+      words: [...ER2_WORDS, "We're one now"],
+    }
+  }
   SKIN = k
   ACCENT = k.colors.accent
   DONE = k.colors.done
@@ -2214,9 +2241,51 @@ async function retitle($: EngineInterface): Promise<void> {
 
 // Every drawing calls this first: it follows the skin atom, so a switch redraws all.
 async function useSkin($: EngineInterface): Promise<Skin> {
-  const id = await read($, skin)
-  if (id !== SKIN.id) applySkin(SKINS.get(id) ?? CRAB_SKIN)
+  let id = await read($, skin)
+  // A saved CAPRICORN is Edgerunners 2 in CAPRI mode.
+  if (id === 'capricorn') {
+    id = 'edgerunners-2'
+    ER2 = { mode: 'capri', since: 0, auto: false }
+    await $.store.set('skin', id).catch(() => undefined)
+    await $.store.set('er2Mode', { mode: 'capri', auto: false }).catch(() => undefined)
+    await update($, er2Mode, () => er2Pack(ER2))
+    await update($, skin, () => id)
+  }
+  const m = er2Unpack(await read($, er2Mode))
+  if (id !== SKIN.id || m.mode !== ER2.mode || m.since !== ER2.since) {
+    ER2 = m
+    applySkin(SKINS.get(id) ?? CRAB_SKIN)
+  }
   return SKIN
+}
+
+// The mode, and who changed it. The store keeps the mode across restarts (`since` and the transition do not come back).
+// Switching writes the new state, redraws in the mode's palette and starts the possession transition (it pins to `since`).
+async function setEr2Mode($: EngineInterface, mode: Er2ModeName, auto: boolean): Promise<boolean> {
+  if (ER2.mode === mode) return false
+  const now = await $.clock.now().catch(() => Date.now())
+  ER2 = { mode, since: now, auto }
+  if (mode === 'd') er2Dismissed = er2Ctx >= 95
+  await $.store.set('er2Mode', { mode, auto }).catch(() => undefined)
+  await update($, er2Mode, () => er2Pack(ER2))
+  if (SKIN.id === 'edgerunners-2') applySkin(EDGERUNNERS2_SKIN)
+  if (mode === 'capri') {
+    if (auto) await bumpCred($, c => (c.samurai ? c : { ...c, samurai: true, xp: c.xp + 50 }), true).catch(() => false)
+    else await foundSecret($, CAPRICORN_SKIN).catch(() => undefined)
+  }
+  return true
+}
+
+// The context rule: 95% and over lets Capri in by herself; she leaves again below 85% (only if she came by herself). A user who
+// sends her back while the context is still 95% or more is not argued with until it has dropped and climbed again.
+let er2Ctx = 0
+let er2Dismissed = false
+async function er2ContextRule($: EngineInterface, ctx: number): Promise<void> {
+  er2Ctx = ctx
+  if (ctx < 95) er2Dismissed = false
+  if (SKIN.id !== 'edgerunners-2') return
+  if (ER2.mode === 'd' && ctx >= 95 && !er2Dismissed) await setEr2Mode($, 'capri', true)
+  else if (ER2.mode === 'capri' && ER2.auto && ctx < 85) await setEr2Mode($, 'd', false)
 }
 
 // ---------------------------------------------------------------------------
@@ -5368,6 +5437,29 @@ ${label(y3, 'COST')}
 // info rows; nothing decorative (no skin chip, beam or brackets), the hidden smiley in a corner of its own.
 const SLIM_H = 132
 const slimHeight = (): number => themeOf()?.slim?.h ?? SLIM_H
+// Edgerunners 2's modes on the pane: each card's drawing gets the whole-panel glitch (CAPRI mode; one per card, the cascade
+// starting at the first) and, for 2 s after a switch, the possession transition (the first five cards, a cascade 60 ms apart;
+// the lower ones lean). A card with a set width (a chip) is left alone. The size budget is held by the lean cards.
+const TRANSITION_CARDS = 5
+const GLITCH_CARDS = 9
+const modeTree = <T,>(tree: T, th: ThemeEggs | undefined, at: number, ctxPct: number, party: boolean): T => {
+  if (!th?.mode) return tree
+  let i = 0
+  const walk = (x: unknown): unknown => {
+    if (Array.isArray(x)) return x.map(walk)
+    if (!x || typeof x !== 'object') return x
+    const n = x as { type?: unknown; props?: Record<string, unknown>; children?: unknown }
+    if (n.type === 'Svg' && typeof n.props?.source === 'string') {
+      if (n.props.width !== undefined) return n
+      const idx = i++
+      let src = idx < GLITCH_CARDS ? glitchPanel(n.props.source, th, { at, ctxPct, party, i: idx }) : n.props.source
+      if (idx < TRANSITION_CARDS) src = transitionInto(src, th, { since: ER2.since, now: at, i: idx, lean: idx > 1, party })
+      return { ...n, props: { ...n.props, source: src } }
+    }
+    return Array.isArray(n.children) ? { ...n, children: n.children.map(walk) } : n
+  }
+  return walk(tree) as T
+}
 /** `fg` lightened toward white until it has `min`:1 contrast on `bg` (unchanged when it already has). */
 const liftContrast = (fg: string, bg: string, min = 4.5): string => {
   const m = /^#([0-9a-f]{6})$/i.exec(fg)
@@ -5415,8 +5507,9 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   const own = sl?.name?.(x0, y, W, c, FONT, tctx)
   s.push(own ? own.svg : Lb(nx, y, 'MISSION CONTROL', 'start', c.accent2).replace('letter-spacing=".8"', 'letter-spacing="1.6"'))
   let hx = own ? x0 + own.w + 14 : nx + sw('MISSION CONTROL', 9.5, 1.6, true) + 16
-  const chip = th.chip(hx, y, d.ctxPct, c, FONT)
+  const chip = th.chip(hx, y, d.ctxPct, c, FONT, W)
   s.push(chip.svg)
+  const chipX = hx
   if (chip.w) hx += chip.w + 16
   const smallChip = (x: number, label: string, tip: string, live: boolean) => {
     const w = Math.round(sw(label, 9.5, 0.8, true) + 14)
@@ -5469,7 +5562,7 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   if (cold && crRight - baseEnd > 220) s.push(`<text x="${r2(crRight)}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11.5" font-style="italic" fill="${c.muted}">${xml(serifClip(`“${cold}”`, 11.5, crRight - baseEnd))}</text>`)
   s.push(`<line x1="14" y1="32.5" x2="${W - 14}" y2="32.5" stroke="${c.line}"/>`)
   // ---- task row
-  const fig = sl ? sl.figure() : `${crab(14, 38, 'boss', false, d.isWorking, 1.05)}${crown(14, 38, 1.05)}`
+  const fig = sl ? sl.figure({ at: d.at, ctxPct: d.ctxPct, party: d.isParty }) : `${crab(14, 38, 'boss', false, d.isWorking, 1.05)}${crown(14, 38, 1.05)}`
   s.push(dancing(fig, d.isParty))
   const tx = 64
   // Below 1100 px the three readouts shrink to short labels and values (no bars), so they stay on screen.
@@ -5627,8 +5720,11 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   const roam = th.roamer
     ? roamOverlay(th, { W, H, surface: 'band', at: d.at, ctxPct: d.ctxPct, party: d.isParty, spots: { ...(showEp && sl?.ep ? { peek: { x: epLeft, y: 22 } } : {}), ...(th.roamer.bandSpots?.(W, H) ?? {}), ...((sl?.tear || th.roamer.sitBar) && segs > 0 ? { sit: { x: tx + ((segs * 6 - 2) * (pct ?? 0)) / 100, y: sl?.tear ? 64 : gy } } : {}) } })
     : ''
-  const body = `${s.join('\n')}${d.isParty ? th.cheer(W, H, FONT, c, d.partyAt) : ''}${d.isParty && th.roamer?.hushParty ? '' : roam}`
-  return svg(W, H, body)
+  // After a switch of Edgerunners 2's mode the possession transition plays over the band (2 s, pinned to the switch), and in
+  // CAPRI mode a glitch now and then takes the whole panel (CSS on one root group).
+  const trLayer = transitionLayer(th, { W, H, surface: 'band', since: ER2.since, now: d.at, party: d.isParty, ...(chip.w ? { chip: { x: chipX, y: y - 11.5, w: chip.w, h: 16 } } : {}) })
+  const body = `${s.join('\n')}${d.isParty ? th.cheer(W, H, FONT, c, d.partyAt) : ''}${d.isParty && th.roamer?.hushParty ? '' : roam}${trLayer}`
+  return glitchPanel(svg(W, H, body), th, { at: d.at, ctxPct: d.ctxPct, party: d.isParty })
 }
 
 const hudBandSvg = (OW: number, d: HudData): string => {
@@ -6536,11 +6632,19 @@ export const register: Register = (on, options) => {
     await loadSkins($)
     await checkAddon($)
     const chosen = await $.store.get('skin').catch(() => undefined)
-    const worn = typeof chosen === 'string' ? SKINS.get(chosen) : undefined
+    // The mode comes back from the store (not its transition: `since` starts at 0). A saved CAPRICORN is CAPRI mode.
+    const savedMode = await $.store.get('er2Mode').catch(() => undefined)
+    const wasCapri = chosen === 'capricorn' || (typeof savedMode === 'object' && savedMode !== null && (savedMode as { mode?: unknown }).mode === 'capri')
+    ER2 = { mode: wasCapri ? 'capri' : 'd', since: 0, auto: wasCapri && Boolean((savedMode as { auto?: unknown } | undefined)?.auto) }
+    er2Dismissed = false
+    await update($, er2Mode, () => er2Pack(ER2))
+    const worn = typeof chosen === 'string' ? SKINS.get(chosen === 'capricorn' ? 'edgerunners-2' : chosen) : undefined
     // A cyberpunk skin saved before the add-on was removed falls back to the classic.
     if (worn && canWear(worn)) {
       applySkin(worn)
+      if (chosen === 'capricorn') await $.store.set('skin', worn.id).catch(() => undefined)
       await update($, skin, () => worn.id)
+      await er2ContextRule($, er2Ctx).catch(() => undefined)
     } else if (worn) {
       applySkin(CRAB_SKIN)
       await update($, skin, () => CRAB_SKIN.id)
@@ -7230,7 +7334,7 @@ export const register: Register = (on, options) => {
     if (isPicture && 'Svg' in ui) {
       const { Svg } = ui
       // Each card keeps its source while it reads the same: no new image, no restart.
-      const keep = <T,>(tree: T): T => steadyTree(tree, `pane:${e.surface}`, clockNow)
+      const keep = <T,>(tree: T): T => steadyTree(modeTree(tree, themeOf(), clockNow, info.contextPct, (boss.celebrateUntil ?? 0) > clockNow), `pane:${e.surface}`, clockNow)
       // Drawn wider than the pane's columns suggest, then shrunk to the pane by the app:
       // the cards fill it edge to edge instead of leaving a dark strip at the right.
       const W = Math.max(240, Math.min(1100, Math.round((e.props.bodyColumns || 40) * 10) - 8))
@@ -7322,11 +7426,12 @@ export const register: Register = (on, options) => {
               />
             </Box>
             {egg ? (
-              <Box key="cred" marginBottom={1}>
+              <Box key="cred" marginBottom={1} flexDirection="column">
                 <Svg
                   source={th ? ((src: string) => (th.roamer ? overlayInto(src, th, { at: clockNow, ctxPct: info.contextPct, party: (boss.celebrateUntil ?? 0) > clockNow }) : src))(th.cred.card ? th.cred.card(W, streetCred, SKIN.colors, FONT, cardShape) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, th.cred.title, '', th.cred.ranks, th.cred.words)) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
                   alt={`Level ${levelOf(streetCred.xp)} ${(th ? th.cred.ranks : egg === 'samurai' ? rockerRankOf : rankOf)(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
                 />
+                {th?.mode ? <Button key="er2-mode" label={th.mode === 'capri' ? '⇄\uFE0E Back to D' : '⇄\uFE0E Let Capri in'} plain onPress={async () => { await setEr2Mode($, th.mode === 'capri' ? 'd' : 'capri', false) }} /> : null}
               </Box>
             ) : null}
             <Box key="workflow" marginBottom={1}>
@@ -7760,20 +7865,15 @@ export const register: Register = (on, options) => {
         await foundSecret($, found).catch(() => undefined)
       }
     }
-    // Edgerunners 2's secret skin: the third episode's title anywhere in a prompt, or "hi capri" within a minute of one of her
-    // takeovers (the plan is a pure function of the clock, so no memory of what was drawn is needed). The title again takes it off.
-    if (asked && (SKIN.id === 'edgerunners-2' || SKIN.id === 'capricorn')) {
-      const now = await $.clock.now().catch(() => 0)
-      const th = themeOf()
-      const toSecret = SKIN.id === 'edgerunners-2' && (CAPRICORN_RE.test(asked) || (HI_CAPRI_RE.test(asked) && Boolean(th) && takeoverWithin(th as ThemeEggs, now, HI_CAPRI_MS)))
-      const found = toSecret ? SKINS.get('capricorn') : SKIN.id === 'capricorn' && CAPRICORN_RE.test(asked) ? SKINS.get('edgerunners-2') : undefined
-      if (found) {
-        applySkin(found)
-        await $.store.set('skin', found.id).catch(() => undefined)
-        await update($, skin, () => found.id)
-        await retitle($).catch(() => undefined)
-        if (toSecret) await foundSecret($, found).catch(() => undefined)
-      }
+    // Edgerunners 2's two modes (the prompt goes on unchanged): "bye capri" sends her back to D (checked first); the whole word
+    // "capri" in any case, or the third episode's title "0+2=1" (which toggles), lets her in.
+    if (asked && SKIN.id === 'edgerunners-2') {
+      const to: Er2ModeName | undefined = BYE_CAPRI_RE.test(asked)
+        ? 'd'
+        : CAPRICORN_RE.test(asked)
+          ? ER2.mode === 'capri' ? 'd' : 'capri'
+          : CAPRI_WORD_RE.test(asked) ? 'capri' : undefined
+      if (to) await setEr2Mode($, to, false).catch(() => false)
     }
     if (asked) await startJob($, asked)
     // A turn Claude starts on its own (a report to answer, a schedule, a peer) is work
@@ -7864,6 +7964,7 @@ export const register: Register = (on, options) => {
       await $.store.set('skin', k.id).catch(() => undefined)
       await update($, skin, () => k.id)
       await retitle($)
+      await er2ContextRule($, er2Ctx).catch(() => undefined)
     }
     const skins = [...SKINS.values()].filter(k => canWear(k) && (!k.hidden || k.id === active.id))
     if (e.surface === 'desktop' && 'Svg' in ui) {
@@ -8304,10 +8405,18 @@ export const register: Register = (on, options) => {
     const k = arg === 'off' || arg === 'none' ? SKINS.get(DEFAULT_SKIN.id) : skinByWord(arg)
     if (!k) return { text: `No skin "${arg}".\n${listing()}` }
     if (!canWear(k)) return { text: `${k.hidden ? `No skin "${arg}".` : `${k.name} comes with the Cyberpunk Skins add-on.`}\n${ADDON_PITCH}` }
-    applySkin(k)
-    await $.store.set('skin', k.id)
-    await update($, skin, () => k.id)
+    // CAPRICORN is Edgerunners 2 in CAPRI mode: wear the one skin and let her in (the possession transition plays).
+    const isCapricorn = k.id === 'capricorn'
+    const worn = isCapricorn ? (SKINS.get('edgerunners-2') as Skin) : k
+    applySkin(worn)
+    await $.store.set('skin', worn.id)
+    await update($, skin, () => worn.id)
     await retitle($)
+    await er2ContextRule($, er2Ctx).catch(() => undefined)
+    if (isCapricorn) {
+      if (!(await setEr2Mode($, 'capri', false))) await foundSecret($, CAPRICORN_SKIN).catch(() => undefined)
+      return { text: `Skin: ${worn.name} (CAPRI mode).` }
+    }
     if (k.hidden) await foundSecret($, k)
     return { text: `Skin: ${k.name}.` }
   })

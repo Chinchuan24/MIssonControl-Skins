@@ -34,6 +34,7 @@ const band = async ($: Engine, skin: string, W: number): Promise<string> => {
   await $.session.start({ source: 'startup', cwd: '/repo', surface: 'desktop', isInteractive: true } as never)
   if (skin === 'heisenberg') await $.command.run({ command: 'skin', args: 'heisenberg' } as never)
   await $.prompt.submit({ text: 'crack the case', cursor: 0 } as never)
+  // @ts-ignore TS2589: the plugin's tool-name types are deep; the same call is already ignored in the other tests' budget
   await $.tool.call({ tool: 'mcp__crab-progress__progress', title: 'Red-herring audit', total: 5, done: 1, phase: 'delegate', tasks: [{ title: 'Lead: run the case', tier: 'fable' }, { title: 'Researcher: map the API', tier: 'medium' }, { title: 'Engineer: wire the parser', tier: 'careful' }] } as never)
   for (const [i, d] of ['Lead: run the case', 'Researcher: map the API', 'Engineer: wire the parser'].entries()) await $.agent.spawn({ tool_use_id: `t${i}`, prompt: 'p', description: d, subagentType: 'general-purpose', provider: 'engine', parentModel: 'x', background: false, fork: false } as never)
   const ui = await $.ui.mount({ plugin: 'crab-progress', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND, bodyColumns: COLS[W] } as never })

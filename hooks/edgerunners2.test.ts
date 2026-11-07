@@ -3,13 +3,13 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import { CASTS } from './cast'
 import * as cast from './cast'
-import { CAPRICORN_RE, ER2_CSS, ER2_EPISODES, HI_CAPRI_RE, TK_CSS, er2EpisodeAt, er2Takeover, er2W, mw } from './edgerunners2'
+import { CAPRICORN_RE, CAPRI_WORD_RE, ER2_CSS, ER2_EPISODES, TK_CSS, er2EpisodeAt, er2Takeover, er2W, mw } from './edgerunners2'
 import { CARD_BUDGET, CARD_CSS, ER2_BADGES, er2RankOf, gigsCard, syncCard, syncPct, traceCard } from './edgerunners2-cards'
 import { BLANK_CRED, levelOf } from './extras'
 import type { Beat } from './extras'
 import { HACK_AHEAD_MS, HACK_CSS, HACK_MIN_GAP_S, LINE_MAX_S, er2Hack, hackChance, hackLive, hackPlan } from './edgerunners2-hack'
 import type { HackCard, HackSurface } from './edgerunners2-hack'
-import { roamOptsOf, roamOverlay, takeoverWithin } from './overlay'
+import { roamOptsOf, roamOverlay } from './overlay'
 import { roamPlan } from './roamer'
 import { THEMES } from './themes'
 
@@ -29,8 +29,9 @@ const findAt = (kind: string | null, ctx: number, from = BASE): number => {
   throw new Error(`no ${kind}`)
 }
 
+let clockRef: ReturnType<typeof mock.clock> | undefined
 const base = (on: On, now: number, o: { ctx?: number; addon?: boolean } = {}) => {
-  mock.clock(on, { now })
+  clockRef = mock.clock(on, { now })
   mock.env(on, { LANG: 'en_US.UTF-8' })
   mock.store(on)
   on('fs.exists', async (_$, e) => ({ value: (o.addon ?? true) && /addons[\\/]cyberpunk[\\/]addon\.json$/.test(String((e as { path: string }).path)) }) as never)
@@ -99,7 +100,10 @@ for (const [ctx, word, other] of [[88, 'CHIP HOT', "CAPRI'S AWAKE"], [96, "CAPRI
   test(`edgerunners-2 at ${ctx}%: ${word}${ctx >= 95 ? ' and the possessed HUD' : ''}`, async ($, on) => {
     base(on, findAt(null, ctx), { ctx })
     await start($, 'edgerunners-2')
+    // From 95% she lets herself in (CAPRI mode); sent back to D at 96% the possessed D HUD (CAPRI'S AWAKE) shows.
+    if (ctx >= 95) await $.prompt.submit({ text: 'bye capri', cursor: 0 } as never)
     await job($)
+    await clockRef?.advance(3000)
     const bandSvg = (await svgs($, 'AbovePrompt')).join('')
     expect(bandSvg).toContain(word)
     expect(bandSvg).not.toContain(other)
@@ -253,24 +257,19 @@ test('capricorn: hidden until worn; "0+2=1" unlocks it and again takes it off; t
   await $.prompt.submit({ text: 'again: 0+2=1', cursor: 0 } as never)
   expect((await svgs($, 'AbovePrompt')).join('')).toContain('SNAKE NATION')
 })
-test('capricorn: "hi capri" within 60 s of a takeover unlocks it; later or without one it does not', async ($, on) => {
-  const t0 = findAt('takeover', 0)
-  const start0 = roamPlan(roamer.seed, t0, roamOptsOf(roamer, 0)).startAt
-  expect(HI_CAPRI_RE.test('Hi, Capri!')).toBe(true)
-  expect(takeoverWithin(th, start0 + 20_000, 60_000)).toBe(true)
-  expect(takeoverWithin(th, start0 + 80_000, 60_000)).toBe(false)
-  base(on, start0 + 20_000)
+test('modes: the whole word "capri" (any case) in a prompt lets her in; "capricorn" or a longer word does not; the prompt is unchanged', async ($, on) => {
+  base(on, findAt(null, 10))
   await start($, 'edgerunners-2')
-  await $.prompt.submit({ text: 'hi capri!', cursor: 0 } as never)
-  expect((await svgs($, 'AbovePrompt')).join('')).toContain('PROJECT CAPRICORN')
-})
-test('capricorn: "hi capri" with no takeover near does nothing', async ($, on) => {
-  base(on, findAt(null, 0, BASE + 3 * 3_600_000))
-  const now = findAt(null, 0, BASE + 3 * 3_600_000)
-  if (takeoverWithin(th, now, 60_000)) return
-  await start($, 'edgerunners-2')
-  await $.prompt.submit({ text: 'hi capri', cursor: 0 } as never)
-  expect((await svgs($, 'AbovePrompt')).join('')).toContain('SNAKE NATION')
+  for (const word of ['please capricorn the module', 'capriccio in C', 'scapring along']) {
+    const back = (await $.prompt.submit({ text: word, cursor: 0 } as never)) as { text?: string }
+    expect(back.text).toBe(word)
+    expect((await svgs($, 'AbovePrompt')).join('')).not.toContain('CAPRI IN CONTROL')
+  }
+  expect(CAPRI_WORD_RE.test('Hi, Capri!')).toBe(true)
+  expect(CAPRI_WORD_RE.test('capricorn')).toBe(false)
+  const back = (await $.prompt.submit({ text: 'Say HI to CAPRI!', cursor: 0 } as never)) as { text?: string }
+  expect(back.text).toBe('Say HI to CAPRI!')
+  expect((await svgs($, 'AbovePrompt')).join('')).toContain('CAPRI IN CONTROL')
 })
 
 test('add-on gate: without addons/cyberpunk/addon.json edgerunners-2 is locked like the other cyber skins', async ($, on) => {
@@ -308,6 +307,7 @@ for (const skin of ['edgerunners-2', 'capricorn']) {
       base(on, findAt(null, 96), { ctx: 96 })
       await start($, skin)
       await job($)
+      await clockRef?.advance(3000) // past the possession transition (its reduced-motion note covers the readouts for 2.5 s)
       const svg = (await svgs($, 'AbovePrompt', W)).join('')
       expect(svg).toContain('Red-herring audit')
       expect(svg).toMatch(/>(CTX|CONTEXT)</)

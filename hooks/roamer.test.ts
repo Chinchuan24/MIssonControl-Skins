@@ -224,6 +224,10 @@ test('a walk flips for right to left and runs the whole width', () => {
 test('the glitch uses two ghost copies of one sprite, not three sprites', () => {
   const svg = roamerMarkup(PLACEHOLDER_AI, find('peek'), 600, 400, 'pane', colors)
   expect(count(svg, /<use /g)).toBe(2)
-  expect(count(svg, /<filter /g)).toBe(1)
+  // One silhouette filter per ghost, each with its own explicit flood colour (currentColor resolves to black on the <filter> in Chrome).
+  expect(count(svg, /<filter /g)).toBe(2)
+  expect(svg).not.toContain('currentColor')
+  expect(svg).toContain(`flood-color="${colors.accent}"`)
+  expect(svg).toContain(`flood-color="${colors.accent2}"`)
   expect(count(svg, /class="bd"/g)).toBe(1)
 })

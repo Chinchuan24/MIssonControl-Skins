@@ -59,7 +59,7 @@ export type RoamPlan = {
 }
 
 // A stable number in [0, 1) from a string: the cast's hash, then a murmur-style mix.
-const unit = (s: string): number => {
+export const unit = (s: string): number => {
   let h = hashOf(s)
   h ^= h >>> 16
   h = Math.imul(h, 0x85ebca6b)
@@ -225,14 +225,15 @@ const delayer = (startAt: number | undefined, tm: RoamTiming): ((x: number) => s
   return x => `${r2(base + x)}s`
 }
 
-// A solid silhouette of the sprite in the current colour: the offset ghost copies.
-const ghostFilter = (id: string): string => `<filter id="${id}" x="-25%" y="-10%" width="150%" height="120%"><feFlood flood-color="currentColor"/><feComposite in2="SourceAlpha" operator="in"/></filter>`
+// A solid silhouette of the sprite in one colour: the offset ghost copies. The colour is explicit: `flood-color="currentColor"`
+// resolves on the <filter> (black in Chrome), not on the <use> that points at it.
+const ghostFilter = (id: string, color: string): string => `<filter id="${id}" x="-25%" y="-10%" width="150%" height="120%"><feFlood flood-color="${color}"/><feComposite in2="SourceAlpha" operator="in"/></filter>`
 
 // The sprite once (it carries the id), and two ghost copies of it with <use>.
 const figure = (sprite: Sprite, id: string, s: number, flip: boolean, isWalking: boolean, t: RoamColors, ghostDelay: string): string => {
   const at = `style="animation-delay:${ghostDelay}"`
   const place = `${flip ? 'scale(-1,1) ' : ''}translate(${r2(-15 * s)} ${r2(-27 * s)}) scale(${r2(s)})`
-  return `<g style="filter:drop-shadow(0 0 2px ${t.accent})"><g class="rm-g1" color="${t.accent}" ${at}><use href="#${id}" filter="url(#${id}f)"/></g><g class="rm-g2" color="${t.accent2}" ${at}><use href="#${id}" filter="url(#${id}f)"/></g><g id="${id}" class="rm-sp${isWalking ? ' rm-walking' : ''}" transform="${place}">${spriteMarkup(sprite, t.accent, 30, 27)}</g></g>`
+  return `<g style="filter:drop-shadow(0 0 2px ${t.accent})"><g class="rm-g1" ${at}><use href="#${id}" filter="url(#${id}f)"/></g><g class="rm-g2" ${at}><use href="#${id}" filter="url(#${id}h)"/></g><g id="${id}" class="rm-sp${isWalking ? ' rm-walking' : ''}" transform="${place}">${spriteMarkup(sprite, t.accent, 30, 27)}</g></g>`
 }
 
 /**
@@ -249,7 +250,7 @@ export const roamerMarkup = (sprite: Sprite, plan: RoamPlan, W: number, H: numbe
   const s = r2(surface === 'band' ? Math.min(1.8, (H * 0.36) / 26) : Math.min(2.2, (H * 0.2) / 26))
   const top = s * 27 + 3
   const floor = r2(clamp(surface === 'band' ? H - 5 : H * (0.35 + 0.6 * plan.y), top, H - 2))
-  const defs = `<defs>${ghostFilter(`${id}f`)}</defs>`
+  const defs = `<defs>${ghostFilter(`${id}f`, t.accent)}${ghostFilter(`${id}h`, t.accent2)}</defs>`
   const ghostAt = dly(0)
 
   if (plan.kind === 'walk') {
@@ -307,7 +308,7 @@ export const takeoverMarkup = (W: number, H: number, sprite: Sprite, line: strin
   const typeFor = r2(clamp(0.07 * n + 0.15, 0.5, 1.3))
   const bubble = `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="3" fill="#0B1020" stroke="${t.accent}" stroke-width="1.2"/><path d="M${bx} ${r2(by + bh / 2 - 5)}l-8 5l8 5z" fill="${t.accent}"/>`
   const label = `<text x="${tx}" y="${ty}" ${mono} fill="${t.text}" xml:space="preserve">${text}</text>`
-  const defs = `<defs><radialGradient id="${id}g"><stop offset="0" stop-color="${t.accent}" stop-opacity=".5"/><stop offset="1" stop-color="${t.accent}" stop-opacity="0"/></radialGradient><pattern id="${id}n" width="3" height="3" patternUnits="userSpaceOnUse"><rect width="3" height="1" fill="${t.accent}" fill-opacity=".16"/></pattern>${ghostFilter(`${id}f`)}</defs>`
+  const defs = `<defs><radialGradient id="${id}g"><stop offset="0" stop-color="${t.accent}" stop-opacity=".5"/><stop offset="1" stop-color="${t.accent}" stop-opacity="0"/></radialGradient><pattern id="${id}n" width="3" height="3" patternUnits="userSpaceOnUse"><rect width="3" height="1" fill="${t.accent}" fill-opacity=".16"/></pattern>${ghostFilter(`${id}f`, t.accent)}${ghostFilter(`${id}h`, t.accent2)}</defs>`
   const still = `<g class="rm-tks"><rect x="${r2(cx - bw / 2)}" y="${r2(H - bh - 12)}" width="${bw}" height="${bh}" rx="3" fill="#0B1020" stroke="${t.accent}" stroke-width="1.2"/><text x="${r2(cx - tw / 2)}" y="${r2(H - 12 - bh / 2 + fs * 0.35)}" ${mono} fill="${t.text}" xml:space="preserve">${text}</text></g>`
   return `${defs}<g class="rm-tk" pointer-events="none"><g class="rm-tko" style="animation-delay:${dly(2.9)}">
 <rect class="rm-scrim" width="${W}" height="${H}" fill="#05060C" style="animation-delay:${dly(0)}"/>

@@ -253,3 +253,24 @@ export const er2Hack = (seed: string, a: HackArgs, sec: boolean): string => {
   }
   return body ? `<style>${HACK_CSS}</style><g class="hk" fill="none" stroke-width="1.5" pointer-events="none" style="filter:drop-shadow(0 0 3px #FF2E7E)">${body}</g>` : ''
 }
+
+/** How long a switch's burst lives, start to the last line gone. */
+export const BURST_LIVE_MS = 3500
+/**
+ * The burst of five red lines that fires when the skin switches mode (D to CAPRI: "CAPRI'S AWAKE"), pinned to `since`:
+ * 0.37 s apart (under 3 a second), the band takes lines 0, 2 and 4 and the first pane card lines 1 and 3. '' once over.
+ */
+export const er2HackBurst = (seed: string, a: HackArgs, since: number, sec: boolean): string => {
+  if (a.party || since <= 0 || a.at - since >= BURST_LIVE_MS || a.at < since - 1000) return ''
+  if (a.surface === 'pane' && (a.W < 200 || a.H < 40)) return ''
+  const ys = a.surface === 'band' ? bandYs(a.H) : paneYs(a.H)
+  let body = ''
+  for (let i = 0; i < 5; i++) {
+    if ((i % 2 === 0) !== (a.surface === 'band')) continue
+    const ms = since + Math.round(i * 0.37 * 1000)
+    if (ms + LINE_MAX_S * 1000 <= a.at) continue
+    body += lineOf(`${seed}|burst`, Math.floor(since / 1000), a.surface, i, ms, a.W, a.H, ys, true).svg
+  }
+  void sec
+  return body ? `<style>${HACK_CSS}</style><g class="hk" fill="none" stroke-width="1.5" pointer-events="none" style="filter:drop-shadow(0 0 3px #FF2E7E)">${body}</g>` : ''
+}
