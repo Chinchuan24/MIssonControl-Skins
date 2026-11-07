@@ -208,7 +208,9 @@ test('load: 60 agents at work for 30 s (steps, measures, tool calls) redraw at m
   expect(m.total('svgBytes') / SECONDS).toBeLessThanOrEqual(80_000)
   // Band + pane together. The cards grew (price tags, the model, the effort), so the 190 kB of 25 Oct became 200 kB;
   // the band alone stays under the engine's 131072-character limit however big the crew (6 crabs, then "+N").
-  expect(m.size).toBeLessThanOrEqual(200_000)
+  // 7 Nov: the pane is measured as it is sent (compacted), no longer raw, so it keeps more cards
+  // up to its own limit (DRAW_MAX, 220 kB): about 250 kB with the band.
+  expect(m.size).toBeLessThanOrEqual(260_000)
   expect(m.per('pane')).toBeLessThanOrEqual(3)
   expect(m.per('band')).toBeLessThanOrEqual(3)
   // A measure pushed right after a step's own reading waits for the tick.

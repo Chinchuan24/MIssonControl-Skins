@@ -18,7 +18,7 @@ import type { Beat, Cred } from './extras'
 import { ONESHOT_KEY, ULTRA_BY_KEY, ULTRA_BY_OPTIONS, ULTRA_KEY, ULTRA_TASK_HINT, cleanUltraBy, managerPicks, parseUltraBy, ultraBySaid, ultraBySection, ultraPlanToast, type UltraBy, pillChip, oneShotChipWord, cleanOneShot, cleanUltraRules, isUltraAgent, matchUltra, nextOneShot, oneShotChip, oneShotSaid, oneShotSection, oneShotWord, parseOneShot, resolveEffort, ultraCommand, ultraLine, withUltraBrief } from './crewcontrol'
 import type { OneShot } from './crewcontrol'
 import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, unifiedDiff } from './richtext'
-import { LIVE_N, glide, isNewReading, isSame, liveText, liveWidth, pin, steady, steadyTree, wallMinute } from './smooth'
+import { LIVE_N, glide, isNewReading, isSame, liveText, liveWidth, pin, sentLength, steady, steadyTree, wallMinute } from './smooth'
 import { COLOR_RE, FONT_BAD_RE, ID_RE, TOOL_KEY_RE, contrast, skinCheck, skinNew } from './skinkit'
 import { WARM_PROMPT, WARM_TAG, isWarmDue, isWarmed, warmCall, warmLimitHit } from './warm'
 import { BLANK_PICK, BLANK_SPEND, SPEND_KINDS, TODAY_PERIOD, exportSpend, isRescanDue, loadSpend, logSpendDay, monthLabel, monthOf, cleanDays, combineDays, monthsWithData, parseSpendArgs, pickSpendKind, pickSpendMonth, readSpend, setSpendPeriod, shiftMonth, spendCard, typeSpendDay } from './spend'
@@ -2173,19 +2173,27 @@ async function showPane($: EngineInterface, id: string, title: string): ReturnTy
 // What the desktop app counts against its 262,144-character limit for one drawing:
 // every text, an Svg's source and alt, each other element's prop names and string
 // values. Past the limit it draws a blank pane; DRAW_MAX leaves room for its own count.
+// `sourceLength` measures a source as it is sent: the pane sends it compacted (steady),
+// often a third shorter than drawn, so counting it raw dropped a small crew's cards.
 const DRAW_MAX = 220_000
-const drawnChars = (n: unknown): number => {
+const drawnChars = (n: unknown, sourceLength: (source: string) => number = src => src.length): number => {
   if (typeof n === 'string') return n.length
-  if (Array.isArray(n)) return n.reduce((sum: number, c) => sum + drawnChars(c), 0)
+  if (Array.isArray(n)) return n.reduce((sum: number, c) => sum + drawnChars(c, sourceLength), 0)
   if (!n || typeof n !== 'object') return 0
   const el = n as { type?: unknown; props?: Record<string, unknown>; children?: unknown }
   const props = el.props ?? {}
   const own =
     el.type === 'Svg'
-      ? String(props.source ?? '').length + String(props.alt ?? '').length
+      ? sourceLength(String(props.source ?? '')) + String(props.alt ?? '').length
       : Object.entries(props).reduce((sum, [k, v]) => (k === 'children' ? sum : sum + k.length + (typeof v === 'string' ? v.length : 0)), 0)
-  return own + drawnChars(el.children ?? props.children)
+  return own + drawnChars(el.children ?? props.children, sourceLength)
 }
+// The pane's size fallbacks, richest first, and the one it drew last. A richer one
+// than that must fit with DRAW_SLACK to spare: a pane at the edge whose size wavers by
+// a few characters (a log line, a roamer's visit) would otherwise flip between whole
+// layouts, cards to slim rows to the short view and back, redraw after redraw.
+const DRAW_SLACK = 10_000
+let paneLevel = 0
 
 // After a switch, the open panes take the new skin's tab titles.
 async function retitle($: EngineInterface): Promise<void> {
@@ -7439,20 +7447,30 @@ export const register: Register = (on, options) => {
       // then fewer cards; then the finished rows folded into one (all but the first
       // few, the opened ones and any with a card under them); at last the short view.
       const rich = orgSource(W, org)
+      // Measured as sent, each source compacted once per drawing however many fallbacks hold it.
+      const sent = new Map<string, number>()
+      const lengthOf = (src: string): number => sent.get(src) ?? sent.set(src, sentLength(src)).get(src) ?? src.length
+      const sizeOf = (v: unknown): number => drawnChars(v, lengthOf)
+      // Level `level` of the fallbacks fits: with room to spare when richer than the last drawn.
+      const fits = (level: number, size: number): boolean => size <= DRAW_MAX - (level < paneLevel ? DRAW_SLACK : 0)
+      const take = <T,>(level: number, v: T): T => {
+        paneLevel = level
+        return keep(v)
+      }
       // A crew with more slim rows than crabs can fit skips drawing them all to measure.
       const isCrowd = tree.filter(isSlim).length > MAX_CRAB_ROWS
       const view = isCrowd ? null : full(rich, tree, [])
-      if (view && drawnChars(view) <= DRAW_MAX) return keep(view)
+      if (view && fits(0, sizeOf(view))) return take(0, view)
       const lite = full(rich, tree, [], true)
-      const liteSize = drawnChars(lite)
-      if (liteSize <= DRAW_MAX) return keep(lite)
+      const liteSize = sizeOf(lite)
+      if (fits(1, liteSize)) return take(1, lite)
       const fewer = [2, 0].map(cards => full(rich, treeWith(cards), [], true))
-      const fewerSize = fewer.map(drawnChars)
-      for (const [i, v] of fewer.entries()) if ((fewerSize[i] ?? Infinity) <= DRAW_MAX) return keep(v)
+      const fewerSize = fewer.map(sizeOf)
+      for (const [i, v] of fewer.entries()) if (fits(2 + i, fewerSize[i] ?? Infinity)) return take(2 + i, v)
       const light = orgSvg(W, org, true)
-      if (liteSize - rich.length + light.length <= DRAW_MAX) return keep(full(light, tree, [], true))
+      if (fits(4, liteSize - lengthOf(rich) + lengthOf(light))) return take(4, full(light, tree, [], true))
       for (const [i, cards] of [2, 0].entries())
-        if ((fewerSize[i] ?? Infinity) - rich.length + light.length <= DRAW_MAX) return keep(full(light, treeWith(cards), [], true))
+        if (fits(5 + i, (fewerSize[i] ?? Infinity) - lengthOf(rich) + lengthOf(light))) return take(5 + i, full(light, treeWith(cards), [], true))
       const foldFinished = (rows: TreeRow[]) => {
         const fold = new Set(
           rows.flatMap((r, i) => {
@@ -7469,12 +7487,12 @@ export const register: Register = (on, options) => {
       const lean = foldFinished(treeWith(0))
       if (lean.isFolded) {
         const leanView = full(light, lean.shown, lean.done, true)
-        if (drawnChars(leanView) <= DRAW_MAX) return keep(leanView)
+        if (fits(7, sizeOf(leanView))) return take(7, leanView)
       }
       const short = compactView(rich)
-      if (drawnChars(short) <= DRAW_MAX) return keep(short)
+      if (fits(8, sizeOf(short))) return take(8, short)
       const shorter = compactView(light)
-      return keep(drawnChars(shorter) <= DRAW_MAX ? shorter : compactView(''))
+      return fits(9, sizeOf(shorter)) ? take(9, shorter) : take(10, compactView(''))
     }
 
     // Terminal: the same content in text rows.
