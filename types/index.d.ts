@@ -72,7 +72,10 @@ export type AgentRun = {
 export type Panel = {
   isCompact: boolean
   isDoneCollapsed: boolean
-  /** Finished agents the person opened again; every other finished agent shows folded. */
+  /**
+   * Agents the person opened: a finished one shows its card instead of its folded row, a
+   * running one its card instead of its slim live row. Kept in the store (paneView).
+   */
   expanded?: string[]
   autoOpenedFor: string
 }

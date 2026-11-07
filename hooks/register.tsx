@@ -2017,16 +2017,23 @@ async function billingRemove($: EngineInterface): Promise<void> {
   await update($, billing, prev => ({ ...prev, nonce: prev.nonce + 1 }))
 }
 
-// The pane's two folds, kept in the store so a reload or a new session opens the
-// list as the person left it: long by default.
+// The pane's two folds and the agents opened in it, kept in the store so a reload or a
+// new session opens the list as the person left it: long by default. An opened agent
+// that is no longer listed is dropped.
 const PANE_VIEW = 'paneView'
-const readPaneView = async ($: EngineInterface): Promise<Pick<Panel, 'isCompact' | 'isDoneCollapsed'>> => {
+type PaneView = Pick<Panel, 'isCompact' | 'isDoneCollapsed' | 'expanded'>
+const listedIds = async ($: EngineInterface): Promise<Set<string>> => new Set((await read($, agents)).map(a => a.id))
+const readPaneView = async ($: EngineInterface): Promise<PaneView> => {
   const v = (await $.store.get(PANE_VIEW).catch(() => undefined)) as Partial<Panel> | undefined
-  return { isCompact: v?.isCompact === true, isDoneCollapsed: v?.isDoneCollapsed === true }
+  const known = await listedIds($)
+  const expanded = Array.isArray(v?.expanded) ? v.expanded.filter(id => typeof id === 'string' && known.has(id)) : []
+  return { isCompact: v?.isCompact === true, isDoneCollapsed: v?.isDoneCollapsed === true, expanded }
 }
-const setPaneView = async ($: EngineInterface, change: (p: Pick<Panel, 'isCompact' | 'isDoneCollapsed'>) => Partial<Panel>): Promise<void> => {
+const setPaneView = async ($: EngineInterface, change: (p: PaneView) => Partial<PaneView>): Promise<void> => {
   const prev = await read($, panel)
-  const next = { isCompact: prev.isCompact, isDoneCollapsed: prev.isDoneCollapsed, ...change(prev) }
+  const known = await listedIds($)
+  const was = { isCompact: prev.isCompact, isDoneCollapsed: prev.isDoneCollapsed, expanded: (prev.expanded ?? []).filter(id => known.has(id)) }
+  const next = { ...was, ...change(was) }
   await update($, panel, p => ({ ...p, ...next }))
   await $.store.set(PANE_VIEW, next).catch(() => undefined)
 }
@@ -7129,13 +7136,14 @@ export const register: Register = (on, options) => {
     const t = totals(list, at)
     const info = liveEnv(await read($, env), clockNow)
     const rules = await read($, memory)
-    const opened = new Set(p.expanded ?? [])
+    const opened = new Set((p.expanded ?? []).filter(id => allAgents.some(a => a.id === id)))
     const rows = buildTree(list, p.isDoneCollapsed)
     // On a desktop only the first few running agents get a card; each of the rest
     // gets a slim live row, so a big crew stays listed in full and under the app's
-    // size limit. A card that ends hands its place to the next.
+    // size limit. A card that ends hands its place to the next. A running agent the
+    // person opened keeps its card over and above those.
     const treeWith = (cards: number): TreeRow[] => {
-      const slim = new Set(e.surface === 'desktop' ? rows.flatMap(r => (r.kind === 'agent' && r.a.status === 'running' ? [r.a.id] : [])).slice(cards) : [])
+      const slim = new Set(e.surface === 'desktop' ? rows.flatMap(r => (r.kind === 'agent' && r.a.status === 'running' && !opened.has(r.a.id) ? [r.a.id] : [])).slice(cards) : [])
       return rows.map(r => (r.kind === 'agent' ? { ...r, folded: r.a.status !== 'running' && !opened.has(r.a.id), slim: slim.has(r.a.id) } : r))
     }
     const tree = treeWith(MAX_CARDS)
@@ -7143,11 +7151,11 @@ export const register: Register = (on, options) => {
     const listed = new Set(rows.flatMap(r => (r.kind === 'agent' ? [r.a.id] : [])))
     const hiddenDone = p.isDoneCollapsed ? finished.filter(a => !listed.has(a.id)) : []
     const toggleOpen = (id: string) =>
-      update($, panel, prev => {
+      setPaneView($, prev => {
         const set = new Set(prev.expanded ?? [])
         if (set.has(id)) set.delete(id)
         else set.add(id)
-        return { ...prev, expanded: [...set].slice(-50) }
+        return { expanded: [...set].slice(-50) }
       })
     noteTypicalRun(allAgents)
     const steps = workSteps(f, list, boss, clockNow)
@@ -7265,7 +7273,7 @@ export const register: Register = (on, options) => {
             <Box flexDirection="column">
               <Text dimColor>Too many agents to draw in full: this is the short view.</Text>
               <Box flexDirection="row" gap={2}>
-                {opened.size > 0 && <Button key="fold-all" label="Fold the opened agents" plain onPress={() => update($, panel, prev => ({ ...prev, expanded: [] }))} />}
+                {opened.size > 0 && <Button key="fold-all" label="Fold the opened agents" plain onPress={() => setPaneView($, () => ({ expanded: [] }))} />}
                 {finished.length > 0 && !p.isDoneCollapsed && toggleDone}
               </Box>
             </Box>
@@ -7397,11 +7405,20 @@ export const register: Register = (on, options) => {
               r.kind === 'role' ? (
                 <Svg key={r.key} source={treeRowSvg(W, r, drawn(r.key, () => roleSvg(rowInnerW(W, r), r)))} alt={`${r.role}: ${r.count} agents, ${r.running} working`} />
               ) : r.slim ? (
+                // A running agent's slim live row, opened to its card as a finished row is:
+                // the drawing shrinks into what the button leaves, the button never.
                 <Box key={r.key} flexDirection="column">
-                  <Svg
-                    source={treeRowSvg(W, r, drawn(`${lite ? 'lite' : 'slim'}:${r.key}`, () => liveRowSvg(rowInnerW(W, r), r.a, at, lite)), lite)}
-                    alt={`${r.a.description}: ${modelName(r.a.model)}, ${s.isRunning}${isQuiet(r.a) ? ', quiet' : ''}${isOver(r.a) ? `, ${tkStr().overWord}` : ''}`}
-                  />
+                  <Box flexDirection="row" alignItems="center">
+                    <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                      <Svg
+                        source={treeRowSvg(W - OPEN_W, r, drawn(`${lite ? 'lite' : 'slim'}:${r.key}`, () => liveRowSvg(rowInnerW(W - OPEN_W, r), r.a, at, lite)), lite)}
+                        alt={`${r.a.description}: ${modelName(r.a.model)}, ${s.isRunning}${isQuiet(r.a) ? ', quiet' : ''}${isOver(r.a) ? `, ${tkStr().overWord}` : ''}`}
+                      />
+                    </Box>
+                    <Box flexShrink={0}>
+                      <Button key={`open-${r.key}`} label="Open ▸" plain onPress={() => toggleOpen(r.a.id)} />
+                    </Box>
+                  </Box>
                   {rescueRow($, r.a, ui)}
                 </Box>
               ) : r.folded ? (
@@ -7424,7 +7441,7 @@ export const register: Register = (on, options) => {
                     source={treeRowSvg(W, r, drawn(r.key, () => agentSvg(rowInnerW(W, r), r.a, at, !isBoxed(r))))}
                     alt={`${r.a.description}: ${modelName(r.a.model)}, ${r.a.status === 'running' ? s.isRunning : r.a.status === 'failed' ? s.failed : r.a.status === 'stopped' ? s.stopped : s.isFinished}${isOver(r.a) ? `, ${tkStr().overWord}` : ''}`}
                   />
-                  {r.a.status !== 'running' && <Button key={`close-${r.key}`} label="▴ Collapse" plain onPress={() => toggleOpen(r.a.id)} />}
+                  {(r.a.status !== 'running' || opened.has(r.a.id)) && <Button key={`close-${r.key}`} label="▴ Collapse" plain onPress={() => toggleOpen(r.a.id)} />}
                   {rescueRow($, r.a, ui)}
                   {r.a.isUltra && r.a.isUltraByManager && <Text key={`ultra-by-${r.key}`} dimColor>{"⚡ Manager's call"}</Text>}
                   {r.a.status === 'running' && <Button key={`ultra-${r.key}`} label={r.a.isUltra ? '⚡ Turn Ultra off' : '⚡ Turn Ultra on'} plain onPress={() => toggleUltra($, r.a.id)} />}

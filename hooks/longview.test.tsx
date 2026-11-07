@@ -133,7 +133,7 @@ test('collapse finished: done agents and done steps fold into one line each, run
   for (let i = 9; i <= 23; i++) expect(v.workflow).toContain(`${i}. Engineer: mecha part ${i} `)
   expect(v.alts.find(a => a.startsWith(`${TITLES[8]}:`))).toEndWith('over budget')
   // Remembered: a fresh mount, and the store, keep it folded.
-  expect(kept.get('paneView')).toEqual({ isCompact: false, isDoneCollapsed: true })
+  expect(kept.get('paneView')).toEqual({ isCompact: false, isDoneCollapsed: true, expanded: [] })
   await press($, 'done')
   expect(agentRows((await look($)).alts).length).toBe(14)
 })
@@ -145,7 +145,7 @@ test('collapse all: the whole list folds into the compact view and back', async 
   const v = await look($)
   expect(agentRows(v.alts).length).toBe(0)
   expect(v.labels).toContain('Expand')
-  expect(kept.get('paneView')).toEqual({ isCompact: true, isDoneCollapsed: false })
+  expect(kept.get('paneView')).toEqual({ isCompact: true, isDoneCollapsed: false, expanded: [] })
   await press($, 'compact')
   expect(agentRows((await look($)).alts).length).toBe(14)
 })
