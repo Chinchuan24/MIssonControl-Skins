@@ -128,7 +128,7 @@ test('mac lang: defaults failing or throwing falls through, session still starts
 
 // 5. Every Svg the desktop draws has an alt, across skins and odd crews
 // (blank descriptions, a big plan, a running agent with no steps).
-for (const skin of ['crab-classic', 'mentalist', 'breaking-bad', 'better-call-saul', 'gene', 'cyberpunk-2077', 'arasaka', 'lucy-edgerunners']) {
+for (const skin of ['crab-classic', 'mentalist', 'breaking-bad', 'better-call-saul', 'gene', 'invincible', 'cyberpunk-2077', 'arasaka', 'lucy-edgerunners']) {
   test(`alt: no blank Svg alt in the pane or band (${skin})`, async ($, on) => {
     const clock = base(on, { store: { skin } })
     await start($)

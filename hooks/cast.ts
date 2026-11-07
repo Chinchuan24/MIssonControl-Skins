@@ -12,6 +12,8 @@
 // `hair` sways, `vis` (a visor, a screen, a cyber-eye) flickers, `led` pulses.
 // The rows under the gap between the legs step left and right while it works.
 
+import { INV_AGENT, INV_AGENT2, INV_AGENT3, INV_ALLEN, INV_BATTLEBEAST, INV_CECIL, INV_DEBBIE, INV_EVE, INV_KATE, INV_MARK, INV_MARK_S3, INV_OMNI, INV_RAE, INV_REX, INV_SAMSON } from './invincible-sprites'
+
 export type Sprite = {
   rows: string[]
   pal: Record<string, string>
@@ -3992,6 +3994,22 @@ export const CASTS: Record<string, Cast> = {
     boss: BCS_SAUL,
     roles: { explore: BCS_KIM, fable: BCS_CHUCK, heavy: BCS_MIKE, careful: BCS_HOWARD, medium: BCS_NACHO, light: BCS_KIM, artist: BCS_LALO, writer: BCS_HOWARD, banker: BCS_GUS, other: BCS_HECTOR },
     crew: [BCS_PARALEGAL, BCS_PARALEGAL2, BCS_PARALEGAL3],
+  },
+  // Invincible (fan homage): Mark fronts the band; Eve, Omni-Man, Battle Beast, Cecil, Samson, Rae, Dupli-Kate, Debbie, Rex and Allen take the roles.
+  invincible: {
+    name: 'Invincible',
+    bossName: 'Mark',
+    boss: INV_MARK,
+    roles: { explore: INV_EVE, fable: INV_OMNI, heavy: INV_BATTLEBEAST, careful: INV_CECIL, medium: INV_SAMSON, light: INV_RAE, artist: INV_KATE, writer: INV_DEBBIE, banker: INV_REX, other: INV_ALLEN },
+    crew: [INV_AGENT, INV_AGENT2, INV_AGENT3],
+  },
+  // Invincible (fan homage): Mark fronts the band; Eve, Omni-Man, Battle Beast, Cecil, Samson, Rae, Dupli-Kate, Debbie, Rex and Allen take the roles.
+  invincible2: {
+    name: 'Invincible (new suit)',
+    bossName: 'Mark',
+    boss: INV_MARK_S3,
+    roles: { explore: INV_EVE, fable: INV_OMNI, heavy: INV_BATTLEBEAST, careful: INV_CECIL, medium: INV_SAMSON, light: INV_RAE, artist: INV_KATE, writer: INV_DEBBIE, banker: INV_REX, other: INV_ALLEN },
+    crew: [INV_AGENT, INV_AGENT2, INV_AGENT3],
   },
   // Edgerunners 2 (fan homage): D leads, Roman, Talia, Weak and Jessie work, the Kings and the teal-jacket runners back them.
   edgerunners2: {

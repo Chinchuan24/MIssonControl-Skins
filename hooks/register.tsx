@@ -13,10 +13,13 @@ import { BCS_SKIN_WORDS, BCS_TOOLS, SAUL_GOODMAN_RE, TAKAVIC_RE } from './better
 import { TOASTS, bashToast, cmdKind, fxOf, mcgillNow, resultFailed, toastDue } from './bettercallsaul-fx'
 import type { BashState, Fx, ToastKey } from './bettercallsaul-fx'
 import { UNPLUG_GAP_MS, shouldUnplug } from './bettercallsaul-extra'
+import { CLASSIC_RE, GUARDIANS_RE, NEW_SUIT_RE, THINK_RE } from './invincible-eggs'
+import { ERA1, ERA2, TITLE_WORDS as INV_WORDS } from './invincible'
+import { VERBS as INV_VERBS } from './invincible-cards'
 import { BYE_CAPRI_RE, CAPRICORN_RE, CAPRI_WORD_RE, ER2_FONT, ER2_TOOLS, ER2_WORDS } from './edgerunners2'
 import { CAPRI_MODE, ER2_MODE_DEFAULT } from './edgerunners2-duet'
 import type { Er2Mode, Er2ModeName } from './edgerunners2-duet'
-import { extrasInto, glitchPanel, hackInto, overlayInto, roamOnBand, roamOverlay, transitionInto, transitionLayer } from './overlay'
+import { extrasInto, glitchPanel, hackInto, overlayInto, roamOnBand, roamOverlay, shakeInto, transitionInto, transitionLayer } from './overlay'
 import type { ThemeCtx, ThemeEggs } from './themes'
 import { canNudge, nudge, pickQuiet, prBadge, quietOf, rememberTask, repoAndBranch, rescueText, retryOnHaiku, whatIf, whatIfText, whatIfTip } from './coach'
 import { flatSmiley, serifClip, serifW } from './mentalist-cards'
@@ -1795,6 +1798,32 @@ const GENE_SKIN: Skin = {
   tabs: { mission: '⚖\uFE0E Mission Control', skins: '⚖\uFE0E Skins' },
 }
 
+// Invincible (fan homage): the comic page that became the show. Ink navy and suit yellow (era 1, the classic suit); `new suit` puts on
+// the S3 palette (black and light blue) in place, as Edgerunners 2 switches its modes. Invincible and its characters belong to
+// Robert Kirkman, Cory Walker, Ryan Ottley, Image Comics, Skybound and Amazon MGM Studios, used as fan homage only.
+const invColors = (era: 1 | 2): SkinColors => {
+  const P = era === 2 ? ERA2 : ERA1
+  return { accent: P.a, accent2: P.hero, done: P.done, warn: P.warn, alert: P.alert, meter: P.a, text: P.text, subtext: P.sub, muted: P.muted, tile: P.tile, track: P.track, line: P.line, grid: P.tile2 }
+}
+const INVINCIBLE_SKIN: Skin = {
+  id: 'invincible',
+  cast: 'invincible',
+  name: 'Invincible',
+  description: 'Fan homage: the comic page that became the show. Mark and Omni-Man fight across the panels; a second era hides behind "new suit".',
+  font: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  corners: 'round',
+  dark: true,
+  colors: invColors(1),
+  boss: ['#3D7FE0', '#F5C518', '#0B0D14', '#F3F5FA', '#3D7FE0'],
+  roles: ['#8FC0FF', '#7FD39A', '#F5C518', '#F28CB1', '#E8453C', '#B39DDB'],
+  effects: { scanlines: false, glitch: false },
+  chat: true,
+  words: INV_WORDS,
+  toolWords: INV_VERBS,
+  backdrop: { fill: '#090C18', pattern: 'dots', ink: 'rgba(245,197,24,.05)' },
+  tabs: { mission: '★\uFE0E Mission Control', skins: '★\uFE0E Skins' },
+}
+
 // Edgerunners 2 v2 "D's optics" (fan homage, Cyberpunk Skins add-on): a next-gen netrunner HUD on holographic glass, D's
 // cobalt and cool white as the city layer, in a condensed face. Hot pink and acid green are Capri's own and show only
 // when she is near. Cyberpunk: Edgerunners belongs to CD PROJEKT RED, Studio Trigger and Netflix, used as fan homage only.
@@ -1868,7 +1897,7 @@ const CAPRICORN_SKIN: Skin = {
   tabs: { mission: '◈\uFE0E Mission Control', skins: '◈\uFE0E Skins' },
 }
 
-const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, MENTALIST_SKIN, BREAKING_BAD_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN, SAMURAI_SKIN, RED_JOHN_SKIN, HEISENBERG_SKIN, BETTER_CALL_SAUL_SKIN, GENE_SKIN, EDGERUNNERS2_SKIN, CAPRICORN_SKIN]
+const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, MENTALIST_SKIN, BREAKING_BAD_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN, SAMURAI_SKIN, RED_JOHN_SKIN, HEISENBERG_SKIN, BETTER_CALL_SAUL_SKIN, GENE_SKIN, INVINCIBLE_SKIN, EDGERUNNERS2_SKIN, CAPRICORN_SKIN]
 
 // Only plain colour and font values reach the drawings: a skin file cannot
 // smuggle markup into an Svg.
@@ -1932,6 +1961,21 @@ const er2Unpack = (s: string): Er2Mode => {
   return { mode: mode === 'capri' ? 'capri' : 'd', since: Number(since) || 0, auto: auto === '1' }
 }
 let ER2: Er2Mode = ER2_MODE_DEFAULT
+// Invincible is one skin with two eras, 1 the classic suit (S1-S2) and 2 the new suit (S3+), switched in place by typing
+// "new suit" or "classic suit" (or the COVER STORY button). `since` is the wall-clock ms of the last switch (it pins the title-card
+// slam transition, and is 0 after a restart: no replay). The store keeps the era; `INV_ERA` is the same state for the drawers.
+const invEra = atom({ plugin: 'crab-progress', key: 'invEra' } as const, '1|0')
+const invPack = (m: { era: 1 | 2; since: number }): string => `${m.era}|${m.since}`
+const invUnpack = (v: string): { era: 1 | 2; since: number } => {
+  const [era, since] = v.split('|')
+  return { era: era === '2' ? 2 : 1, since: Number(since) || 0 }
+}
+let INV_ERA: { era: 1 | 2; since: number } = { era: 1, since: 0 }
+// The last typed Invincible word that draws something (`think, mark`, `guardians`), and the context last seen (THINK, MARK plays by itself when it first passes 95%).
+let INV_FX: { kind: string; at: number } | undefined
+let INV_CTX = 0
+const isInv = (): boolean => SKIN.id === 'invincible'
+const activeFx = (): { kind: string; at: number } | undefined => (isInv() ? INV_FX : BCS_FX)
 // When the phrase turned Breaking Bad into Heisenberg (0: it did not): the band's "You're goddamn right!" is drawn from it for
 // BB_REVEAL_MS, pinned to this time, so a redraw keeps it and it ends on its own. Also kept in the store as bbRevealAt.
 let BB_REVEAL_AT = 0
@@ -2272,6 +2316,10 @@ function applySkin(k: Skin): void {
       words: [...ER2_WORDS, "We're one now"],
     }
   }
+  // Invincible's second era: the new suit's palette and cast, the same skin.
+  if (k.id === 'invincible') {
+    k = INV_ERA.era === 2 ? { ...k, cast: 'invincible2', colors: invColors(2) } : { ...k, cast: 'invincible', colors: invColors(1) }
+  }
   SKIN = k
   ACCENT = k.colors.accent
   DONE = k.colors.done
@@ -2349,8 +2397,10 @@ async function useSkin($: EngineInterface): Promise<Skin> {
     await update($, skin, () => id)
   }
   const m = er2Unpack(await read($, er2Mode))
-  if (id !== SKIN.id || m.mode !== ER2.mode || m.since !== ER2.since) {
+  const mi = invUnpack(await read($, invEra))
+  if (id !== SKIN.id || m.mode !== ER2.mode || m.since !== ER2.since || mi.era !== INV_ERA.era || mi.since !== INV_ERA.since) {
     ER2 = m
+    INV_ERA = mi
     applySkin(SKINS.get(id) ?? CRAB_SKIN)
   }
   return SKIN
@@ -2373,12 +2423,28 @@ async function setEr2Mode($: EngineInterface, mode: Er2ModeName, auto: boolean):
   return true
 }
 
+// Invincible's era: the new suit (2) or the classic (1). Writes the state, redraws in the era's palette and starts the title-card swap
+// (it pins to `since`); the first time the new suit is worn it earns the NEW SUIT patch.
+async function setInvEra($: EngineInterface, era: 1 | 2): Promise<boolean> {
+  if (INV_ERA.era === era) return false
+  const now = await $.clock.now().catch(() => Date.now())
+  INV_ERA = { era, since: now }
+  await $.store.set('invEra', era).catch(() => undefined)
+  await update($, invEra, () => invPack(INV_ERA))
+  if (SKIN.id === 'invincible') applySkin(SKINS.get('invincible') ?? INVINCIBLE_SKIN)
+  if (era === 2) await bumpCred($, c => (c.samurai ? c : { ...c, samurai: true, xp: c.xp + 50 }), true).catch(() => false)
+  return true
+}
+
 // The context rule: 95% and over lets Capri in by herself; she leaves again below 85% (only if she came by herself). A user who
 // sends her back while the context is still 95% or more is not argued with until it has dropped and climbed again.
 let er2Ctx = 0
 let er2Dismissed = false
 async function er2ContextRule($: EngineInterface, ctx: number): Promise<void> {
   er2Ctx = ctx
+  // Invincible: the first time the context passes 95% Omni-Man drops in with his line.
+  if (isInv() && ctx >= 95 && INV_CTX < 95) INV_FX = { kind: 'think', at: await $.clock.now().catch(() => Date.now()) }
+  INV_CTX = ctx
   if (ctx < 95) er2Dismissed = false
   if (SKIN.id !== 'edgerunners-2') return
   if (ER2.mode === 'd' && ctx >= 95 && !er2Dismissed) await setEr2Mode($, 'capri', true)
@@ -5574,10 +5640,20 @@ const running4 = (running: number, at: number): void => {
   if (isBcs() && shouldUnplug([], at, running)) noteUnplug(at)
 }
 // A pane card with the theme's per-card roaming acts (Mike peeks at the log, sits on the task card) and rare eggs spliced in.
-const paneCard = (src: string, th: ThemeEggs, card: 'cred' | 'task' | 'log', at: number, ctxPct: number, party: boolean): string => {
+const paneCard = (src: string, th: ThemeEggs, card: 'cred' | 'task' | 'log', at: number, ctxPct: number, party: boolean, working = false): string => {
   if (!th.extras && !th.roamer?.cardOf) return src
-  const over = th.roamer?.cardOf ? overlayInto(src, th, { at, ctxPct, party, card }) : src
-  return extrasInto(over, th, { at, ctxPct, card, party, ...(BCS_UNPLUG_AT !== undefined ? { unplugAt: BCS_UNPLUG_AT } : {}) })
+  return paneFinish(th.roamer?.cardOf ? overlayInto(src, th, { at, ctxPct, party, card }) : src, th, card, at, ctxPct, party, working)
+}
+// The rare eggs and the camera shake of a card whose roaming act (if any) is already drawn (the level card draws its own).
+const paneFinish = (over: string, th: ThemeEggs, card: 'cred' | 'task' | 'log', at: number, ctxPct: number, party: boolean, working = false): string => {
+  if (!th.extras) return over
+  const fx = activeFx()
+  const swapAt = isInv() && INV_ERA.since > 0 ? INV_ERA.since : undefined
+  const drawn = extrasInto(over, th, { at, ctxPct, card, party, working, ...(BCS_UNPLUG_AT !== undefined ? { unplugAt: BCS_UNPLUG_AT } : {}), ...(fx ? { fx } : {}), ...(swapAt !== undefined ? { swapAt } : {}) })
+  const root = /^<svg\b[^>]*>/.exec(drawn)?.[0]
+  const W = Number(/\bwidth="([\d.]+)"/.exec(root ?? '')?.[1])
+  const H = Number(/\bheight="([\d.]+)"/.exec(root ?? '')?.[1])
+  return th.shake && Number.isFinite(W) && Number.isFinite(H) ? shakeInto(drawn, th, { W, H, surface: 'pane', at, card, working, party, ...(fx ? { fx } : {}), ...(swapAt !== undefined ? { swapAt } : {}) }) : drawn
 }
 const slimBandSvg = (OW: number, d: HudData): string => {
   const c = SKIN.colors
@@ -5672,7 +5748,7 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   if (cold && crRight - baseEnd > 220) s.push(`<text x="${r2(crRight)}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11.5" font-style="italic" fill="${c.muted}">${xml(serifClip(`“${cold}”`, 11.5, crRight - baseEnd))}</text>`)
   s.push(`<line x1="14" y1="32.5" x2="${W - 14}" y2="32.5" stroke="${c.line}"/>`)
   // ---- task row
-  const fig = sl ? sl.figure({ at: d.at, ctxPct: d.ctxPct, party: d.isParty, ...(BCS_FX && th.extras ? { fx: BCS_FX } : {}) }) : `${crab(14, 38, 'boss', false, d.isWorking, 1.05)}${crown(14, 38, 1.05)}`
+  const fig = sl ? sl.figure({ at: d.at, ctxPct: d.ctxPct, party: d.isParty, ...(activeFx() && th.extras ? { fx: activeFx() as { kind: string; at: number } } : {}) }) : `${crab(14, 38, 'boss', false, d.isWorking, 1.05)}${crown(14, 38, 1.05)}`
   s.push(dancing(fig, d.isParty))
   const tx = 64
   // Below 1100 px the three readouts shrink to short labels and values (no bars), so they stay on screen.
@@ -5820,7 +5896,7 @@ const slimBandSvg = (OW: number, d: HudData): string => {
     rx -= cacheW + 7
     rights.push(Lb(rx, yb, 'CACHE', 'end'))
     rx -= sw('CACHE', 9.5, 0.8, true) + 22
-    rights.push(`<rect class="k" x="${barX}" y="${yb - 7}" width="${barW}" height="4"/><rect x="${barX}" y="${yb - 7}" width="${live ? live.start : r2(barW * cacheShare)}" height="4" fill="${cacheTone}"${left !== null && left <= 600 && !ss.isBusy ? ' class="live"' : ''}>${live ? live.animate : ''}</rect>`)
+    rights.push(`<rect class="k" x="${barX}" y="${yb - 7}" width="${barW}" height="4"/><rect x="${barX}" y="${yb - 7}" width="${live ? live.start : r2(barW * cacheShare)}" height="4" fill="${sl?.cache ? sl.cache.fill : cacheTone}"${left !== null && left <= 600 && !ss.isBusy ? ' class="live"' : ''}>${live ? live.animate : ''}</rect>${sl?.cache?.core && !live ? `<rect x="${barX}" y="${yb - 5.5}" width="${r2(barW * cacheShare)}" height="1" fill="${sl.cache.core}" opacity=".8"/>` : ''}`)
     for (const [k, v] of [parts[1], parts[0]] as [string, string][]) if (!place(k, v, sw(v, 11.5) + 2)) break
   }
   s.push(...rights)
@@ -5837,9 +5913,9 @@ const slimBandSvg = (OW: number, d: HudData): string => {
   const trLayer = transitionLayer(th, { W, H, surface: 'band', since: ER2.since, now: d.at, party: d.isParty, ...(chip.w ? { chip: { x: chipX, y: y - 11.5, w: chip.w, h: 16 } } : {}) })
   // Rare scheduled eggs (a car, a face, a dim): from the clock, over the band and under the roamer.
   if (th.extras && !d.isParty) running4(d.crew.filter(m => m.status === 'running').length, d.at)
-  const extras = th.extras ? th.extras({ W, H, surface: 'band', at: d.at, ctxPct: d.ctxPct, ...(d.isParty ? { party: true } : {}), ...(BCS_UNPLUG_AT !== undefined ? { unplugAt: BCS_UNPLUG_AT } : {}), ...(BCS_FX ? { fx: BCS_FX } : {}) }) : ''
+  const extras = th.extras ? th.extras({ W, H, surface: 'band', at: d.at, ctxPct: d.ctxPct, ...(d.isParty ? { party: true } : {}), ...(BCS_UNPLUG_AT !== undefined ? { unplugAt: BCS_UNPLUG_AT } : {}), ...(activeFx() ? { fx: activeFx() as { kind: string; at: number } } : {}), working: d.isWorking, ...(isInv() && INV_ERA.since > 0 ? { swapAt: INV_ERA.since } : {}) }) : ''
   const body = `${s.join('\n')}${extras}${d.isParty ? th.cheer(W, H, FONT, c, d.partyAt) : ''}${d.isParty && th.roamer?.hushParty ? '' : roam}${trLayer}`
-  return glitchPanel(svg(W, H, body), th, { at: d.at, ctxPct: d.ctxPct, party: d.isParty })
+  return shakeInto(glitchPanel(svg(W, H, body), th, { at: d.at, ctxPct: d.ctxPct, party: d.isParty }), th, { W, H, surface: 'band', at: d.at, working: d.isWorking, party: d.isParty, fx: activeFx(), ...(isInv() && INV_ERA.since > 0 ? { swapAt: INV_ERA.since } : {}) })
 }
 
 const hudBandSvg = (OW: number, d: HudData): string => {
@@ -6765,6 +6841,10 @@ export const register: Register = (on, options) => {
     ER2 = { mode: wasCapri ? 'capri' : 'd', since: 0, auto: wasCapri && Boolean((savedMode as { auto?: unknown } | undefined)?.auto) }
     er2Dismissed = false
     await update($, er2Mode, () => er2Pack(ER2))
+    INV_ERA = { era: (await $.store.get('invEra').catch(() => undefined)) === 2 ? 2 : 1, since: 0 }
+    INV_FX = undefined
+    INV_CTX = 0
+    await update($, invEra, () => invPack(INV_ERA))
     const worn = typeof chosen === 'string' ? SKINS.get(chosen === 'capricorn' ? 'edgerunners-2' : chosen) : undefined
     // A cyberpunk skin saved before the add-on was removed falls back to the classic.
     if (worn && canWear(worn)) {
@@ -7572,9 +7652,10 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="cred" marginBottom={1} flexDirection="column">
                 <Svg
-                  source={th ? ((src: string) => (th.roamer ? overlayInto(src, th, { at: clockNow, ctxPct: info.contextPct, party: (boss.celebrateUntil ?? 0) > clockNow }) : src))(th.cred.card ? th.cred.card(W, streetCred, SKIN.colors, FONT, cardShape) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, th.cred.title, '', th.cred.ranks, th.cred.words)) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
+                  source={th ? paneFinish(((src: string) => (th.roamer ? overlayInto(src, th, { at: clockNow, ctxPct: info.contextPct, party: (boss.celebrateUntil ?? 0) > clockNow }) : src))(th.cred.card ? th.cred.card(W, streetCred, SKIN.colors, FONT, cardShape) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, th.cred.title, '', th.cred.ranks, th.cred.words)), th, 'cred', clockNow, info.contextPct, (boss.celebrateUntil ?? 0) > clockNow, boss.isWorking) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
                   alt={`Level ${levelOf(streetCred.xp)} ${(th ? th.cred.ranks : egg === 'samurai' ? rockerRankOf : rankOf)(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
                 />
+                {th?.era ? <Button key="inv-era" label={th.era === 2 ? '⇄\uFE0E CLASSIC SUIT' : '⇄\uFE0E NEW SUIT'} plain onPress={async () => { await setInvEra($, th.era === 2 ? 1 : 2) }} /> : null}
                 {th?.mode ? <Button key="er2-mode" label={th.mode === 'capri' ? '⇄\uFE0E Back to D' : '⇄\uFE0E Let Capri in'} plain onPress={async () => { await setEr2Mode($, th.mode === 'capri' ? 'd' : 'capri', false) }} /> : null}
               </Box>
             ) : null}
@@ -7596,7 +7677,7 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="breach" marginBottom={1}>
                 <Svg
-                  source={th ? paneCard(th.card.draw(W, boss.task, boss.isWorking, steps.filter(st => st.state === 'done').length, steps.length, SKIN.colors, FONT, cardShape, legends), th, 'task', clockNow, info.contextPct, (boss.celebrateUntil ?? 0) > clockNow) : breachCard(W, steps.filter(st => st.state === 'done').length, steps.length, boss.isWorking, egg, FONT, cardShape)}
+                  source={th ? paneCard(th.card.draw(W, boss.task, boss.isWorking, steps.filter(st => st.state === 'done').length, steps.length, SKIN.colors, FONT, cardShape, legends), th, 'task', clockNow, info.contextPct, (boss.celebrateUntil ?? 0) > clockNow, boss.isWorking) : breachCard(W, steps.filter(st => st.state === 'done').length, steps.length, boss.isWorking, egg, FONT, cardShape)}
                   alt={th ? th.card.alt(boss.isWorking, steps.filter(st => st.state === 'done').length, steps.length) : `Breach Protocol: ${steps.filter(st => st.state === 'done').length} of ${steps.length} steps`}
                 />
               </Box>
@@ -7612,7 +7693,7 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="bd" flexDirection="column" marginBottom={1}>
                 <Svg
-                  source={th ? paneCard(hackInto(th.log.draw(W, beats, pick, SKIN.colors, FONT, cardShape), th, { at: clockNow, ctxPct: info.contextPct, card: 'log', party: (boss.celebrateUntil ?? 0) > clockNow }), th, 'log', clockNow, info.contextPct, (boss.celebrateUntil ?? 0) > clockNow) : braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
+                  source={th ? paneCard(hackInto(th.log.draw(W, beats, pick, SKIN.colors, FONT, cardShape), th, { at: clockNow, ctxPct: info.contextPct, card: 'log', party: (boss.celebrateUntil ?? 0) > clockNow }), th, 'log', clockNow, info.contextPct, (boss.celebrateUntil ?? 0) > clockNow, boss.isWorking) : braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
                   alt={th?.log.alt ? th.log.alt(beats, pick) : th && !th.log.hasControls ? `Lab log: ${beats.length} tool calls` : braindanceAlt(beats, pick)}
                 />
                 {th && !th.log.hasControls ? null : <Box flexDirection="row" gap={2}>
@@ -7717,10 +7798,12 @@ export const register: Register = (on, options) => {
       const rich = orgSource(W, org)
       // Measured as sent, each source compacted once per drawing however many fallbacks hold it.
       const sent = new Map<string, number>()
-      const lengthOf = (src: string): number => sent.get(src) ?? sent.set(src, sentLength(src)).get(src) ?? src.length
+      // A theme's big eggs (THE FIGHT, the showdown) sit between `<!--dl-->` markers: not counted, a reserve is kept instead while a job works.
+      const reserve = th?.paneReserve && (isWorking || boss.isWorking) ? th.paneReserve : 0
+      const lengthOf = (src: string): number => sent.get(src) ?? sent.set(src, sentLength(src.includes('<!--dl-->') ? src.replace(/<!--dl-->[\s\S]*?<!--\/dl-->/g, '') : src)).get(src) ?? src.length
       const sizeOf = (v: unknown): number => drawnChars(v, lengthOf)
       // Level `level` of the fallbacks fits: with room to spare when richer than the last drawn.
-      const fits = (level: number, size: number): boolean => size <= DRAW_MAX - (level < paneLevel ? DRAW_SLACK : 0)
+      const fits = (level: number, size: number): boolean => size + reserve <= DRAW_MAX - (level < paneLevel ? DRAW_SLACK : 0)
       const take = <T,>(level: number, v: T): T => {
         paneLevel = level
         return keep(v)
@@ -8030,6 +8113,16 @@ export const register: Register = (on, options) => {
       const k = fxOf(asked)
       if (k) BCS_FX = { kind: k, at }
       bcsToast($, 'first', at)
+    }
+    // Invincible (the prompt goes on unchanged; these words only act while wearing it): "new suit" / "season 3" put on the S3 suit,
+    // "classic suit" / "old suit" / "season 1" the classic one, "think, mark" has Omni-Man drop in, "guardians" starts the showdown.
+    if (asked && isInv()) {
+      const at = await $.clock.now().catch(() => Date.now())
+      const toNew = NEW_SUIT_RE.test(asked)
+      const toOld = CLASSIC_RE.test(asked)
+      if (toNew !== toOld) await setInvEra($, toNew ? 2 : 1).catch(() => false)
+      if (THINK_RE.test(asked)) INV_FX = { kind: 'think', at }
+      else if (GUARDIANS_RE.test(asked)) INV_FX = { kind: 'showdown', at }
     }
     // Edgerunners 2's two modes (the prompt goes on unchanged): "bye capri" sends her back to D (checked first); the whole word
     // "capri" in any case, or the third episode's title "0+2=1" (which toggles), lets her in.

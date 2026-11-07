@@ -30,6 +30,8 @@ const COLORS: Record<Egg, EggColors> = {
   edgerunners2: { a: '#FD0250', b: '#E9E6D8', c: '#3E80F7', text: '#F1EEE4', dim: '#968B90', bg: '#0A0709' },
   bettercallsaul: { a: '#5B8FD6', b: '#E6C35C', c: '#D7262C', text: '#F5EEE2', dim: '#9C8C79', bg: '#1A1410' },
   gene: { a: '#9A9A9A', b: '#E4E4E4', c: '#C9C9C9', text: '#F2F2F2', dim: '#8E8E8E', bg: '#121212' },
+  invincible: { a: '#3D7FE0', b: '#F5C518', c: '#8FC0FF', text: '#F3F5FA', dim: '#8C98B3', bg: '#0E1322' },
+  invincible2: { a: '#3F8FE0', b: '#6FB4F5', c: '#8BC6FF', text: '#F4F6FA', dim: '#8893A6', bg: '#0A0B10' },
   capricorn: { a: '#050305', b: '#3DF27A', c: '#050305', text: '#050305', dim: '#2A0510', bg: '#FD0250' },
 }
 export const eggColors = (egg: Egg): EggColors => COLORS[egg]
@@ -180,7 +182,7 @@ export const celebration = (W: number, H: number, egg: Egg, font: string, startA
 // A tiny code tag for a corner: SYS.2077 // 0x3F, and a katakana line.
 export const sysTag = (x: number, y: number, egg: Egg, font: string, anchor = 'end'): string => {
   const c = COLORS[egg]
-  const code = egg === 'mentalist' ? 'CBI // SAC-01' : egg === 'redjohn' ? '☺ // 0x00' : egg === 'breakingbad' ? 'ABQ // 505' : egg === 'heisenberg' ? 'Br 35 // Ba 56' : egg === 'edgerunners2' ? 'D // 0+2=1' : egg === 'capricorn' ? 'CAPRI // 0+2=1' : egg === 'bettercallsaul' ? 'ABQ // 505' : egg === 'gene' ? 'OMAHA // 402' : egg === 'corpo' ? 'ARS.2077 // 0x0A' : egg === 'netrun' ? 'NET.2076 // 0x4C' : egg === 'samurai' ? 'SAM.2013 // 0x77' : 'SYS.2077 // 0x3F'
+  const code = egg === 'mentalist' ? 'CBI // SAC-01' : egg === 'redjohn' ? '☺ // 0x00' : egg === 'breakingbad' ? 'ABQ // 505' : egg === 'heisenberg' ? 'Br 35 // Ba 56' : egg === 'edgerunners2' ? 'D // 0+2=1' : egg === 'capricorn' ? 'CAPRI // 0+2=1' : egg === 'invincible' ? 'GDA // S1' : egg === 'invincible2' ? 'GDA // S3' : egg === 'bettercallsaul' ? 'ABQ // 505' : egg === 'gene' ? 'OMAHA // 402' : egg === 'corpo' ? 'ARS.2077 // 0x0A' : egg === 'netrun' ? 'NET.2076 // 0x4C' : egg === 'samurai' ? 'SAM.2013 // 0x77' : 'SYS.2077 // 0x3F'
   return `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="${font}" font-size="7" letter-spacing=".8" fill="${c.dim}" fill-opacity=".8">${code}</text>`
 }
 // Japanese text needs a Japanese face: macOS, Windows, then Linux's Noto.

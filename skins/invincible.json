@@ -1,0 +1,85 @@
+{
+  "$schema": "./skin.schema.json",
+  "id": "invincible",
+  "name": "Invincible",
+  "description": "Fan homage: the comic page that became the show. Mark and Omni-Man fight across the panels; a new suit hides behind \"new suit\".",
+  "font": "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  "corners": "round",
+  "dark": true,
+  "colors": {
+    "accent": "#3D7FE0",
+    "accent2": "#F5C518",
+    "done": "#7FD39A",
+    "warn": "#F5C518",
+    "alert": "#E8453C",
+    "meter": "#3D7FE0",
+    "text": "#F3F5FA",
+    "subtext": "#B9C3D8",
+    "muted": "#8C98B3",
+    "tile": "#0E1322",
+    "track": "#1A2340",
+    "line": "#273354",
+    "grid": "#151C30"
+  },
+  "boss": [
+    "#3D7FE0",
+    "#F5C518",
+    "#0B0D14",
+    "#F3F5FA",
+    "#3D7FE0"
+  ],
+  "roles": [
+    "#8FC0FF",
+    "#7FD39A",
+    "#F5C518",
+    "#F28CB1",
+    "#E8453C",
+    "#B39DDB"
+  ],
+  "effects": {
+    "scanlines": false,
+    "glitch": false
+  },
+  "backdrop": {
+    "fill": "#090C18",
+    "pattern": "dots",
+    "ink": "rgba(245,197,24,.05)"
+  },
+  "chat": true,
+  "words": [
+    "It's About Time",
+    "Here Goes Nothing",
+    "That Actually Hurt",
+    "We Need to Talk",
+    "It's Been a While",
+    "It's Not That Simple",
+    "You're Not Laughing Now",
+    "A Deal with the Devil",
+    "This Was Supposed to Be Easy",
+    "What Have I Done?",
+    "Hurm",
+    "Give Us a Moment",
+    "Don't Leave Me Hanging Here"
+  ],
+  "toolWords": {
+    "Read": "SCAN",
+    "Grep": "TRACK",
+    "Glob": "SWEEP",
+    "LS": "SWEEP",
+    "Edit": "PUNCH",
+    "MultiEdit": "PUNCH",
+    "NotebookEdit": "PUNCH",
+    "Write": "INK",
+    "Bash": "BLAST",
+    "PowerShell": "BLAST",
+    "Agent": "TEAM-UP",
+    "ToolSearch": "RECON",
+    "WebFetch": "FLY-BY",
+    "WebSearch": "SCOUT"
+  },
+  "tabs": {
+    "mission": "★︎ Mission Control",
+    "skins": "★︎ Skins"
+  },
+  "cast": "invincible"
+}
