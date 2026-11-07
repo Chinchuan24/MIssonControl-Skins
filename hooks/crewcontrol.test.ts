@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { ULTRA_BRIEF, cleanOneShot, cleanUltraRules, isUltraAgent, matchUltra, nextOneShot, oneShotText, parseOneShot, resolveEffort, ruleMatches, ultraCommand, withUltraBrief } from './crewcontrol'
+import { ULTRA_BRIEF, ULTRA_BY_OPTIONS, ULTRA_BY_TEXT, cleanUltraBy, managerPicks, parseUltraBy, ultraPlanToast, cleanOneShot, cleanUltraRules, isUltraAgent, matchUltra, nextOneShot, oneShotText, parseOneShot, resolveEffort, ruleMatches, ultraCommand, withUltraBrief } from './crewcontrol'
 
 // Per-agent Ultra (max effort + a deep-check brief for chosen roles) and One-shot
 // (what the main session does once a plan is approved).
@@ -64,4 +64,18 @@ test('one-shot: modes, parsing, cycling and the prompt text', () => {
   expect(oneShotText('on')).toMatch(/report back once/)
   expect(oneShotText('on')).toMatch(/destructive/)
   expect(oneShotText('off')).toMatch(/one part at a time/)
+})
+
+test('ultra decided by: only "manager" is manager; flags count only in Manager mode; the toast counts the plan', () => {
+  expect(cleanUltraBy('manager')).toBe('manager')
+  for (const junk of [undefined, null, 'Manager', 'ME', 1, {}]) expect(cleanUltraBy(junk)).toBe('me')
+  expect(parseUltraBy(' Manager ')).toBe('manager')
+  expect(parseUltraBy('add')).toBeNull()
+  expect(ULTRA_BY_OPTIONS.map(o => o.value)).toEqual(['me', 'manager'])
+  expect(managerPicks('manager', { ultra: true })).toBe(true)
+  expect(managerPicks('manager', { ultra: false })).toBe(false)
+  expect(managerPicks('manager', undefined)).toBe(false)
+  expect(managerPicks('me', { ultra: true })).toBe(false)
+  expect(ultraPlanToast([{ ultra: true }, {}, { ultra: true }, {}, {}, {}])).toBe('⚡ Manager put 2 of 6 tasks on Ultra')
+  expect(ULTRA_BY_TEXT).toContain('most tasks don\'t')
 })

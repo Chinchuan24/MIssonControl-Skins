@@ -40,7 +40,7 @@ const PRICED: readonly (readonly [model: string, shown: string])[] = [
   ['claude-opus-5-5', '$32.4'], // 4 + 20 + 2 × 0.20 + 8
   ['claude-opus-5', '$41.0'], // 5 + 25 + 2 × 0.50 + 10
   ['claude-opus-4-8', '$41.0'],
-  ['claude-sonnet-5-5', '$16.2'], // 2 + 10 + 2 × 0.10 + 4
+  ['claude-sonnet-5-5', '$16.4'], // 2 + 10 + 2 × 0.20 + 4 (cache reads $0.20, as Sonnet 5)
   ['claude-sonnet-5', '$16.4'], // 2 + 10 + 2 × 0.20 + 4
   ['claude-sonnet-4-6', '$24.6'], // 3 + 15 + 2 × 0.30 + 6
   ['claude-haiku-5-5', '$0.82'], // 0.10 + 0.50 + 2 × 0.01 + 0.20

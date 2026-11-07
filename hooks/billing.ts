@@ -87,7 +87,10 @@ export const draft = {
     draftText = text
     draftAt = at
   },
-  get: (at: number): string => (draftText && at - draftAt <= DRAFT_MS ? draftText : ''),
+  get: (at: number): string => {
+    if (draftText && at - draftAt > DRAFT_MS) draft.clear() // expired: dropped from memory, not just hidden
+    return draftText
+  },
   clear: (): void => {
     draftText = ''
     draftAt = 0
@@ -99,13 +102,19 @@ export const KEY_DOT = '•'
 export const maskKey = (real: string): string => KEY_DOT.repeat(real.length)
 /**
  * The real text behind what the box now shows. The box held `real` as dots; the person's
- * edit kept some leading dots and typed or pasted the rest. A paste over everything has
- * no dots and is taken whole.
+ * edit kept the dots before and after the cursor and typed or pasted between them (at the
+ * end, the start or in the middle). A paste over everything has no dots and is taken whole.
+ * All dots is a deletion: dots look alike, so it drops from the end.
  */
 export const unmaskKey = (shown: string, real: string): string => {
-  let kept = 0
-  while (kept < shown.length && shown[kept] === KEY_DOT) kept += 1
-  return real.slice(0, Math.min(kept, real.length)) + shown.slice(kept).split(KEY_DOT).join('')
+  let lead = 0
+  while (lead < shown.length && shown[lead] === KEY_DOT) lead += 1
+  if (lead === shown.length) return real.slice(0, Math.min(lead, real.length))
+  let trail = 0
+  while (trail < shown.length - lead && shown[shown.length - 1 - trail] === KEY_DOT) trail += 1
+  const head = Math.min(lead, real.length)
+  const tail = Math.min(trail, real.length - head)
+  return real.slice(0, head) + shown.slice(lead, shown.length - trail).split(KEY_DOT).join('') + real.slice(real.length - tail)
 }
 
 // --- the Keychain, through `security` ----------------------------------------------

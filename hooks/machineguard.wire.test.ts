@@ -25,6 +25,11 @@ let aliveArgs: Record<string, string> = {}
 const stopped: string[] = []
 // The store, kept here so a test can read what the mod wrote and play the other sessions.
 let kv = new Map<string, unknown>()
+let settingsDraws = 0
+// Fail-open checks: a store, an agent list or a tool that throws.
+let storeBroken = false
+let listBroken = false
+let throwOnce = false
 const clone = (v: unknown): unknown => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)))
 
 const base = (on: On, store: Record<string, unknown> = {}) => {
@@ -40,21 +45,34 @@ const base = (on: On, store: Record<string, unknown> = {}) => {
   argsOut = null
   aliveArgs = {}
   sessionId = 'me'
+  storeBroken = false
+  listBroken = false
+  throwOnce = false
   clock = mock.clock(on, { now: Date.parse('2026-10-20T10:00:00Z') })
   on('session.id', async () => ({ value: sessionId }) as never)
   on('session.root', async () => ({ value: '/repo/claude mod' }) as never)
   mock.env(on, { LANG: 'en_US.UTF-8' })
   kv = new Map(Object.entries(store).map(([k, v]) => [k, clone(v)]))
-  on('store.get', async (_$, e) => ({ value: clone(kv.get((e as { key: string }).key)) }) as never)
+  on('store.get', async (_$, e) => {
+    if (storeBroken) throw new Error('store down')
+    // Only the Settings pane reads this key, once a draw: a count of its draws.
+    if ((e as { key: string }).key === 'spendDays') settingsDraws++
+    return { value: clone(kv.get((e as { key: string }).key)) } as never
+  })
   on('store.set', async (_$, e) => {
+    if (storeBroken) throw new Error('store down')
     kv.set((e as { key: string }).key, clone((e as { value: unknown }).value))
     return { value: undefined } as never
   })
   on('store.delete', async (_$, e) => {
+    if (storeBroken) throw new Error('store down')
     kv.delete((e as { key: string }).key)
     return { value: undefined } as never
   })
-  on('store.keys', async () => ({ value: [...kv.keys()] }) as never)
+  on('store.keys', async () => {
+    if (storeBroken) throw new Error('store down')
+    return { value: [...kv.keys()] } as never
+  })
   on('fs.exists', async () => ({ value: false }) as never)
   on('settings.read', async () => ({ value: {} }) as never)
   on('tool.register', async () => ({ value: undefined }) as never)
@@ -84,18 +102,26 @@ const base = (on: On, store: Record<string, unknown> = {}) => {
   })
   on('tool.call', async (_$, e) => {
     const command = String((e as { command?: string }).command)
+    if (throwOnce && command.startsWith('tsc')) {
+      throwOnce = false
+      throw new Error('tool blew up')
+    }
     ran.push(command)
     // Only the first type check is held open; a light command is never in its way.
     if (gate && command.startsWith('tsc')) await gate
     return { result: 'ok' } as never
   })
-  on('agent.list', async () => ({
+  on('agent.list', async () => {
+    if (listBroken) throw new Error('list down')
+    return {
     value: [
       ...Array.from({ length: running }, (_, i) => ({ id: `r${i}`, description: 'x', type: 'general-purpose', status: i % 2 ? 'waiting' : 'running' })),
       ...Array.from({ length: idleOnes }, (_, i) => ({ id: `i${i}`, description: 'x', type: 'teammate', status: 'idle' })),
       ...Array.from({ length: finishedOnes }, (_, i) => ({ id: `f${i}`, description: 'x', type: 'general-purpose', status: 'completed' })),
     ],
-  }) as never)
+  } as never
+  })
+  on('session.end', async () => ({ sessionId: 'me' }) as never)
   on('agent.spawn', async () => {
     if (spawnDelay) await new Promise<void>(r => (globalThis as unknown as { setTimeout: (f: () => void, ms: number) => void }).setTimeout(r, spawnDelay))
     return { model: 'claude-opus-5-5', agentId: 'a1' } as never
@@ -422,4 +448,154 @@ test('kill switch: the heavy command that was running when it was stopped comes 
   const done = (await run) as unknown as { result?: string; context?: string[] }
   expect(done.result).toBe('ok')
   expect(done.context?.join(' ')).toContain('Machine Guard stopped `tsc` because Claude\'s RAM use went over its limit. Re-run only when RAM is under the limit; prefer smaller scopes')
+})
+
+test('the Settings pane does not redraw when only the RAM in use changes, so an open dropdown stays open', async ($, on) => {
+  machineOut = `os=mac\ntotal=${48 * GB}\ncores=12\nfree=${30 * GB}\n`
+  running = 0
+  base(on, { ramLimit: 'gb:40' })
+  const used: number[] = []
+  on('state.set', async (_$, e, next) => {
+    if ((e as { key?: string }).key === 'guard') used.push(Number(((e as { value?: { usedGb?: number } }).value ?? {}).usedGb))
+    return next(e)
+  })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'crab-progress', surface: 'desktop', component: 'Pane', requestId: 'crab-settings', props: { title: '', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} } } as never)
+  await ui.drawn()
+  const before = settingsDraws
+  const seen = used.length
+  // The RAM in use moves twice between looks while an agent runs; nothing the pane shows changes.
+  running = 1
+  for (const free of [26, 21]) {
+    machineOut = `os=mac\ntotal=${48 * GB}\ncores=12\nfree=${free * GB}\n`
+    await clock?.advance(31_000)
+    await spawn($, free)
+  }
+  await ui.drawn()
+  expect(before).toBeGreaterThan(0)
+  expect(new Set(used.slice(seen)).size).toBeGreaterThan(1)
+  expect(settingsDraws).toBe(before)
+  expect((await ui.findAll({ type: 'Text' })).map(t => String(t.text ?? '')).some(t => t.startsWith('🖥︎ 48 GB RAM'))).toBe(true)
+  // A change the person makes still redraws it.
+  await ui.press({ key: 'set-calm' })
+  await ui.drawn()
+  expect(settingsDraws).toBeGreaterThan(before)
+  await ui.unmount()
+})
+
+// ---- fail-open: a probe or the store that fails never blocks ordinary work ----
+
+test('fail-open: after an over-limit read, a process read that fails refuses nothing (the stale number is not trusted)', async ($, on) => {
+  machineOut = `os=mac\ntotal=${48 * GB}\ncores=12\nfree=${30 * GB}\n`
+  running = 0
+  base(on, { ramLimit: 'gb:20', killSwitch: 'off' })
+  table(19.7)
+  await start($)
+  await clock?.advance(20_000)
+  expect(await spawn($, 1)).toMatchObject({ deny: expect.stringContaining('over its 20 GB RAM limit') })
+  // ps now fails: the 22.7 GB reading is all that is left.
+  namesOut = ''
+  argsOut = ''
+  await clock?.advance(60_000)
+  expect(await bash($, 'tsc --noEmit', 'h1')).toMatchObject({ result: 'ok' })
+  expect(await spawn($, 2)).toMatchObject({ agentId: 'a1' })
+  // A read that works again is trusted again.
+  table(19.7)
+  await clock?.advance(60_000)
+  expect(await spawn($, 3)).toMatchObject({ deny: expect.stringContaining('over its 20 GB RAM limit') })
+})
+
+test('fail-open: after a low free-RAM read, a free-RAM look that fails refuses nothing', async ($, on) => {
+  machineOut = `os=mac\ntotal=${48 * GB}\ncores=12\nfree=${3 * GB}\n`
+  running = 0
+  base(on)
+  await start($)
+  expect(await spawn($, 1)).toMatchObject({ deny: expect.stringContaining('only 6% of RAM is free') })
+  machineOut = 'garbage'
+  await clock?.advance(60_000)
+  expect(await spawn($, 2)).toMatchObject({ agentId: 'a1' })
+})
+
+test('fail-open: a store that throws everywhere never blocks agents or heavy commands', async ($, on) => {
+  machineOut = `os=mac\ntotal=${48 * GB}\ncores=12\nfree=${30 * GB}\n`
+  running = 0
+  base(on)
+  storeBroken = true
+  await start($)
+  await clock?.advance(20_000)
+  expect(await spawn($, 1)).toMatchObject({ agentId: 'a1' })
+  expect(await bash($, 'tsc --noEmit', 'h1')).toMatchObject({ result: 'ok' })
+  expect(await bash($, 'npm test', 'h2')).toMatchObject({ result: 'ok' })
+})
+
+test('fail-open: an agent list that throws lets the agent start', async ($, on) => {
+  machineOut = `os=mac\ntotal=${48 * GB}\ncores=12\nfree=${30 * GB}\n`
+  base(on)
+  listBroken = true
+  await start($)
+  expect(await spawn($, 1)).toMatchObject({ agentId: 'a1' })
+})
+
+test('the heavy lock is released when the command throws: the next one runs at once', async ($, on) => {
+  machineOut = `os=mac\ntotal=${48 * GB}\ncores=12\nfree=${30 * GB}\n`
+  base(on)
+  throwOnce = true
+  await start($)
+  await bash($, 'tsc --noEmit', 'h1').catch(() => undefined)
+  expect(await bash($, 'tsc --noEmit', 'h2')).toMatchObject({ result: 'ok' })
+  expect(sleeps).toBe(0)
+})
+
+test('only this session\'s key is written; a record over 10 min old is deleted; the key is gone when the session ends', async ($, on) => {
+  machineOut = `os=mac\ntotal=${48 * GB}\ncores=12\nfree=${30 * GB}\n`
+  running = 1
+  base(on, { maxAgents: 3, 'mg.s.fresh': peer({ agents: 1 }), 'mg.s.stale': peer({ agents: 50, at: NOW - 61_000 }), 'mg.s.old': peer({ agents: 50, at: NOW - 11 * 60_000 }) })
+  await start($)
+  // 1 here + 1 fresh = 2 of 3: the stale and the old 50s do not count.
+  expect(await spawn($, 1)).toMatchObject({ agentId: 'a1' })
+  expect(kv.has('mg.s.old')).toBe(false)
+  expect(kv.get('mg.s.stale')).toMatchObject({ agents: 50 })
+  expect(kv.get('mg.s.fresh')).toMatchObject({ agents: 1, at: NOW })
+  expect(kv.has('mg.s.me')).toBe(true)
+  await $.session.end({ reason: 'exit' } as never)
+  expect(kv.has('mg.s.me')).toBe(false)
+})
+
+// ---- learning RAM per agent: never from a heavy command's RAM ----
+
+// Claude 1 GB, one agent's node 0.4 GB, and a 10 GB JS type check (named `node`, so the lean measure cannot see it is heavy).
+const learnTable = (heavyGb: number) => {
+  namesOut = [`1 0 10 /sbin/launchd`, `100 1 ${kb(1)} /x/claude`, `101 100 ${kb(0.4)} node`, ...(heavyGb ? [`104 100 ${kb(heavyGb)} node`] : [])].join('\n')
+  argsOut = ''
+}
+const learnedAfter = async ($: Engine, on: On, mode: 'none' | 'peer' | 'background'): Promise<number> => {
+  machineOut = `os=mac\ntotal=${48 * GB}\ncores=12\nfree=${30 * GB}\n`
+  running = 0
+  base(on, { ramLimit: 'gb:40', killSwitch: 'off' })
+  namesOut = [`1 0 10 /sbin/launchd`, `100 1 ${kb(1)} /x/claude`].join('\n')
+  await start($)
+  await clock?.advance(31_000)
+  // The baseline (0 agents), then one agent starts.
+  expect(await spawn($, 1)).toMatchObject({ agentId: 'a1' })
+  if (mode === 'background') await $.tool.call({ tool: 'Bash', command: 'npx tsc --noEmit', run_in_background: true, tool_use_id: 'bg', agentId: 'bg' } as never)
+  learnTable(10)
+  for (let i = 0; i < 4; i++) {
+    // Another session's heartbeat, holding the heavy lock for its own tsc.
+    if (mode === 'peer') kv.set('mg.s.other', peer({ agents: 0, at: NOW + 31_000 * (i + 2), heavy: { cmd: 'tsc', since: NOW + 30_000 } }))
+    await clock?.advance(31_000)
+    await wait(30)
+  }
+  return ((kv.get('agentRam') as number | undefined) ?? 0) / GB
+}
+
+test('learning: a big process with no heavy command about is learned (the control)', async ($, on) => {
+  expect(await learnedAfter($, on, 'none')).toBeGreaterThan(1)
+})
+
+test('learning: another session\'s heavy command is not learned as agent RAM', async ($, on) => {
+  expect(await learnedAfter($, on, 'peer')).toBe(0)
+})
+
+test('learning: a heavy command run in the background (its lock let go at once) is not learned as agent RAM', async ($, on) => {
+  expect(await learnedAfter($, on, 'background')).toBe(0)
 })

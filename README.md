@@ -66,7 +66,7 @@
 
 <p align="center"><sub>Both zips are the full mod (Cyberpunk = Core + add-on). Unzip, <a href="#-install">point Claude Code at the folder</a>, restart.</sub></p>
 
-> **Unofficial, non-commercial fan project.** Not affiliated with, endorsed by or sponsored by CD PROJEKT S.A., CD PROJEKT RED, Studio Trigger or Netflix. Cyberpunk 2077, Cyberpunk: Edgerunners and all related names, characters and terms belong to their respective owners and are used as fan homage only. The MIT license covers this project's code, not those properties. Removal requests: open an issue.
+> **Unofficial, non-commercial fan project.** Not affiliated with, endorsed by or sponsored by CD PROJEKT S.A., CD PROJEKT RED, Studio Trigger or Netflix. Cyberpunk 2077, Cyberpunk: Edgerunners, Edgerunners 2 and all related names, characters and terms belong to their respective owners and are used as fan homage only. The MIT license covers this project's code, not those properties. Removal requests: open an issue.
 
 ---
 
@@ -83,6 +83,7 @@ Claude works in steps, calls tools and spins up sub-agents. Mission Control show
 - 🧊 **Smart Keep-Warm**: refreshes the prompt cache just before it expires, only when that saves more than it costs (`/tokens warm on`)
 - 🗓️ **Spend card**: what Today, this week (Mon–Sun), one calendar month or your own date range cost, read from Claude Code's own history (`/tokens spend week`, `/tokens spend month 2026-06`, `/tokens spend 2026-10-01 2026-10-15`); `/tokens export` saves the period as a FinOps-style CSV in Downloads ([Athena sample](docs/athena.sql))
 - 🚀 **Crew mode**: big jobs get split across sub-agents automatically
+- ⚡ **Ultra decided by** (Settings > 🦀 Crew, or `/tokens ultra manager|me`): with **Manager**, the main session flags `ultra: true` on only the plan tasks that really need max effort and a deep check (hard design, tricky debugging, security, risky migrations). An agent whose description matches a flagged task starts on Ultra and the card reads "max + Ultra (Manager's call)". Your ⚡ button always wins, and role rules still apply. **Me** (default) ignores the flags.
 - 🚨 **Stuck alarm** (2 min quiet) and 🔔 **done chime** (toast, notification, sound)
 - 🧾 **Rich replies**: diffs, code, tables, math and mermaid as cards
 - 🌍 **7 currencies**, **3 languages** (English, Russian, Hebrew)
@@ -134,7 +135,8 @@ The add-on swaps the crabs for a pixel-art cast, moves the HUD to Night City and
 |---|:---:|:---:|
 | HUD band, pane, crew, Token Manager, crew mode, done chime, rich replies | ✓ | ✓ |
 | `default` and Crab Classic skins, custom JSON skins | ✓ | ✓ |
-| **Cyberpunk Edgerunner**, **Lucy · Edgerunners**, **Arasaka** skins + a hidden one 🎸 | — | ✓ |
+| **Cyberpunk Edgerunner**, **Lucy · Edgerunners**, **Arasaka**, **Edgerunners 2** skins + two hidden ones 🎸 | — | ✓ |
+| **Edgerunners 2** (fan homage): torn magenta paper on black, BIOCHIP, Roman's Tape, the Watson Wall, and Capri who walks in now and then | — | ✓ |
 | Pixel-art cast: David, Lucy, Rebecca, Maine, Kiwi, Johnny… Saburo and Adam Smasher on Arasaka | — | ✓ |
 | **Street Cred**: XP per job, ranks NOBODY → LEGEND OF THE AFTERLIFE, 9 badges | — | ✓ |
 | **Braindance**: replay the session, every tool call a mark | — | ✓ |
@@ -155,6 +157,7 @@ Pick one with `/skins` (a live picker) or `/skin <id>`. Each skin restyles the b
 | 🟡 Cyberpunk Edgerunner | `cyberpunk-2077` | Neon yellow, cyan and hot red. David leads the crew. |
 | 🌙 Lucy · Edgerunners | `lucy-edgerunners` | Rose-pink and cyan under the moon. Lucy runs the net. |
 | 🔴 Arasaka | `arasaka` | Corporate red and black. Saburo at the top, Smasher on call. |
+| ✂️ Edgerunners 2 | `edgerunners-2` | Torn magenta paper on black. D and the Kings; Capri visits. |
 | 🎸 ??? | — | Not in the picker. Wake up… |
 
 <details open>
@@ -338,10 +341,11 @@ Expand-Archive -Force "$env:USERPROFILE\Downloads\cyberpunk-skins-addon.zip" -De
 | `/missioncontrol` | Open Mission Control (Settings at the bottom) |
 | `/missioncontrol billing` | Pay with your own Claude API credits instead of the plan: 4 steps, key kept in the macOS Keychain ([security notes](docs/SECURITY-billing.md)) |
 | `/missioncontrol currency <code> [rate]` | Costs in `USD` (the default), `AUTO` (eddies on the cyberpunk skins), `EDDIES`, `EUR`, `GBP`, `JPY`, `MYR` or `SGD`; optional rate per US dollar |
+| `/missioncontrol oneshot <on\|off\|ask>` | Once you approve a plan: do it all and report once (`on`), one part at a time (`off`), or ask each time (`ask`) |
 | `/skins` | The skin picker, every skin as a live preview |
 | `/skin` | `/skin` to list, `/skin <id>` to switch, `/skin off`, `/skin reload` |
-| `/autocrew` | Crew mode: state, `on`, `off`, or `<context %>` to call the crew |
-| `/tokens` | Token Manager report, `budget <dollars\|off>`, `autopilot <on\|off>`, `warm <on\|off>` (Smart Keep-Warm), `spend today\|week\|month [YYYY-MM]\|<from> <to>`, `export [period]` (CSV in Downloads) |
+| `/autocrew` | Crew mode: state, `on` (big jobs only), `always` (every job, small ones too), `off`, or `<context %>` to call the crew |
+| `/tokens` | Token Manager report, `budget <dollars\|off>`, `autopilot <on\|off>`, `warm <on\|off>` (Smart Keep-Warm), `staffing <on\|off>` (cheapest model and effort per crew job), `ultra <manager\|me\|add\|remove\|list\|off> [role]` (max effort and a deep check for a role; the card shows "max + Ultra"; `manager` lets the Manager flag the tasks that need it, `me` is the default), `spend today\|week\|month [YYYY-MM]\|<from> <to>`, `export [period]` (CSV in Downloads), `daily <dollars\|off>` (a soft daily cap), `receipt` (the job's markdown receipt, copied), `pr` (a PR cost badge, copied), `whatif` (this session re-priced under cheaper setups; Tab takes the best one's command), `rescue [retry\|nudge <n\|all>]` (quiet agents), `model <id or ARN> <opus\|sonnet\|haiku\|fable\|off>` (price a Bedrock application inference profile ARN, or any id with no model name, as that model; no args lists the map) |
 | `/prefs` | How Claude should answer you, in every session: `add <rule>`, `remove <n>`, `clear` |
 
 ---

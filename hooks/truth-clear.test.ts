@@ -86,7 +86,7 @@ const text = async ($: Engine, surface: 'terminal' | 'desktop' = 'terminal'): Pr
 // ---------------------------------------------------------------------------
 
 test('/clear starts the band\'s TURN over (with the classic SessionStart the engine also raises)', async ($, on) => {
-  base(on)
+  base(on, { simpleBand: false }) // the TURN counter is on the full band
   on('classic.SessionStart', async () => ({}) as never)
   await start($)
   for (const q of ['one', 'two', 'three']) {

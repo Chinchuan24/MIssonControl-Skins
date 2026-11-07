@@ -51,7 +51,8 @@ const bandSvg = async ($: Engine) => {
   return svg.map(s => String(s.props?.source ?? '')).join('\n')
 }
 
-test('limit reset: pane, /tokens and band after the five-hour window resets with no new reply', async ($, on) => {
+// Two hours of mock-clock timers: ~2 s alone, over 5 s while the whole suite runs.
+test('limit reset: pane, /tokens and band after the five-hour window resets with no new reply', { timeoutMs: 20_000 }, async ($, on) => {
   const clock = base(on)
   limits = [{ kind: 'five_hour', percentUsed: 96, resetsAt: '2026-10-19T11:00:00Z' }]
   await $.session.start({ source: 'startup', cwd: '/repo', surface: 'terminal', isInteractive: true } as never)

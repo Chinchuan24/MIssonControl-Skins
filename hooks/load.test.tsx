@@ -152,6 +152,17 @@ const report = (name: string, m: Awaited<ReturnType<typeof measure>>) =>
     `[load] ${name}: per s pane=${m.per('pane')} band=${m.per('band')} svgNew=${m.per('svgNew')} svgBytes=${m.per('svgBytes')} (max ${m.max('svgBytes')}) writes=${m.per('writes')} usage=${m.per('usage')} ms=${m.per('ms')} (max ${m.max('ms')}); drawn ${m.size} B; writes by key ${JSON.stringify(m.keys)}`,
   )
 
+test('load: the Simple band of a 60-agent crew stays under the engine\'s Svg limit (131072 characters), crabs capped', async ($, on) => {
+  const clock = base(on)
+  await heavy($, clock)
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'AbovePrompt', props: BAND } as never)
+  const svgs = sources(await band.drawn())
+  await band.unmount()
+  expect(svgs.length).toBeGreaterThan(0)
+  for (const x of svgs) expect(x.length).toBeLessThan(131_072)
+  expect(svgs.join('')).toMatch(/>\+\d+</) // the crabs beyond the cap are the "+N"
+})
+
 test('load: 60 agents, the clock alone for 30 s re-sends next to nothing', async ($, on) => {
   const clock = base(on)
   await heavy($, clock)
@@ -195,7 +206,11 @@ test('load: 60 agents at work for 30 s (steps, measures, tool calls) redraw at m
   await ui.pane.unmount()
   // The pictures change with the work (tokens, steps): each change costs its bytes, no more.
   expect(m.total('svgBytes') / SECONDS).toBeLessThanOrEqual(80_000)
-  expect(m.size).toBeLessThanOrEqual(190_000)
+  // Band + pane together. The cards grew (price tags, the model, the effort), so the 190 kB of 25 Oct became 200 kB;
+  // the band alone stays under the engine's 131072-character limit however big the crew (6 crabs, then "+N").
+  // 7 Nov: the pane is measured as it is sent (compacted), no longer raw, so it keeps more cards
+  // up to its own limit (DRAW_MAX, 220 kB): about 250 kB with the band.
+  expect(m.size).toBeLessThanOrEqual(260_000)
   expect(m.per('pane')).toBeLessThanOrEqual(3)
   expect(m.per('band')).toBeLessThanOrEqual(3)
   // A measure pushed right after a step's own reading waits for the tick.

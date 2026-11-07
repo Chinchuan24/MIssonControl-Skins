@@ -47,7 +47,7 @@ RAM per agent starts at **0.5 GB** and is learned on your machine:
 - With 0 agents running, the guard keeps Claude's process-tree size as a baseline.
 - With N agents running, one sample = (Claude's tree - baseline) ÷ N.
 - Samples are smoothed (EMA, weight 0.2), kept between 0.2 and 4 GB, and saved, so the figure carries across sessions.
-- Ignored: failed process reads, reads while a heavy command ran, and the subtrees of `tsc` / test runners themselves.
+- Ignored: failed process reads, reads while a heavy command ran (in this session or another live one), reads for 15 minutes after a heavy command started in the background, and the subtrees of `tsc` / test runners themselves.
 - **↺ Reset learned RAM per agent** (Settings, Machine Guard card) forgets the learned figure: back to 0.5 GB until it learns again.
 
 At 0.5 GB per agent:
@@ -113,7 +113,7 @@ It adds up **every process named `claude`** (`claude.exe` on Windows) and all it
 - other Claude Code sessions
 - the Claude desktop app and its helper processes
 
-No `claude` process found? It compares **system-wide used RAM** to the limit instead. A process list that fails or times out keeps the last number.
+No `claude` process found? It compares **system-wide used RAM** to the limit instead. A process list (or free-RAM look) that fails or times out keeps the last number on the chip, but **nothing is refused on it**: refusals wait for a look that works.
 
 ### When it refuses
 
@@ -147,7 +147,7 @@ Before it refuses anything for RAM, the guard takes a fresh process read if the 
 
 Only **one** heavy Bash command runs at a time, across the main loop and every sub-agent. This is what stops 39 parallel `tsc` and test runs.
 
-Heavy means: `tsc` (also via `npx` / `bunx`), `plugin test`, jest, vitest, mocha, pytest, `npm|pnpm|yarn|bun (run) test|build`, `cargo build|test`, `go build|test`, make, gradle, xcodebuild, `docker build`. Anything else is never blocked.
+Heavy means: `tsc` (also via `npx` / `bunx`, `node …/tsc.js`, or `yarn` / `pnpm` / `bun` running it by name), `plugin test`, jest, vitest, mocha, pytest, `npm|pnpm|yarn|bun (run) test|build`, `cargo build|test`, `go build|test`, make, gradle, xcodebuild, `docker build`. Anything else is never blocked.
 
 | Situation | What happens |
 |---|---|

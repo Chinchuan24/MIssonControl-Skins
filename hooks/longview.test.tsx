@@ -133,7 +133,7 @@ test('collapse finished: done agents and done steps fold into one line each, run
   for (let i = 9; i <= 23; i++) expect(v.workflow).toContain(`${i}. Engineer: mecha part ${i} `)
   expect(v.alts.find(a => a.startsWith(`${TITLES[8]}:`))).toEndWith('over budget')
   // Remembered: a fresh mount, and the store, keep it folded.
-  expect(kept.get('paneView')).toEqual({ isCompact: false, isDoneCollapsed: true })
+  expect(kept.get('paneView')).toEqual({ isCompact: false, isDoneCollapsed: true, expanded: [] })
   await press($, 'done')
   expect(agentRows((await look($)).alts).length).toBe(14)
 })
@@ -145,7 +145,7 @@ test('collapse all: the whole list folds into the compact view and back', async 
   const v = await look($)
   expect(agentRows(v.alts).length).toBe(0)
   expect(v.labels).toContain('Expand')
-  expect(kept.get('paneView')).toEqual({ isCompact: true, isDoneCollapsed: false })
+  expect(kept.get('paneView')).toEqual({ isCompact: true, isDoneCollapsed: false, expanded: [] })
   await press($, 'compact')
   expect(agentRows((await look($)).alts).length).toBe(14)
 })
@@ -177,16 +177,42 @@ test('terminal: all 23 steps listed; collapse finished folds the done steps', as
   expect(folded).toContain('23. Engineer: mecha part 23 ')
 })
 
-test('a huge crew (60 running) still lists every agent on the desktop, under the size limit', async ($, on) => {
-  base(on)
+// The cards carry more now (price tags, the model, the effort), so a big enough crew no longer fits
+// what the app can draw: measured as sent, 60 agents still have a row each, 120 do not. Up to there every
+// agent is in a row of its own; beyond it the pane keeps to the size limit by falling back to the short
+// view, with a line that says so.
+const bigJob = async ($: Engine, n: number) => {
   await $.session.start({ source: 'startup', cwd: '/repo', surface: 'desktop', isInteractive: true } as never)
   await $.prompt.submit({ text: 'Big job', cursor: 0 } as never)
-  const many = Array.from({ length: 60 }, (_, i) => `Engineer: piece ${i + 1} of a very long and wordy job description here`)
-  await $.tool.call({ tool: 'mcp__crab-progress__progress', title: 'Big', total: 60, tasks: many.map(title => ({ title, tier: 'medium', minutes: 5 })) } as never)
-  for (let i = 0; i < 60; i++)
+  const many = Array.from({ length: n }, (_, i) => `Engineer: piece ${i + 1} of a very long and wordy job description here`)
+  await $.tool.call({ tool: 'mcp__crab-progress__progress', title: 'Big', total: n, tasks: many.map(title => ({ title, tier: 'medium', minutes: 5 })) } as never)
+  for (let i = 0; i < n; i++)
     await $.agent.spawn({ tool_use_id: `t${i}`, prompt: 'p', description: many[i], subagentType: 'general-purpose', provider: 'engine', parentModel: 'x', background: false, fork: false } as never)
+  return many
+}
+
+test('a big crew (50 running) still lists every agent on the desktop, under the size limit', async ($, on) => {
+  base(on)
+  const many = await bigJob($, 50)
   const v = await look($)
   expect(v.size).toBeLessThan(262_144)
+  expect(many.filter(t => v.alts.some(a => a.startsWith(`${t}:`))).length).toBe(50)
+})
+
+test('a huge crew (60 running) still lists every agent, under the size limit', async ($, on) => {
+  base(on)
+  const many = await bigJob($, 60)
+  const v = await look($)
+  expect(v.size).toBeLessThan(262_144)
+  expect(v.texts.join('\n')).not.toContain('this is the short view')
   expect(many.filter(t => v.alts.some(a => a.startsWith(`${t}:`))).length).toBe(60)
+})
+test('a huger crew (120 running) falls back to the short view: under the size limit, every agent counted, a way back', async ($, on) => {
+  base(on)
+  await bigJob($, 120)
+  const v = await look($)
+  expect(v.size).toBeLessThan(262_144)
+  expect(v.texts.join('\n')).toContain('this is the short view')
+  expect(v.alts.some(a => a.startsWith('120 agents'))).toBe(true)
 })
 

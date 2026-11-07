@@ -7,11 +7,13 @@
 
 import { inkOn, textW } from './extras'
 import { pin } from './smooth'
-import { MENTALIST_GREETING, MENTALIST_TOOLS, MENTALIST_WORDS, REDJOHN_GREETING } from './mentalist'
+import { THEMES } from './themes'
+import type { ThemeKey } from './themes'
 
 export type CyberEgg = 'runners' | 'netrun' | 'corpo' | 'samurai'
-// The Mentalist and its hidden Red John skin have eggs of their own (see mentalist.ts).
-export type Egg = CyberEgg | 'mentalist' | 'redjohn'
+// The themed skins (The Mentalist, Breaking Bad and their hidden ones) have eggs of
+// their own: see themes.ts.
+export type Egg = CyberEgg | ThemeKey
 
 // `bg` is the card ground: each skin's tile colour.
 export type EggColors = { a: string; b: string; c: string; text: string; dim: string; bg: string }
@@ -23,6 +25,10 @@ const COLORS: Record<Egg, EggColors> = {
   samurai: { a: '#E10600', b: '#EDEDED', c: '#FFD400', text: '#F4F4F4', dim: '#8A7A7A', bg: '#0E0909' },
   mentalist: { a: '#8DB4EA', b: '#DCE6F5', c: '#E0261F', text: '#F2F5FA', dim: '#93A0B5', bg: '#0E1524' },
   redjohn: { a: '#E0261F', b: '#F2F5FA', c: '#E0261F', text: '#F2F2F2', dim: '#8C7A7A', bg: '#0B0708' },
+  breakingbad: { a: '#5EC8F0', b: '#4FB37A', c: '#F2C318', text: '#F2F5F0', dim: '#94A598', bg: '#0F1A14' },
+  heisenberg: { a: '#5EC8F0', b: '#F4F4F4', c: '#B8C0C8', text: '#F4F4F4', dim: '#9A9AA0', bg: '#0A0A0B' },
+  edgerunners2: { a: '#FD0250', b: '#E9E6D8', c: '#3E80F7', text: '#F1EEE4', dim: '#968B90', bg: '#0A0709' },
+  capricorn: { a: '#050305', b: '#3DF27A', c: '#050305', text: '#050305', dim: '#2A0510', bg: '#FD0250' },
 }
 export const eggColors = (egg: Egg): EggColors => COLORS[egg]
 
@@ -172,7 +178,7 @@ export const celebration = (W: number, H: number, egg: Egg, font: string, startA
 // A tiny code tag for a corner: SYS.2077 // 0x3F, and a katakana line.
 export const sysTag = (x: number, y: number, egg: Egg, font: string, anchor = 'end'): string => {
   const c = COLORS[egg]
-  const code = egg === 'mentalist' ? 'CBI // SAC-01' : egg === 'redjohn' ? '☺ // 0x00' : egg === 'corpo' ? 'ARS.2077 // 0x0A' : egg === 'netrun' ? 'NET.2076 // 0x4C' : egg === 'samurai' ? 'SAM.2013 // 0x77' : 'SYS.2077 // 0x3F'
+  const code = egg === 'mentalist' ? 'CBI // SAC-01' : egg === 'redjohn' ? '☺ // 0x00' : egg === 'breakingbad' ? 'ABQ // 505' : egg === 'heisenberg' ? 'Br 35 // Ba 56' : egg === 'edgerunners2' ? 'D // 0+2=1' : egg === 'capricorn' ? 'CAPRI // 0+2=1' : egg === 'corpo' ? 'ARS.2077 // 0x0A' : egg === 'netrun' ? 'NET.2076 // 0x4C' : egg === 'samurai' ? 'SAM.2013 // 0x77' : 'SYS.2077 // 0x3F'
   return `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="${font}" font-size="7" letter-spacing=".8" fill="${c.dim}" fill-opacity=".8">${code}</text>`
 }
 // Japanese text needs a Japanese face: macOS, Windows, then Linux's Noto.
@@ -243,8 +249,8 @@ export const legendsCard = (W: number, list: Legend[], egg: Egg, font: string, m
   const c = COLORS[egg]
   const H = legendsHeight(list.length)
   // 7. a narrow card keeps just the place's name
-  const isCase = egg === 'mentalist' || egg === 'redjohn'
-  const title = isCase ? 'CLOSED FILES' : W < 460 ? (egg === 'corpo' ? 'MIKOSHI' : 'AFTERLIFE') : egg === 'corpo' ? 'MIKOSHI · ENGRAMS ON FILE' : 'AFTERLIFE · DRINKS NAMED AFTER LEGENDS'
+  const lg = THEMES[egg as ThemeKey]?.legends
+  const title = lg ? lg.title : W < 460 ? (egg === 'corpo' ? 'MIKOSHI' : 'AFTERLIFE') : egg === 'corpo' ? 'MIKOSHI · ENGRAMS ON FILE' : 'AFTERLIFE · DRINKS NAMED AFTER LEGENDS'
   const rows = list.length
     ? list
         .map((l, i) => {
@@ -253,12 +259,12 @@ export const legendsCard = (W: number, list: Legend[], egg: Egg, font: string, m
           const room = Math.max(10, Math.floor((W - 160) / 6.6))
           const chars = [...name]
           const clipped = chars.length > room ? `${chars.slice(0, room - 1).join('')}…` : name
-          return `<text x="18" y="${y}" font-family="${font}" font-size="12" font-weight="600" fill="${c.text}">${isCase ? '🗂' : egg === 'corpo' ? '▣' : '🍸'} ${esc(clipped)}</text>
+          return `<text x="18" y="${y}" font-family="${font}" font-size="12" font-weight="600" fill="${c.text}">${lg ? lg.icon : egg === 'corpo' ? '▣' : '🍸'} ${esc(clipped)}</text>
 <line x1="18" y1="${y + 5}" x2="${W - 18}" y2="${y + 5}" stroke="${c.dim}" stroke-opacity=".35" stroke-dasharray="1 3"/>
 <text x="${W - 18}" y="${y}" text-anchor="end" font-family="${font}" font-size="12" font-weight="800" fill="${c.a}">${money(l.costUsd)}</text>`
         })
         .join('')
-    : `<text x="18" y="52" font-family="${font}" font-size="12" fill="${c.dim}">${isCase ? 'No closed files yet. Close a case.' : egg === 'corpo' ? 'No engrams yet. Finish a job.' : 'No legends yet. Finish a job, choom.'}</text>`
+    : `<text x="18" y="52" font-family="${font}" font-size="12" fill="${c.dim}">${lg ? lg.empty : egg === 'corpo' ? 'No engrams yet. Finish a job.' : 'No legends yet. Finish a job, choom.'}</text>`
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
 ${frame(0.5, 0.5, W - 1, H - 1, `fill="${c.bg}" fill-opacity=".85" stroke="${c.a}" stroke-opacity=".3"`, 10)}
 <rect x="16" y="11" width="3" height="14" fill="${c.a}"/>
@@ -269,27 +275,27 @@ ${rows}
 }
 
 // Words: the spinner talks like Night City, and the cheer on a long job.
+// The themed skins' words, tools and greetings come from their ThemeEggs entry.
+const themed = <T,>(pick: (t: (typeof THEMES)[ThemeKey]) => T): Record<ThemeKey, T> =>
+  Object.fromEntries((Object.keys(THEMES) as ThemeKey[]).map(k => [k, pick(THEMES[k])])) as Record<ThemeKey, T>
 export const EGG_WORDS: Record<Egg, string[]> = {
   runners: ['Jacking in', 'Breaching ICE', 'Uploading daemon', 'Pinging the subnet', 'Chipping in', 'Calling a Delamain', 'Asking the fixer', 'Overclocking', 'Dodging NetWatch', 'Hitting the Afterlife', 'Checking the chrome', 'Scanning with Kiroshis'],
   netrun: ['Diving into the Net', 'Chasing the moon', 'Slipping past ICE', 'Deep diving', 'Drifting through the Net', 'Riding the subway', 'Jacking in, choom', 'Cutting the cables', 'Breaching the Blackwall… not today'],
   samurai: ['Tuning up', 'Plugging in the amp', 'Soundcheck', 'Burning corpo towers', 'Writing a riff', 'Playing the Atlantis', 'Chipping in', 'Loading the Malorian'],
   corpo: ['Processing', 'Executing protocol', 'Consulting the board', 'Filing the engram', 'Securing assets', 'Dispatching Smasher', 'Reporting to Saburo', 'Running Soulkiller… diagnostics', 'Auditing the floor'],
-  mentalist: MENTALIST_WORDS,
-  redjohn: [], // the skin's own words (Blake's "The Tyger") are enough
+  ...themed(t => t.words),
 }
 export const EGG_TOOLS: Record<Egg, Record<string, string>> = {
   runners: { Read: 'Scan', Edit: 'Rewire', MultiEdit: 'Rewire', Write: 'Burn chip', Bash: 'Quickhack', PowerShell: 'Quickhack', Grep: 'Ping', Glob: 'Datamine', Agent: 'Call a fixer', WebFetch: 'Jack in', WebSearch: 'Netsearch', ToolSearch: 'Visit Vik' },
   netrun: { Read: 'Dive', Edit: 'Rewrite', MultiEdit: 'Rewrite', Write: 'Leave a trace', Bash: 'Breach', PowerShell: 'Breach', Grep: 'Ping', Glob: 'Map the Net', Agent: 'Call the crew', WebFetch: 'Pull', WebSearch: 'Search the Net', ToolSearch: 'Swap chrome' },
   samurai: { Read: 'Read the setlist', Edit: 'Rewrite the riff', MultiEdit: 'Rewrite the riff', Write: 'Cut a track', Bash: 'Plug in', PowerShell: 'Plug in', Grep: 'Find the hook', Glob: 'Map the venue', Agent: 'Call the band', WebFetch: 'Pull a sample', WebSearch: 'Scout the crowd', ToolSearch: 'Swap guitars' },
   corpo: { Read: 'Audit', Edit: 'Amend', MultiEdit: 'Amend', Write: 'File', Bash: 'Execute', PowerShell: 'Execute', Grep: 'Surveil', Glob: 'Catalogue', Agent: 'Dispatch', WebFetch: 'Retrieve', WebSearch: 'Surveil the Net', ToolSearch: 'Requisition' },
-  mentalist: MENTALIST_TOOLS,
-  redjohn: {}, // the skin's own tool words
+  ...themed(t => t.tools),
 }
 export const GREETING: Record<Egg, string> = {
   runners: 'Wake up, Samurai. We have a city to burn.',
   netrun: 'Wake up, choom. The moon is waiting.',
   corpo: 'Arasaka welcomes you, employee. Loyalty is rewarded.',
   samurai: '🎸 SAMURAI reunited. Never fade away.',
-  mentalist: MENTALIST_GREETING,
-  redjohn: REDJOHN_GREETING,
+  ...themed(t => t.greeting),
 }

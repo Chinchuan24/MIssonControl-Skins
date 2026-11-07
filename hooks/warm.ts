@@ -45,7 +45,8 @@ export type WarmCall = {
   reason?: string
 }
 
-export const warmCall = (price: WarmPrice, promptTokens: number, isLikely: boolean, contextPct: number, outputTokens = WARM_OUTPUT_TOKENS): WarmCall => {
+/** `fmt` writes the money in the skip reason: the person's currency, dollars when left out. */
+export const warmCall = (price: WarmPrice, promptTokens: number, isLikely: boolean, contextPct: number, outputTokens = WARM_OUTPUT_TOKENS, fmt: (usd: number) => string = usd => `$${usd.toFixed(2)}`): WarmCall => {
   const [, output, cacheRead, cacheWrite] = price
   const warmUsd = (promptTokens * cacheRead + outputTokens * output) / 1e6
   const missUsd = Math.max(0, (promptTokens * (cacheWrite - cacheRead)) / 1e6)
@@ -53,7 +54,7 @@ export const warmCall = (price: WarmPrice, promptTokens: number, isLikely: boole
   const expectedUsd = chance * missUsd - warmUsd
   if (contextPct >= COMPACT_PCT) return { isWarm: false, warmUsd, missUsd, chance, expectedUsd, reason: `context ${contextPct}%: a /compact rewrites the cache anyway` }
   if (promptTokens <= 0) return { isWarm: false, warmUsd, missUsd, chance, expectedUsd, reason: 'nothing cached yet' }
-  if (expectedUsd < MIN_SAVINGS_USD) return { isWarm: false, warmUsd, missUsd, chance, expectedUsd, reason: `skipped: a refresh costs $${warmUsd.toFixed(2)} and would likely save $${Math.max(0, chance * missUsd).toFixed(2)}` }
+  if (expectedUsd < MIN_SAVINGS_USD) return { isWarm: false, warmUsd, missUsd, chance, expectedUsd, reason: `skipped: a refresh costs ${fmt(warmUsd)} and would likely save ${fmt(Math.max(0, chance * missUsd))}` }
   return { isWarm: true, warmUsd, missUsd, chance, expectedUsd }
 }
 

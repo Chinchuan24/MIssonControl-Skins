@@ -176,7 +176,8 @@ test('safety net: a silent agent keeps the job open, checks in hourly, and /miss
   expect(await text($)).toContain('waiting for your next request')
 })
 
-test('safety net: an agent that keeps reporting is never cut off, however long it runs', async ($, on) => {
+// The mock clock fires every timer of 90 minutes: ~2 s alone, over 5 s while the whole suite runs. The wait is real work, not a hang.
+test('safety net: an agent that keeps reporting is never cut off, however long it runs', { timeoutMs: 20_000 }, async ($, on) => {
   const clock = base(on)
   on('turn.complete', async () => ({ text: '' }) as never)
   await start($)

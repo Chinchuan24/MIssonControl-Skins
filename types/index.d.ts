@@ -6,6 +6,8 @@ export type PlannedTask = {
   after: number[]
   /** The timekeeper's budget for this task, as the plan gave it. */
   minutes?: number
+  /** The Manager's call: this task needs max effort and a deep self-check. */
+  ultra?: boolean
 }
 
 export type Flow = {
@@ -63,12 +65,17 @@ export type AgentRun = {
   toolsInFlight?: number
   /** Runs at max effort with a deep-check brief: an Ultra rule matched, or the person pressed ⚡. */
   isUltra?: boolean
+  /** Ultra the Manager chose in its plan (not the person's ⚡ button or a role rule). */
+  isUltraByManager?: boolean
 }
 
 export type Panel = {
   isCompact: boolean
   isDoneCollapsed: boolean
-  /** Finished agents the person opened again; every other finished agent shows folded. */
+  /**
+   * Agents the person opened: a finished one shows its card instead of its folded row, a
+   * running one its card instead of its slim live row. Kept in the store (paneView).
+   */
   expanded?: string[]
   autoOpenedFor: string
 }
@@ -280,9 +287,11 @@ declare module 'claude-code' {
       /** The id of the skin Mission Control and the band are drawn in. */
       skin: string
       /** Mission Control's settings, mirrored from `$.store` so the pane redraws. */
-      settings: { openOnStart: boolean; crewMode: boolean; crewAlways?: boolean; currency: string; sounds: boolean; simple: boolean; calm: boolean; voice: boolean; staffing: boolean; oneShot: 'ask' | 'on' | 'off'; dailyUsd: number; autopilot: boolean; keepWarm: boolean; budgetUsd: number; tkOn: boolean; tkJobMin: number; tkAgentMin: number; ramLimit: string; maxAgents: number; killSwitch: string }
+      settings: { openOnStart: boolean; crewMode: boolean; crewAlways?: boolean; currency: string; sounds: boolean; simple: boolean; calm: boolean; voice: boolean; staffing: boolean; oneShot: 'ask' | 'on' | 'off'; ultraBy: 'me' | 'manager'; dailyUsd: number; autopilot: boolean; keepWarm: boolean; budgetUsd: number; tkOn: boolean; tkJobMin: number; tkAgentMin: number; ramLimit: string; maxAgents: number; killSwitch: string }
       /** Machine Guard: the detected machine as one line and in two words ("48 GB Mac", '' unknown), RAM in use (%, -1 before the first sample), the crew size in force and the calibrated one, and whether RAM is tight. */
       guard: { line: string; short: string; ramPct: number; max: number; calibrated: number; isTight: boolean }
+      // What the Settings pane shows of it: changes only with the machine, the limit or the learned figure.
+      guardSettings: { line: string; autoLabel: string; perAgent: string }
       /** Billing: the Keychain key's status and the apiKeyHelper mode. See hooks/billing.ts. */
       billing: Billing
       /** Street Cred: XP, the counts badges are earned on, the badges. Mirrored from `$.store`. */

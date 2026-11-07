@@ -10,11 +10,11 @@ const pane = (columns = 80) => ({ title: '', isFocused: false, bodyColumns: colu
 const band = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120 } as const
 
 const toasts: string[] = []
-const base = (on: On) => {
+const base = (on: On, store: Record<string, unknown> = {}) => {
   toasts.length = 0
   const clock = mock.clock(on, { now: Date.parse('2026-10-20T10:00:00Z') })
   mock.env(on, { LANG: 'en_US.UTF-8' })
-  mock.store(on)
+  mock.store(on, store)
   on('settings.read', async () => ({ value: {} }) as never)
   on('tool.register', async () => ({ value: undefined }) as never)
   on('command.register', async () => ({ value: undefined }) as never)
@@ -147,7 +147,7 @@ test("a task's notification drops it from the list before the next stop", async 
 
 for (const surface of SURFACES)
   test(`${surface}: the band shows a small background count, and none when the list is empty`, async ($, on) => {
-    base(on)
+    base(on, { simpleBand: false }) // the count is on the full band; the Simple band leaves it to the pane
     await start($)
     const none = await bandOf($, surface)
     expect(none.texts.some(t => t.startsWith('⧗'))).toBe(false)
@@ -289,7 +289,8 @@ test('a background task listed for two hours keeps the job open, checks in once 
   expect(checkIns()).toBe(2)
 })
 
-test('a new status is progress: the quiet hour starts again', async ($, on) => {
+// 100 minutes of mock-clock timers: ~2 s alone, over 5 s while the whole suite runs.
+test('a new status is progress: the quiet hour starts again', { timeoutMs: 20_000 }, async ($, on) => {
   const clock = base(on)
   await start($)
   await $.prompt.submit({ text: 'deploy', cursor: 0 } as never)

@@ -233,12 +233,14 @@ export type GuardInput = {
   freeBytes: number | null
   /** More than one live session shares the budget: `running` counts them all; `here` is this session's own. `others` says where the rest are. */
   sessions?: { count: number; here: number; others: string }
+  /** The last process read failed: Claude's use is unknown, so nothing is refused for it (and system-wide RAM does not stand in). */
+  isClaudeUnread?: boolean
 }
 
 export const usedBytes = (g: GuardInput): number | null => (g.machine.totalBytes && g.freeBytes !== null ? Math.max(0, g.machine.totalBytes - g.freeBytes) : null)
 export const freePct = (g: GuardInput): number | null => (g.machine.totalBytes && g.freeBytes !== null ? Math.round((g.freeBytes / g.machine.totalBytes) * 100) : null)
 /** Claude's use if measured, else the whole system's. */
-const measured = (g: GuardInput): number | null => g.claudeBytes ?? usedBytes(g)
+const measured = (g: GuardInput): number | null => (g.isClaudeUnread ? null : g.claudeBytes ?? usedBytes(g))
 
 /** Whether RAM is tight: over the limit, or less than MIN_FREE_PCT free. Never on an unknown machine. */
 export function tightKind(g: GuardInput): 'ram' | 'free' | null {
@@ -348,6 +350,7 @@ const LAUNCHERS = new Set(['npx', 'bunx', 'pnpx'])
 const WRAPPERS = new Set(['time', 'nice', 'sudo', 'env', 'command', 'exec', 'nohup', 'caffeinate', 'builtin'])
 const PKG_MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun'])
 const SCRIPT = /^(test|build)(:\S*)?$/
+const SCRIPT_RUNNERS = new Set(['node', 'nodejs'])
 
 const tail = (tok: string): string => (tok.split('/').pop() ?? '').toLowerCase()
 
@@ -362,10 +365,17 @@ function heavyTokens(toks: string[]): string | null {
     const hit = t.slice(1).map(tail).find(x => HEAVY_TOOLS.has(x))
     if (hit) return hit
   }
+  // A script run by node (`node node_modules/typescript/lib/tsc.js`): the first word that is not a flag.
+  if (SCRIPT_RUNNERS.has(first)) {
+    const script = base(t.slice(1).find(x => !x.startsWith('-')) ?? '')
+    if (HEAVY_TOOLS.has(script)) return script === 'gradlew' ? 'gradle' : script
+  }
   if (PKG_MANAGERS.has(first)) {
     const rest = t.slice(1).filter(x => !x.startsWith('-'))
     const script = rest[0] === 'run' ? rest[1] : rest[0]
     if (script && SCRIPT.test(script)) return `${first} ${rest[0] === 'run' ? 'run ' : ''}${script}`
+    // yarn, pnpm and bun run a package's own binary by name: `yarn tsc`, `pnpm vitest`.
+    if (script && first !== 'npm' && HEAVY_TOOLS.has(script)) return script
   }
   if (first === 'claude' && t[1] === 'plugin' && t[2] === 'test') return 'plugin test'
   if (first === 'cargo' && (t[1] === 'build' || t[1] === 'test')) return `cargo ${t[1]}`

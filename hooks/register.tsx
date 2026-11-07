@@ -5,21 +5,27 @@ import { BLANK_BILLING, KEY_IN_COMMAND, draft, maskKey, unmaskKey, guideText, is
 import { CASTS, CAST_CSS, hashOf, spriteMarkup } from './cast'
 import { BREACH_H, BREACH_W, CJK_FONT, EGG_CSS, EGG_TOOLS, EGG_WORDS, GREETING, KATAKANA, breachCard, breachTicker, celebration, heatStars, legendsCard, legendsHeight, psychoChip, radio, relicText, sandevistan, skyline, sysTag } from './eggs'
 import type { CyberEgg, Egg, Legend } from './eggs'
-import { CBI_BADGES, CBI_WORDS, CLOSED_FILES_TOAST, COLD_H, COLD_W, MENT_CSS, MENTALIST_BOOT, REDJOHN_BOOT, TEA_WARNING, TYGER_RE, caseClosed, cbiRankOf, cbiToast, coldReadCard, coldTicker, episodeAt, hiddenSmiley, smiley, teaChip } from './mentalist'
+import { TYGER_RE } from './mentalist'
+import { BB_SKIN_WORDS, BB_TOOLS, SAY_MY_NAME_RE } from './breakingbad'
+import { THEMES, themeKeyOf } from './themes'
+import { CAPRICORN_RE, ER2_FONT, ER2_TOOLS, ER2_WORDS, HI_CAPRI_MS, HI_CAPRI_RE } from './edgerunners2'
+import { hackInto, overlayInto, roamOnBand, roamOverlay, takeoverWithin } from './overlay'
+import type { ThemeCtx, ThemeEggs } from './themes'
 import { canNudge, nudge, pickQuiet, prBadge, quietOf, rememberTask, repoAndBranch, rescueText, retryOnHaiku, whatIf, whatIfText, whatIfTip } from './coach'
+import { flatSmiley, serifClip, serifW } from './mentalist-cards'
 import { BEATS_KEPT, BLANK_CRED, BOOT_H, award, rockerRankOf, bdHeight, bootStrip, braindanceCard, cleanCred, credCard, credHeight, levelOf, rankOf, shiftPick, stepPick } from './extras'
 import type { Beat, Cred } from './extras'
-import { ONESHOT_KEY, ULTRA_KEY, pillChip, oneShotChipWord, cleanOneShot, cleanUltraRules, isUltraAgent, matchUltra, nextOneShot, oneShotChip, oneShotSaid, oneShotSection, oneShotWord, parseOneShot, resolveEffort, ultraCommand, ultraLine, withUltraBrief } from './crewcontrol'
+import { ONESHOT_KEY, ULTRA_BY_KEY, ULTRA_BY_OPTIONS, ULTRA_KEY, ULTRA_TASK_HINT, cleanUltraBy, managerPicks, parseUltraBy, ultraBySaid, ultraBySection, ultraPlanToast, type UltraBy, pillChip, oneShotChipWord, cleanOneShot, cleanUltraRules, isUltraAgent, matchUltra, nextOneShot, oneShotChip, oneShotSaid, oneShotSection, oneShotWord, parseOneShot, resolveEffort, ultraCommand, ultraLine, withUltraBrief } from './crewcontrol'
 import type { OneShot } from './crewcontrol'
 import { hasInlineMath, inlineMath, mermaidChart, splitBlocks, texToUnicode, unifiedDiff } from './richtext'
-import { LIVE_N, glide, isNewReading, isSame, liveText, liveWidth, pin, steady, steadyTree, wallMinute } from './smooth'
-import { COLOR_RE, FONT_BAD_RE, ID_RE, TOOL_KEY_RE, skinCheck, skinNew } from './skinkit'
+import { LIVE_N, glide, isNewReading, isSame, liveText, liveWidth, pin, sentLength, steady, steadyTree, wallMinute } from './smooth'
+import { COLOR_RE, FONT_BAD_RE, ID_RE, TOOL_KEY_RE, contrast, skinCheck, skinNew } from './skinkit'
 import { WARM_PROMPT, WARM_TAG, isWarmDue, isWarmed, warmCall, warmLimitHit } from './warm'
 import { BLANK_PICK, BLANK_SPEND, SPEND_KINDS, TODAY_PERIOD, exportSpend, isRescanDue, loadSpend, logSpendDay, monthLabel, monthOf, cleanDays, combineDays, monthsWithData, parseSpendArgs, pickSpendKind, pickSpendMonth, readSpend, setSpendPeriod, shiftMonth, spendCard, typeSpendDay } from './spend'
 import type { SpendDirs, SpendIo, SpendKind, SpendRecord } from './spend'
 import { minMove, noteSample, planProgress as stepProgress, stopSignal, stopText } from './stopsignal'
 import type { ProgressSample, StopSignal } from './stopsignal'
-import { FRESH_MS, HEARTBEAT_MS, HOT_EVERY_MS, KILL_TERM_WAIT_MS, LOCK_WAIT_MS, MAX_AGENTS_STEPS, SAMPLE_EVERY_MS as GUARD_EVERY_MS, SESSION_PREFIX, UNKNOWN_MACHINE, agentSample, autoMaxLabel, calibrate, canLearn, claudeBytes, cleanKillSwitch, cleanMaxAgents, cleanRamLimit, effectiveMax, gbOf, guardVerdict, heavyCommand, heavyRamVerdict, holdWins, holderWhere, isHot, isLiveAgent, killContext, killDecision, killNote, killNoteLive, killOptions, killToast, learnAgentBytes, limitToast, lockDenyReason, lockRelease, lockTry, machineLine, machineOf, maxAgentsOptions, noteTrip, othersSummary, paneLine, peerAgents, peerHeavy, peersOf, perAgentBytes, perAgentLine, ramLimitBytes, ramLimitOptions, ruleText, sessionCount, tightKind, typedMaxAgents, typedRamLimit, useGb, withArgs } from './machineguard'
+import { FRESH_MS, HEARTBEAT_MS, HOT_EVERY_MS, KILL_TERM_WAIT_MS, LOCK_STALE_MS, LOCK_WAIT_MS, MAX_AGENTS_STEPS, SAMPLE_EVERY_MS as GUARD_EVERY_MS, SESSION_PREFIX, UNKNOWN_MACHINE, agentSample, autoMaxLabel, calibrate, canLearn, claudeBytes, cleanKillSwitch, cleanMaxAgents, cleanRamLimit, effectiveMax, gbOf, guardVerdict, heavyCommand, heavyRamVerdict, holdWins, holderWhere, isHot, isLiveAgent, killContext, killDecision, killNote, killNoteLive, killOptions, killToast, learnAgentBytes, limitToast, lockDenyReason, lockRelease, lockTry, machineLine, machineOf, maxAgentsOptions, noteTrip, othersSummary, paneLine, peerAgents, peerHeavy, peersOf, perAgentBytes, perAgentLine, ramLimitBytes, ramLimitOptions, ruleText, sessionCount, tightKind, typedMaxAgents, typedRamLimit, useGb, withArgs } from './machineguard'
 import type { GuardInput, Hold, HeavyLock, KillSwitch, KillTarget, Machine, Peer, Proc, Warned } from './machineguard'
 import { argsOfCmd as unixArgsOf, forceCmd as unixForce, machineCmd as unixMachine, parseMachine as parseUnixMachine, parseProcs as parseUnixProcs, parseProcsArgs as parseUnixProcsArgs, procsArgsCmd as unixProcsArgs, procsCmd as unixProcs, termCmd as unixTerm } from './probeunix'
 import { argsOfCmd as winArgsOf, forceCmd as winForce, machineCmd as winMachine, parseMachine as parseWinMachine, parseProcs as parseWinProcs, parseProcsArgs as parseWinProcsArgs, procsArgsCmd as winProcsArgs, procsCmd as winProcs, termCmd as winTerm } from './probewin'
@@ -91,10 +97,15 @@ const SHOT_OPTIONS = [
 // A cap's dropdown: the usual steps, plus the value in force if it is not one of them.
 const stepOptions = (steps: readonly number[], now: number, word: (v: number) => string) =>
   [...new Set([...steps, now])].sort((a, b) => a - b).map(v => ({ value: String(v), label: v ? word(v) : 'Off' }))
+// Every-job mode set back to big jobs: its reason leaves the band now, not at the next prompt.
+async function dropEveryJob($: EngineInterface): Promise<void> {
+  if ((await read($, session)).crewMode === EVERY_JOB) await update($, session, prev => ({ ...prev, crewMode: '' }))
+}
 async function setCrewChoice($: EngineInterface, choice: CrewChoice): Promise<void> {
   const auto = await readAutoCrew($)
   await $.store.set('autoCrew', { ...auto, on: choice !== 'off', always: choice === 'every' }).catch(() => undefined)
   if (choice === 'off') await update($, session, prev => ({ ...prev, crewMode: '' }))
+  if (choice === 'big') await dropEveryJob($)
   await update($, settings, prev => ({ ...prev, crewMode: choice !== 'off', crewAlways: choice === 'every' }))
 }
 
@@ -166,10 +177,12 @@ const dayOf = (at: number): string => {
 }
 // Tab-to-Save: after a main turn, the Token Manager's top tip that has a command goes
 // into the prompt box as its dim suggestion, Tab to take. The same one waits 10 minutes.
+// The tips come sorted by level, so a warning's command goes first; the what-if coach's
+// tip (level 0, over a fifth saved) is the only quiet tip with a command.
 let lastSuggest = { cmd: '', at: 0 }
 async function suggestSaving($: EngineInterface, at: number): Promise<void> {
   const r = tokenReport(liveEnv(await read($, env), at), await read($, agents), await read($, manager), await read($, watch), at)
-  const tip = r.tips.find(tp => tp.cmd && tp.level >= 1)
+  const tip = r.tips.find(tp => tp.cmd)
   if (!tip?.cmd || (tip.cmd === lastSuggest.cmd && at - lastSuggest.at < 600_000)) return
   const shown = await $.prompt.suggest({ text: tip.cmd })
   if (shown.isShown) lastSuggest = { cmd: tip.cmd, at }
@@ -182,6 +195,8 @@ let progressSamples: ProgressSample[] = []
 let stopNow: StopSignal | null = null
 // The plan's progress when the person was last warned, or null when not warned.
 let stopWarnedAt: number | null = null
+// The plan the samples and the warning belong to: a new plan may warn again.
+let stopPlan = ''
 async function watchStop($: EngineInterface, at: number, list: AgentRun[], boss: Manager): Promise<void> {
   const f = await read($, flow)
   const isFlow = Boolean(f && !f.isFinished && f.tasks.length)
@@ -194,22 +209,30 @@ async function watchStop($: EngineInterface, at: number, list: AgentRun[], boss:
     progressSamples = []
     stopNow = null
     stopWarnedAt = null
+    stopPlan = ''
     return
   }
   const isWorking = boss.isWorking || list.some(a => a.status === 'running')
   if (!isWorking) {
+    // History counts working time only: a pause is not ten minutes of a stalled plan.
+    progressSamples = []
     stopNow = null
     return
   }
   const plan = isFlow && f ? `flow:${f.title}:${f.tasks.map(t => t.title).join('|')}` : `plan:${(boss.plan ?? []).map(st => st.content).join('|')}`
-  const before = progressSamples[0]?.plan
+  if (plan !== stopPlan) {
+    stopPlan = plan
+    stopWarnedAt = null
+  }
   progressSamples = noteSample(progressSamples, { at, costUsd: liveEnv(await read($, env), at).costUsd, progress, plan, steps: steps.length })
-  if (progressSamples[0]?.plan !== before) stopWarnedAt = null
+  // The newest sample, not the live value: the signal is judged on the samples, so a move
+  // seen between two samples must not re-arm the warning before a sample records it.
+  const sampled = progressSamples[progressSamples.length - 1]?.progress ?? progress
   // Warned already: wait for the plan to move before warning again.
-  if (stopWarnedAt !== null && progress >= stopWarnedAt + minMove(steps.length)) stopWarnedAt = null
+  if (stopWarnedAt !== null && sampled >= stopWarnedAt + minMove(steps.length)) stopWarnedAt = null
   stopNow = stopSignal(progressSamples, at)
   if (!stopNow || stopWarnedAt !== null) return
-  stopWarnedAt = progress
+  stopWarnedAt = sampled
   const text = stopText(stopNow, fmtCost)
   $.ui.toast(`🛑 ${text}`, { timeoutMs: 60000 })
   void $.ui.notify(`Mission Control: ${text}`).catch(() => undefined)
@@ -234,12 +257,18 @@ let mgBaseline: number | null = null
 let mgLock: HeavyLock | null = null
 // Counts lock changes: a process read that straddles one is not used for learning.
 let mgLockSeq = 0
+// A heavy command run in the background lets go of the lock at once but runs on: no learning till then.
+let mgNoLearnUntil = 0
 // Claude's tree without heavy tools' subtrees: what the learner measures.
 let mgClaudeLean: number | null = null
 let mgMachine: Machine = UNKNOWN_MACHINE
 let mgKind: ProbeKind | null = null
 let mgFreeBytes: number | null = null
 let mgClaude: number | null = null
+// Whether the last free-RAM look and the last process read worked. A failed one keeps the last
+// number for the chip, but nothing is refused on it: a probe that fails must never block work.
+let mgFreeOk = true
+let mgProcsOk = true
 let mgSampleAt = 0
 let mgProcsAt = 0
 let mgBusy = false
@@ -295,6 +324,8 @@ const guardInput = (running: number): GuardInput => ({
   freeBytes: mgFreeBytes,
   sessions: mgPeers.length ? { count: sessionCount(mgPeers), here: running, others: othersSummary(mgPeers) } : undefined,
 })
+// What refusals (and the prompt's tight line) go by: only numbers the last look really read.
+const trustedInput = (running: number): GuardInput => ({ ...guardInput(running), freeBytes: mgFreeOk ? mgFreeBytes : null, isClaudeUnread: !mgProcsOk })
 const round1 = (n: number): number => Math.round(n * 10) / 10
 // Redraws only when what is drawn changes.
 async function syncGuard($: EngineInterface, running: number): Promise<void> {
@@ -323,6 +354,8 @@ async function syncGuard($: EngineInterface, running: number): Promise<void> {
   }
   const was = await read($, guard)
   if (JSON.stringify(was) !== JSON.stringify(next)) await update($, guard, () => next)
+  const shown = { line: next.line, autoLabel: next.autoLabel, perAgent: next.perAgent }
+  if (JSON.stringify(await read($, guardSettings)) !== JSON.stringify(shown)) await update($, guardSettings, () => shown)
 }
 // Session start and every reload: what the person set, what was found last time, then a fresh look.
 async function loadGuard($: EngineInterface): Promise<void> {
@@ -348,6 +381,7 @@ async function detectMachine($: EngineInterface): Promise<void> {
       mgKind = kind
       mgMachine = machineOf(info)
       mgFreeBytes = info.freeBytes
+      mgFreeOk = info.freeBytes !== null
       mgSampleAt = await $.clock.now()
       const saved = { os: mgMachine.os, totalBytes: mgMachine.totalBytes, cores: mgMachine.cores }
       if (JSON.stringify(await $.store.get(GUARD_KEY).catch(() => undefined)) !== JSON.stringify(saved)) await $.store.set(GUARD_KEY, saved).catch(() => undefined)
@@ -384,12 +418,14 @@ async function freshClaude($: EngineInterface, maxAgeMs: number): Promise<void> 
   mgProcsAt = at
   try {
     const procs = PROBES[mgKind].parseProcs(await probeOut($, PROBES[mgKind].procs))
+    mgProcsOk = procs.length > 0
     if (procs.length) {
       mgClaude = claudeBytes(procs)
       mgClaudeLean = claudeBytes(procs, true)
     }
   } catch {
-    // A failed look changes nothing.
+    // A failed look refuses nothing.
+    mgProcsOk = false
   } finally {
     mgBusy = false
   }
@@ -508,7 +544,8 @@ async function sampleGuard($: EngineInterface, at: number, running: number): Pro
   try {
     const p = PROBES[mgKind]
     const info = p.parseMachine(await probeOut($, p.machine))
-    if (info.freeBytes !== null) mgFreeBytes = info.freeBytes
+    mgFreeOk = info.freeBytes !== null
+    if (mgFreeOk) mgFreeBytes = info.freeBytes
     if (at - mgProcsAt >= (hot ? HOT_EVERY_MS : p.procsEveryMs)) {
       mgProcsAt = at
       // A table that timed out or failed keeps the last measure, not the system-wide fallback.
@@ -516,10 +553,13 @@ async function sampleGuard($: EngineInterface, at: number, running: number): Pro
       // The read's age counts from the read itself, not from the free-RAM look before it (slow on Windows).
       const readAt = await $.clock.now()
       const procs = p.parseProcs(await probeOut($, p.procs))
+      mgProcsOk = procs.length > 0
       if (procs.length) {
         mgClaude = claudeBytes(procs)
         mgClaudeLean = claudeBytes(procs, true)
-        await learnFromSample($, running, canLearn(mgLock !== null, seq, mgLockSeq))
+        // Another session's heavy command, or one of ours in the background, is in this read too.
+        const isHeavyAbout = mgLock !== null || at < mgNoLearnUntil || peerHeavy(await readPeers($, at), at) !== null
+        await learnFromSample($, running, canLearn(isHeavyAbout, seq, mgLockSeq))
         await killIfOver($, procs, readAt)
       }
     }
@@ -559,7 +599,7 @@ async function guardSpawn($: EngineInterface): Promise<{ deny?: string; at?: num
   const listed = await crewCount($)
   mgPending = mgPending.filter(t => at - t < 60_000)
   const running = listed + mgPending.length
-  const g = guardInput(running)
+  const g = trustedInput(running)
   const v = guardVerdict(g)
   const r = noteTrip(mgWarned, 'agents', v?.kind === 'agents')
   mgWarned = r.warned
@@ -582,7 +622,7 @@ function releaseSpawn(at: number | undefined): void {
   if (i >= 0) mgPending.splice(i, 1)
 }
 const guardRule = (now: number): string =>
-  ruleText(limitNow(), perAgentBytes(mgLearned), effectiveMax(mgMaxSetting, calibratedNow()), calibratedNow(), tightKind(guardInput(0)) !== null, {
+  ruleText(limitNow(), perAgentBytes(mgLearned), effectiveMax(mgMaxSetting, calibratedNow()), calibratedNow(), tightKind(trustedInput(0)) !== null, {
     sessions: mgPeers.length ? sessionCount(mgPeers) : 1,
     killOn: mgKill === 'on',
     stopped: killNoteLive(mgStopped, now),
@@ -665,7 +705,7 @@ async function claimGlobal($: EngineInterface, label: string): Promise<Peer | nu
 async function takeHeavy($: EngineInterface, owner: string, label: string, signal: AbortSignal | undefined): Promise<string | null> {
   const start = await $.clock.now()
   await freshClaude($, FRESH_MS)
-  const ram = heavyRamVerdict(guardInput(mgRunning), label)
+  const ram = heavyRamVerdict(trustedInput(mgRunning), label)
   if (ram) return ram
   const argv = PROBES[mgKind ?? 'unix'].sleep(3)
   let blocked = label
@@ -682,7 +722,7 @@ async function takeHeavy($: EngineInterface, owner: string, label: string, signa
       if (!holder) {
         // Waited: the look at RAM is made again before it starts.
         if (i > 0) await freshClaude($, 0)
-        const late = i > 0 ? heavyRamVerdict(guardInput(mgRunning), label) : null
+        const late = i > 0 ? heavyRamVerdict(trustedInput(mgRunning), label) : null
         if (!late) mgStopped = null
         return late
       }
@@ -861,8 +901,8 @@ const planBudget = (f: Flow | null): number | undefined => {
 }
 
 // A run's budget: its task's when the plan names it (matched as the panel matches runs), else the default.
-const agentBudget = (a: AgentRun, f: Flow | null, tk: Timekeeper): number =>
-  f?.tasks.find(t => norm(t.title) === norm(a.description))?.minutes ?? tk.agentMin
+const planTaskFor = (f: Flow | null | undefined, description: string): PlannedTask | undefined => f?.tasks.find(t => norm(t.title) === norm(description))
+const agentBudget = (a: AgentRun, f: Flow | null, tk: Timekeeper): number => planTaskFor(f, a.description)?.minutes ?? tk.agentMin
 
 // "12/45m": whole minutes used of the budget. Drawn calm, warn past 80%, alert past 100%.
 const budgetLabel = (usedMs: number, min: number): string => `${Math.floor(Math.max(0, usedMs) / 60_000)}/${min}m`
@@ -1269,7 +1309,7 @@ type ProgressInput = {
   done?: number
   phase?: Phase
   finished?: boolean
-  tasks?: { title?: string; tier?: string; after?: number[]; minutes?: number }[]
+  tasks?: { title?: string; tier?: string; after?: number[]; minutes?: number; ultra?: boolean }[]
   minutes?: number
 }
 
@@ -1600,7 +1640,154 @@ const RED_JOHN_SKIN: Skin = {
   tabs: { mission: '☺ Mission Control', skins: '☺ Skins' },
 }
 
-const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, MENTALIST_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN, SAMURAI_SKIN, RED_JOHN_SKIN]
+// Breaking Bad (fan homage): Mr. White, Jesse and the lab. Crystal blue and the periodic
+// table's green on desert green-black, in the system sans (a serif face is wider than the
+// labels assume). Breaking Bad and its characters belong to Sony Pictures Television and
+// AMC, used as fan homage only.
+const BREAKING_BAD_SKIN: Skin = {
+  id: 'breaking-bad',
+  cast: 'breakingbad',
+  name: 'Breaking Bad',
+  description: 'Fan homage: Mr. White, Jesse and the lab, crystal blue on desert green-black.',
+  font: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  corners: 'round',
+  dark: true,
+  colors: {
+    accent: '#5EC8F0',
+    accent2: '#4FB37A',
+    done: '#7FD48F',
+    warn: '#F2C318',
+    alert: '#E0605A',
+    meter: '#5EC8F0',
+    text: '#F2F5F0',
+    subtext: '#B9C7BC',
+    muted: '#94A598',
+    tile: '#0F1A14',
+    track: '#18261D',
+    line: '#22352A',
+    grid: '#1A2A20',
+  },
+  boss: ['#5EC8F0', '#4FB37A', '#4FB37A', '#F2C318', '#5EC8F0'],
+  roles: ['#5EC8F0', '#4FB37A', '#F2C318', '#E0605A', '#B39DDB', '#F2F5F0'],
+  effects: { scanlines: false, glitch: false },
+  chat: true,
+  words: BB_SKIN_WORDS,
+  toolWords: BB_TOOLS,
+  backdrop: { fill: '#0A120D', pattern: 'lines', ink: 'rgba(94,200,240,.05)' },
+  tabs: { mission: '⚗\uFE0E Mission Control', skins: '⚗\uFE0E Skins' },
+}
+
+// Heisenberg: the hidden skin of Breaking Bad. Black and white with crystal blue, the
+// pork-pie hat by the title. Not in the picker or the list: `/skin heisenberg` finds it,
+// or typing "say my name" while wearing Breaking Bad.
+const HEISENBERG_SKIN: Skin = {
+  id: 'heisenberg',
+  cast: 'heisenberg',
+  hidden: true,
+  name: 'Heisenberg',
+  description: 'The hidden one: black and white, with a little blue. Say my name.',
+  font: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Ubuntu,Cantarell,'Noto Sans','Liberation Sans',sans-serif",
+  corners: 'round',
+  dark: true,
+  colors: {
+    accent: '#5EC8F0',
+    accent2: '#F4F4F4',
+    done: '#7FD48F',
+    warn: '#F2C318',
+    alert: '#E0605A',
+    meter: '#5EC8F0',
+    text: '#F4F4F4',
+    subtext: '#BDBDC2',
+    muted: '#9A9AA0',
+    tile: '#0A0A0B',
+    track: '#17171A',
+    line: '#2A2A2E',
+    grid: '#161618',
+  },
+  boss: ['#F4F4F4', '#5EC8F0', '#2A2A2E', '#F4F4F4', '#5EC8F0'],
+  roles: ['#5EC8F0', '#F4F4F4', '#F2C318', '#9AA0A6', '#7FD48F', '#E0605A'],
+  effects: { scanlines: false, glitch: false },
+  chat: true,
+  words: [...BB_SKIN_WORDS, 'Saying my name'],
+  toolWords: BB_TOOLS,
+  backdrop: { fill: '#050506', pattern: 'lines', ink: 'rgba(244,244,244,.04)' },
+  tabs: { mission: '⚗\uFE0E Mission Control', skins: '⚗\uFE0E Skins' },
+}
+
+// Edgerunners 2 v2 "D's optics" (fan homage, Cyberpunk Skins add-on): a next-gen netrunner HUD on holographic glass, D's
+// cobalt and cool white as the city layer, in a condensed face. Hot pink and acid green are Capri's own and show only
+// when she is near. Cyberpunk: Edgerunners belongs to CD PROJEKT RED, Studio Trigger and Netflix, used as fan homage only.
+const EDGERUNNERS2_SKIN: Skin = {
+  id: 'edgerunners-2',
+  cast: 'edgerunners2',
+  name: 'Edgerunners 2',
+  description: "Fan homage: D's optics, a cobalt glass HUD with a ghost in it. No signal, no survival.",
+  font: ER2_FONT,
+  corners: 'chamfer',
+  dark: true,
+  colors: {
+    accent: '#3E80F7',
+    accent2: '#8FB5FF',
+    done: '#5EE3C0',
+    warn: '#FFB547',
+    alert: '#FF3D71',
+    meter: '#3E80F7',
+    text: '#EAF2FF',
+    subtext: '#AEBDD6',
+    muted: '#7A8AA8',
+    tile: '#070A12',
+    track: '#131B2E',
+    line: '#1C2740',
+    grid: '#0C1622',
+  },
+  boss: ['#3E80F7', '#BFD8FF', '#131B2E', '#EAF2FF', '#3E80F7'],
+  roles: ['#3E80F7', '#BFD8FF', '#5EE3C0', '#FFB547', '#8FB5FF', '#7A8AA8'],
+  effects: { scanlines: true, glitch: false },
+  chat: true,
+  words: ER2_WORDS,
+  toolWords: ER2_TOOLS,
+  backdrop: { fill: '#04060C', pattern: 'none', ink: '' },
+  tabs: { mission: '◈\uFE0E Mission Control', skins: '◈\uFE0E Skins' },
+}
+
+// CAPRICORN: the hidden skin of Edgerunners 2, where Capri owns the HUD. Not in the picker or the list:
+// `/skin capricorn` finds it, or typing "0+2=1" (the third episode's title) while wearing Edgerunners 2, or
+// answering one of her takeovers with "hi capri" inside a minute. Typing "0+2=1" again takes it off.
+const CAPRICORN_SKIN: Skin = {
+  id: 'capricorn',
+  cast: 'capricorn',
+  hidden: true,
+  name: 'CAPRICORN',
+  description: 'The hidden one: she owns the HUD now. 0+2=1.',
+  font: ER2_FONT,
+  corners: 'chamfer',
+  dark: true,
+  colors: {
+    accent: '#FF2E7E',
+    accent2: '#3DF27A',
+    done: '#3DF27A',
+    warn: '#FFB547',
+    alert: '#FF2E7E',
+    meter: '#FF2E7E',
+    text: '#FFF0F6',
+    subtext: '#E0B8CC',
+    muted: '#9A7A90',
+    tile: '#0C0410',
+    track: '#20101F',
+    line: '#2E1430',
+    grid: '#180818',
+  },
+  boss: ['#FF2E7E', '#3DF27A', '#20101F', '#FFF0F6', '#FF2E7E'],
+  roles: ['#FF2E7E', '#3DF27A', '#FFD6E6', '#FFB547', '#E0B8CC', '#9A7A90'],
+  effects: { scanlines: true, glitch: false },
+  chat: true,
+  words: [...ER2_WORDS, "We're one now"],
+  toolWords: ER2_TOOLS,
+  backdrop: { fill: '#07020A', pattern: 'none', ink: '' },
+  tabs: { mission: '◈\uFE0E Mission Control', skins: '◈\uFE0E Skins' },
+}
+
+const BUILT_IN_SKINS: Skin[] = [DEFAULT_SKIN, CRAB_SKIN, MENTALIST_SKIN, BREAKING_BAD_SKIN, CYBER_SKIN, ARASAKA_SKIN, LUCY_SKIN, SAMURAI_SKIN, RED_JOHN_SKIN, HEISENBERG_SKIN, EDGERUNNERS2_SKIN, CAPRICORN_SKIN]
 
 // Only plain colour and font values reach the drawings: a skin file cannot
 // smuggle markup into an Svg.
@@ -1654,9 +1841,13 @@ const readSkin = (raw: unknown, fallbackId: string): Skin | null => {
 
 const skin = atom({ plugin: 'crab-progress', key: 'skin' } as const, CRAB_SKIN.id)
 // Settings the pane's checkboxes change: kept in the store, mirrored here to redraw.
-const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, crewAlways: false, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, dailyUsd: 0, autopilot: false, keepWarm: false, budgetUsd: 0, tkOn: true, tkJobMin: 60, tkAgentMin: 20, ramLimit: 'auto', maxAgents: 0, killSwitch: 'on' })
+const settings = atom({ plugin: 'crab-progress', key: 'settings' } as const, { openOnStart: true, crewMode: true, crewAlways: false, currency: 'USD', sounds: true, simple: true, calm: false, voice: false, staffing: false, oneShot: 'ask' as OneShot, ultraBy: 'me' as UltraBy, dailyUsd: 0, autopilot: false, keepWarm: false, budgetUsd: 0, tkOn: true, tkJobMin: 60, tkAgentMin: 20, ramLimit: 'auto', maxAgents: 0, killSwitch: 'on' })
 // Machine Guard (hooks/machineguard.ts): what the Settings pane and the band draw. Written only when it changes.
 const guard = atom({ plugin: 'crab-progress', key: 'guard' } as const, { line: 'unknown machine', usedGb: -1, limitGb: 0, max: 4, calibrated: 4, autoLabel: 'Auto · 4 (machine unknown)', perAgent: '≈0.5 GB per agent (default)', isTight: false, others: 0, sessions: 1 })
+// The part of it the Settings pane shows. The RAM in use, the crew and the other sessions
+// change at each look while Claude works; this changes only with the machine, the limit or
+// the learned figure, so an open dropdown in Settings is not closed by a redraw.
+const guardSettings = atom({ plugin: 'crab-progress', key: 'guardSettings' } as const, { line: 'unknown machine', autoLabel: 'Auto · 4 (machine unknown)', perAgent: '≈0.5 GB per agent (default)' })
 const cred = atom({ plugin: 'crab-progress', key: 'cred' } as const, BLANK_CRED)
 // Billing (hooks/billing.ts): which way Claude Code is paid for, and the Keychain key's
 // status. Never the key: the typed text lives in billing.ts's `draft`, in memory only.
@@ -1682,6 +1873,7 @@ const readSettings = async ($: EngineInterface) => {
     voice: (await $.store.get('voice').catch(() => undefined)) === true,
     staffing: (await $.store.get(STAFF_KEY).catch(() => undefined)) === true,
     oneShot: cleanOneShot(await $.store.get(ONESHOT_KEY).catch(() => undefined)),
+    ultraBy: cleanUltraBy(await $.store.get(ULTRA_BY_KEY).catch(() => undefined)),
     dailyUsd: Number(await $.store.get(DAILY_KEY).catch(() => 0)) || 0,
     // The Money switches, mirrored here too (watch keeps its own copy for the Token Manager):
     // the settings pane reads only this atom, so a turn's busy watch never redraws it.
@@ -1710,7 +1902,21 @@ async function setKeepWarm($: EngineInterface, isOn: boolean): Promise<void> {
   await update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), on: isOn, halted: '' } }))
   await update($, settings, prev => ({ ...prev, keepWarm: isOn }))
 }
+// A typed amount as a number: a currency sign, spaces and thousands commas allowed, a
+// decimal comma too ("2,50"); "off" is 0. Anything else (letters, a minus, "1e3") is null.
+const typedAmount = (typed: string): number | null => {
+  let s = typed.trim().toLowerCase()
+  if (s === 'off') return 0
+  s = s.replace(/^(?:rm|s\$|€\$|us\$|\$|€|£|¥)/, '').replace(/(?:rm|s\$|€\$|\$|€|£|¥|usd|eur|gbp|jpy|myr|sgd)$/, '').replace(/\s/g, '')
+  if (!s.includes('.') && /^\d+,\d{1,2}$/.test(s)) s = s.replace(',', '.')
+  else if (/^\d{1,3}(,\d{3})+(\.\d*)?$/.test(s)) s = s.replace(/,/g, '')
+  if (!/^(\d+\.?\d*|\.\d+)$/.test(s)) return null
+  const n = Number(s)
+  return Number.isFinite(n) ? n : null
+}
 async function setDailyCap($: EngineInterface, dollars: number): Promise<void> {
+  // A new cap warns afresh: the 80% and 100% marks are of this cap, not the last one.
+  if (dollars !== dailyCapUsd) capWarned = { date: '', level: 0 }
   dailyCapUsd = dollars
   await $.store.set(DAILY_KEY, dollars).catch(() => undefined)
   await update($, settings, prev => ({ ...prev, dailyUsd: dollars }))
@@ -1718,12 +1924,13 @@ async function setDailyCap($: EngineInterface, dollars: number): Promise<void> {
 // A typed amount for the daily cap or the budget per task: in the currency the pane shows,
 // turned back into dollars. 0 turns it off; anything else that is not a number is refused.
 async function typeMoney($: EngineInterface, what: 'daily' | 'budget', typed: string): Promise<void> {
-  const n = Number(typed.trim().replace(/[^0-9.]/g, ''))
-  if (!typed.trim() || !Number.isFinite(n) || n < 0) {
+  const n = typedAmount(typed)
+  if (n === null) {
     $.ui.toast('Type an amount like 3 or 2.50, or 0 to turn it off')
     return
   }
-  const dollars = Math.round((n / (CURRENCY.rate || 1)) * 100) / 100
+  // Kept to a hundredth of a cent, so the amount shows back as typed (RM3, not RM2.99).
+  const dollars = Math.round((n / (CURRENCY.rate || 1)) * 10_000) / 10_000
   if (what === 'daily') await setDailyCap($, dollars)
   else await setBudget($, dollars)
   $.ui.toast(`${what === 'daily' ? 'Daily cap' : 'Budget per task'}: ${dollars ? fmtCost(dollars) : 'off'}`)
@@ -1751,13 +1958,21 @@ async function setOneShot($: EngineInterface, mode: OneShot): Promise<void> {
   await update($, settings, prev => ({ ...prev, oneShot: mode }))
 }
 
+// Who decides Ultra. Kept in the store, mirrored for the pane.
+async function setUltraBy($: EngineInterface, mode: UltraBy): Promise<void> {
+  ultraBy = mode
+  await $.store.set(ULTRA_BY_KEY, mode).catch(() => undefined)
+  await update($, settings, prev => (prev.ultraBy === mode ? prev : { ...prev, ultraBy: mode }))
+}
+
 // The ⚡ button on a running agent's card: max effort from its next request, no prompt change.
 async function toggleUltra($: EngineInterface, id: string): Promise<void> {
   const run = (await read($, agents)).find(a => a.id === id)
   if (!run || run.status !== 'running') return
   const isOn = !run.isUltra
   if (run.agentId) ultraExplicit.set(run.agentId, isOn)
-  await update($, agents, list => list.map(a => (a.id === id ? { ...a, isUltra: isOn } : a)))
+  // The person's press is the person's choice, whatever the Manager picked.
+  await update($, agents, list => list.map(a => (a.id === id ? { ...a, isUltra: isOn, isUltraByManager: false } : a)))
   $.ui.toast(isOn ? `⚡ Ultra: "${clip(run.description || run.type, 30)}" goes to max effort from its next request` : `Ultra off for "${clip(run.description || run.type, 30)}"`)
 }
 // Billing (see billing.ts): the status the pane shows is read from the Keychain's
@@ -1802,16 +2017,23 @@ async function billingRemove($: EngineInterface): Promise<void> {
   await update($, billing, prev => ({ ...prev, nonce: prev.nonce + 1 }))
 }
 
-// The pane's two folds, kept in the store so a reload or a new session opens the
-// list as the person left it: long by default.
+// The pane's two folds and the agents opened in it, kept in the store so a reload or a
+// new session opens the list as the person left it: long by default. An opened agent
+// that is no longer listed is dropped.
 const PANE_VIEW = 'paneView'
-const readPaneView = async ($: EngineInterface): Promise<Pick<Panel, 'isCompact' | 'isDoneCollapsed'>> => {
+type PaneView = Pick<Panel, 'isCompact' | 'isDoneCollapsed' | 'expanded'>
+const listedIds = async ($: EngineInterface): Promise<Set<string>> => new Set((await read($, agents)).map(a => a.id))
+const readPaneView = async ($: EngineInterface): Promise<PaneView> => {
   const v = (await $.store.get(PANE_VIEW).catch(() => undefined)) as Partial<Panel> | undefined
-  return { isCompact: v?.isCompact === true, isDoneCollapsed: v?.isDoneCollapsed === true }
+  const known = await listedIds($)
+  const expanded = Array.isArray(v?.expanded) ? v.expanded.filter(id => typeof id === 'string' && known.has(id)) : []
+  return { isCompact: v?.isCompact === true, isDoneCollapsed: v?.isDoneCollapsed === true, expanded }
 }
-const setPaneView = async ($: EngineInterface, change: (p: Pick<Panel, 'isCompact' | 'isDoneCollapsed'>) => Partial<Panel>): Promise<void> => {
+const setPaneView = async ($: EngineInterface, change: (p: PaneView) => Partial<PaneView>): Promise<void> => {
   const prev = await read($, panel)
-  const next = { isCompact: prev.isCompact, isDoneCollapsed: prev.isDoneCollapsed, ...change(prev) }
+  const known = await listedIds($)
+  const was = { isCompact: prev.isCompact, isDoneCollapsed: prev.isDoneCollapsed, expanded: (prev.expanded ?? []).filter(id => known.has(id)) }
+  const next = { ...was, ...change(was) }
   await update($, panel, p => ({ ...p, ...next }))
   await $.store.set(PANE_VIEW, next).catch(() => undefined)
 }
@@ -1846,11 +2068,12 @@ async function bumpCredNow($: EngineInterface, change: (c: Cred) => Cred, quiet:
   await update($, cred, () => next)
   const was = levelOf(before.xp)
   const now = levelOf(next.xp)
-  // Street Cred is a cyberpunk add-on (CBI Cred on the Mentalist skins): other skins keep counting quietly, with no cheer.
+  // Street Cred is a cyberpunk add-on (CBI Cred, Empire Cred on the themed skins): other skins keep counting quietly, with no cheer.
   if (!eggOf()) return false
-  if (now > was) $.ui.toast(isCaseEgg(eggOf()) ? cbiToast(now) : `${eggOf() === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED'} ↑ ${now} · ${eggOf() === 'samurai' ? rockerRankOf(now) : rankOf(now)}`)
+  const th = themeOf()
+  if (now > was) $.ui.toast(th ? th.cred.toast(now) : `${eggOf() === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED'} ↑ ${now} · ${eggOf() === 'samurai' ? rockerRankOf(now) : rankOf(now)}`)
   for (const b0 of fresh) {
-    const b = isCaseEgg(eggOf()) ? (CBI_BADGES.find(x => x.id === b0.id) ?? b0) : b0
+    const b = th ? (th.cred.badges.find(x => x.id === b0.id) ?? b0) : b0
     $.ui.toast(`${b.icon} Badge unlocked: ${b.name}`)
   }
   const isCheer = now > was || fresh.length > 0
@@ -1875,7 +2098,7 @@ const skinByWord = (arg: string): Skin | undefined => {
 // Without that folder Mission Control is the core edition: default and Crab Classic.
 const ADDON = 'addons/cyberpunk'
 const ADDON_URL = 'https://github.com/Chinchuan24/MissionControl#-choose-your-edition'
-const ADDON_CASTS = new Set(['runners', 'netrun', 'corpo', 'samurai'])
+const ADDON_CASTS = new Set(['runners', 'netrun', 'corpo', 'samurai', 'edgerunners2', 'capricorn'])
 let HAS_CYBER = false
 const checkAddon = async ($: EngineInterface): Promise<boolean> => {
   HAS_CYBER = await $.fs.exists(`${$.plugin.root}/${ADDON}/addon.json`).catch(() => false)
@@ -1883,7 +2106,7 @@ const checkAddon = async ($: EngineInterface): Promise<boolean> => {
 }
 const isAddonSkin = (k: Skin): boolean => ADDON_CASTS.has(String(k.cast ?? ''))
 const canWear = (k: Skin): boolean => HAS_CYBER || !isAddonSkin(k)
-const ADDON_PITCH = `Cyberpunk Skins add-on: Cyberpunk Edgerunner, Lucy · Edgerunners and Arasaka. Get it: ${ADDON_URL}`
+const ADDON_PITCH = `Cyberpunk Skins add-on: Cyberpunk Edgerunner, Lucy · Edgerunners, Arasaka and Edgerunners 2. Get it: ${ADDON_URL}`
 let SKIN: Skin = CRAB_SKIN
 const SKINS_FOLDER = 'Custom Claude Skins'
 
@@ -1937,11 +2160,11 @@ function applySkin(k: Skin): void {
 }
 
 // Found a hidden skin: the greeting and a badge for the finder. SAMURAI plays its add-on
-// chime; Red John (core) none.
+// chime; the themed ones (Red John, Heisenberg; core) none.
 async function foundSecret($: EngineInterface, k: Skin): Promise<void> {
-  const isRedJohn = k.cast === 'redjohn'
-  $.ui.toast(isRedJohn ? GREETING.redjohn : GREETING.samurai)
-  if (!isRedJohn) void play($, `${ADDON}/assets/done-samurai.wav`)
+  const themed = themeKeyOf(k.cast)
+  $.ui.toast(themed ? THEMES[themed].greeting : GREETING.samurai)
+  if (!themed) void play($, `${ADDON}/assets/done-samurai.wav`)
   // Quiet: the badge's chime would cut the band's own.
   await bumpCred($, c => (c.samurai ? c : { ...c, samurai: true, xp: c.xp + 50 }), true).catch(() => false)
 }
@@ -1957,19 +2180,27 @@ async function showPane($: EngineInterface, id: string, title: string): ReturnTy
 // What the desktop app counts against its 262,144-character limit for one drawing:
 // every text, an Svg's source and alt, each other element's prop names and string
 // values. Past the limit it draws a blank pane; DRAW_MAX leaves room for its own count.
+// `sourceLength` measures a source as it is sent: the pane sends it compacted (steady),
+// often a third shorter than drawn, so counting it raw dropped a small crew's cards.
 const DRAW_MAX = 220_000
-const drawnChars = (n: unknown): number => {
+const drawnChars = (n: unknown, sourceLength: (source: string) => number = src => src.length): number => {
   if (typeof n === 'string') return n.length
-  if (Array.isArray(n)) return n.reduce((sum: number, c) => sum + drawnChars(c), 0)
+  if (Array.isArray(n)) return n.reduce((sum: number, c) => sum + drawnChars(c, sourceLength), 0)
   if (!n || typeof n !== 'object') return 0
   const el = n as { type?: unknown; props?: Record<string, unknown>; children?: unknown }
   const props = el.props ?? {}
   const own =
     el.type === 'Svg'
-      ? String(props.source ?? '').length + String(props.alt ?? '').length
+      ? sourceLength(String(props.source ?? '')) + String(props.alt ?? '').length
       : Object.entries(props).reduce((sum, [k, v]) => (k === 'children' ? sum : sum + k.length + (typeof v === 'string' ? v.length : 0)), 0)
-  return own + drawnChars(el.children ?? props.children)
+  return own + drawnChars(el.children ?? props.children, sourceLength)
 }
+// The pane's size fallbacks, richest first, and the one it drew last. A richer one
+// than that must fit with DRAW_SLACK to spare: a pane at the edge whose size wavers by
+// a few characters (a log line, a roamer's visit) would otherwise flip between whole
+// layouts, cards to slim rows to the short view and back, redraw after redraw.
+const DRAW_SLACK = 10_000
+let paneLevel = 0
 
 // After a switch, the open panes take the new skin's tab titles.
 async function retitle($: EngineInterface): Promise<void> {
@@ -2248,6 +2479,7 @@ const cleanTasks = (tasks: ProgressInput['tasks']): PlannedTask[] | undefined =>
       tier: tierName(t.tier ?? ''),
       after: (t.after ?? []).filter(n => Number.isInteger(n) && n > 0).slice(0, MAX_AFTER),
       ...(cleanMin(t.minutes) ? { minutes: cleanMin(t.minutes) } : {}),
+      ...(t.ultra === true ? { ultra: true } : {}),
     }))
 
 const merge = (prev: Flow | null, input: ProgressInput): Flow => {
@@ -2332,6 +2564,13 @@ const charEm = (ch: string): number =>
 const textWidth = (s: string, size: number): number => [...s].reduce((w, ch) => (ch === '\uFE0E' ? w : w + charEm(ch) * size), 0)
 
 // Cuts `s` to fit `maxW` pixels, with an ellipsis when it had to cut.
+/** `fitText` with a theme's own widths (its sans is wider than the shared guess). */
+const sansClipTo = (w: (s: string, size: number, ls?: number, bold?: boolean) => number, s: string, size: number, max: number): string => {
+  if (w(s, size) <= max) return s
+  const a = [...s]
+  while (a.length && w(`${a.join('')}…`, size) > max) a.pop()
+  return a.length ? `${a.join('').trimEnd()}…` : ''
+}
 const fitText = (s: string, size: number, maxW: number): string => {
   if (textWidth(s, size) <= maxW) return s
   let out = ''
@@ -2466,14 +2705,18 @@ const tierModel = (tier: string): string => {
   return m ? `${m[0]} · ${effortWord(m[1])}` : ''
 }
 
-// The effort a run works at: what its requests carried, else its tier's, else the default.
-const runEffort = (a: AgentRun): string => (a.isUltra ? 'max' : a.effort) ?? TIER_MODEL[tierOf(a.type)]?.[1] ?? 'default'
+// The effort a run works at: what its requests carried, else (an Ultra agent before its
+// first request) the max it will ask for, else its tier's, else the default.
+const runEffort = (a: AgentRun): string => a.effort ?? (a.isUltra ? 'max' : TIER_MODEL[tierOf(a.type)]?.[1]) ?? 'default'
+// The effort as read: "high", or "max + Ultra" for an Ultra agent.
+const effortLabel = (effort: string, isUltra = false): string => `${effortWord(effort)}${isUltra ? ' + Ultra' : ''}`
 
-// "Opus 5.5 · effort low" for a run.
-const runModel = (a: AgentRun): string => `${modelName(a.model)} · effort ${a.isUltra ? '⚡ ' : ''}${effortWord(runEffort(a))}`
+// "Opus 5.5 · effort low" for a run; "· effort max + Ultra" for an Ultra one.
+const runModel = (a: AgentRun): string => `${modelName(a.model)} · effort ${effortLabel(runEffort(a), a.isUltra)}${a.isUltra && a.isUltraByManager ? " (Manager's call)" : ''}`
 
 // USD per million tokens: input, output, cache read, cache write. The first row that
-// matches a model id wins, so a release sits above its family.
+// matches a model id wins, so a release sits above its family. Anthropic's list prices
+// as of 2026-10-06; Bedrock and Vertex bill their own rates, so there it is a guide.
 // The engine reports tokens, not money, so the panel's cost is an estimate. It reports
 // one cache-write count with no split by lifetime; writes are priced at the 1-hour
 // rate (2x input), which is what Claude Code writes on a subscription.
@@ -2484,7 +2727,7 @@ const PRICES: [RegExp, Price][] = [
   [/fable|mythos/, [10, 50, 1, 20]],
   [/opus-5-5/, [4, 20, 0.2, 8]],
   [/opus/, [5, 25, 0.5, 10]],
-  [/sonnet-5-5/, [2, 10, 0.1, 4]],
+  [/sonnet-5-5/, [2, 10, 0.2, 4]],
   [/sonnet-5/, [2, 10, 0.2, 4]],
   [/sonnet/, [3, 15, 0.3, 6]],
   [/haiku-5-5/, [0.1, 0.5, 0.01, 0.2]],
@@ -2547,6 +2790,8 @@ const OFFER_KEY = 'saversOffered'
 // Per-agent Ultra: the role rules (kept in the store) and the mode for a plan's approval.
 let ultraRules: string[] = []
 let oneShotMode: OneShot = 'ask'
+let ultraBy: UltraBy = 'me' // who decides Ultra: the person, or the Manager per task
+let ultraToastFor = '' // the plan the "Manager put N of M on Ultra" toast was shown for
 const ultraFlag = new Map<string, boolean>() // matched a rule at spawn
 const ultraExplicit = new Map<string, boolean>() // the card's ⚡ button, which beats the rule
 const staffFor = (type: string, description: string): Staff | null => {
@@ -2618,13 +2863,17 @@ const fmtTokens = (n: number): string =>
   n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${Math.round(n)}`
 
 // The easter eggs' flavour: the cyberpunk skins' casts have them, the rest none.
-// The Mentalist and its hidden Red John skin have eggs of their own; the cyberpunk
-// visuals (Breach, MaxTac, Sandevistan, skyline, glitch, eddies) are `cyberOf()` only.
-const eggOf = (): Egg | undefined => (SKIN.cast === 'runners' || SKIN.cast === 'netrun' || SKIN.cast === 'corpo' || SKIN.cast === 'samurai' || SKIN.cast === 'mentalist' || SKIN.cast === 'redjohn' ? SKIN.cast : undefined)
-const isCaseEgg = (e: Egg | undefined): boolean => e === 'mentalist' || e === 'redjohn'
+// The themed skins (The Mentalist, Breaking Bad and their hidden ones) have eggs of their
+// own, in themes.ts: `themeOf()` is the worn skin's entry. The cyberpunk visuals (Breach,
+// MaxTac, Sandevistan, skyline, glitch, eddies) are `cyberOf()` only.
+const eggOf = (): Egg | undefined => (SKIN.cast === 'runners' || SKIN.cast === 'netrun' || SKIN.cast === 'corpo' || SKIN.cast === 'samurai' || themeKeyOf(SKIN.cast) ? (SKIN.cast as Egg) : undefined)
+const themeOf = (): ThemeEggs | undefined => {
+  const k = themeKeyOf(SKIN.cast)
+  return k ? THEMES[k] : undefined
+}
 const cyberOf = (): CyberEgg | undefined => {
   const e = eggOf()
-  return e && !isCaseEgg(e) ? (e as CyberEgg) : undefined
+  return e && !themeKeyOf(e) ? (e as CyberEgg) : undefined
 }
 
 // The money a cost is shown in. Costs are counted in US dollars and converted at an
@@ -3090,6 +3339,8 @@ type Stat = {
   viz?: { kind: 'pips'; n: number } | { kind: 'ring'; pct: number }
   /** A value that moves each second (a clock): drawn as a strip that steps itself. */
   live?: { at: number; read: (t: number) => string }
+  /** A value too long for its tile shrinks (to 11), then leaves its picture out, before it is cut. */
+  shrink?: boolean
 }
 const STAT_COLS = 3
 const STAT_H = 40
@@ -3111,7 +3362,9 @@ const modelColor = (name: string): string => {
 
 const EFFORT_LEVEL: Record<string, number> = { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 }
 const PIP_COLORS = ['#5EC8D8', '#7FB6F0', '#B58BE5', '#E9B44C', '#E5675E']
-const effortStat = (effort: string, isUltra = false): Stat => ({ k: 'Effort', v: `${isUltra ? '⚡\uFE0E ' : ''}${effortWord(effort)}`, viz: { kind: 'pips', n: EFFORT_LEVEL[effort] ?? 0 } })
+// Ultra rides on the effort ("high + Ultra"). On a narrow card the value shrinks to its
+// tile ("medium" was cut to "medi…"), then leaves the bars out, before it is cut.
+const effortStat = (effort: string, isUltra = false): Stat => ({ k: 'Effort', v: effortLabel(effort, isUltra), viz: { kind: 'pips', n: EFFORT_LEVEL[effort] ?? 0 }, shrink: true })
 
 const statViz = (st: Stat, x: number, y: number): string => {
   if (st.viz?.kind === 'pips') {
@@ -3144,15 +3397,20 @@ const statGrid = (x: number, y: number, w: number, stats: Stat[]): string => {
     if (col > 0) out.push(`<line x1="${cx.toFixed(1)}" y1="${cy + 4}" x2="${cx.toFixed(1)}" y2="${cy + STAT_H - 4}" stroke="#8a8a86" stroke-opacity=".3"/>`)
     const vx = cx + pad
     const vizW = st.viz ? (st.viz.kind === 'pips' ? 36 : 18) : 0
-    const valueW = cw - pad - 10 - (vizW ? vizW + 8 : 0)
-    const value = fitText(st.v, 15.5, valueW)
+    const room = (hasViz: boolean) => cw - pad - 10 - (hasViz && vizW ? vizW + 8 : 0)
+    // A shrinking value: the largest size that fits beside its picture, else without it.
+    const sized = st.shrink
+      ? ([true, false].flatMap(hasViz => [15.5, 14, 12.5, 11].map(size => ({ hasViz, size }))).find(f => textWidth(st.v, f.size) <= room(f.hasViz)) ?? { hasViz: false, size: 11 })
+      : { hasViz: true, size: 15.5 }
+    const fs = sized.size
+    const value = fitText(st.v, fs, room(sized.hasViz))
     const head = `<text class="s" x="${vx.toFixed(1)}" y="${cy + 13}" font-family="${FONT}" font-size="11" letter-spacing=".2">${xml(st.k)}</text>`
     // A clock ticks inside the image: the card is drawn again once a minute, not each second.
     out.push(st.live
       ? `${head}\n${liveText(vx, cy + 33, st.live.at, 15.5, `font-family="${FONT}" font-size="15.5" font-weight="700" font-variant-numeric="tabular-nums"${st.color ? '' : ' class="t"'}`, st.live.read, st.color)}`
       : `${head}
-<text x="${vx.toFixed(1)}" y="${cy + 33}" font-family="${FONT}" font-size="15.5" font-weight="700" font-variant-numeric="tabular-nums"${st.color ? ` fill="${st.color}"` : ' class="t"'}>${xml(value)}</text>`)
-    if (st.viz) out.push(statViz(st, vx + textWidth(value, 15.5) + 9, cy + 23))
+<text x="${vx.toFixed(1)}" y="${cy + 33}" font-family="${FONT}" font-size="${fs}" font-weight="700" font-variant-numeric="tabular-nums"${st.color ? ` fill="${st.color}"` : ' class="t"'}>${xml(value)}</text>`)
+    if (st.viz && sized.hasViz) out.push(statViz(st, vx + textWidth(value, fs) + 9, cy + 23))
   })
   return out.join('\n')
 }
@@ -3943,7 +4201,7 @@ const managerEstimate = (f: Flow | null, list: AgentRun[], m: Manager, at = 0): 
 
 // Terminal: the tree as text, `├─` and `└─` like a file listing.
 const treePrefix = (r: TreeRow): string =>
-  r.lines.slice(0, r.depth - 1).map(on => (on ? '│ ' : '  ')).join('') + (r.isLast ? '└─ ' : '├─ ')
+  r.lines.slice(0, r.depth - 1).map(isOn => (isOn ? '│ ' : '  ')).join('') + (r.isLast ? '└─ ' : '├─ ')
 
 // --- the workflow card: each step of the work in hand, with its own bar. The
 // plan's tasks when a flow is reported, else the sub-agents at work, else the
@@ -4158,7 +4416,7 @@ const orgTree = (all: AgentRun[], boss: Manager, at = 0, mood: 0 | 1 | 2 = 0): O
   const agentNode = (a: AgentRun, depth: number): OrgNode => ({
     id: a.id,
     // The role is drawn above it: "Designer: palette ideas" reads "palette ideas".
-    label: `${a.isUltra ? '⚡ ' : ''}${(a.description || a.type).replace(NAMED_ROLE_PREFIX, '')}`,
+    label: (a.description || a.type).replace(NAMED_ROLE_PREFIX, ''),
     color: runRoleColor(a),
     costume: costumeFor(a),
     isStuck: isQuiet(a) || isOver(a),
@@ -4297,10 +4555,11 @@ const orgSvg = (W: number, root: OrgNode, isLight = false): string => {
 ${(() => {
   const figure = `${crab(left, y, 'boss', false, isWorking, sc)}${crown(left, y, sc)}`
   const egg = cyberOf()
-  if (!egg || !isWorking) return dancing(figure, isParty)
-  // David's Sandevistan: the boss leaves afterimages while the job runs.
-  const sv = sandevistan(figure, egg)
-  return `<defs>${sv.defs}</defs>${sv.svg}${dancing(figure, isParty)}`
+  const th = themeOf()
+  if ((!egg && !th?.afterimages) || !isWorking) return dancing(figure, isParty)
+  // David's Sandevistan (the themed skins' own trails): the boss leaves afterimages while the job runs.
+  const sv = egg ? sandevistan(figure, egg) : (th as ThemeEggs).afterimages?.(figure, { x: left, y, w, h })
+  return sv ? `<defs>${sv.defs}</defs>${sv.svg}${dancing(figure, isParty)}` : dancing(figure, isParty)
 })()}
 <text x="${x}" y="${y + h + 20}" text-anchor="middle" font-size="13" font-weight="800" fill="${SKIN.boss[0]}" letter-spacing=".3" class="gl">Manager</text>`)
       return
@@ -4352,7 +4611,7 @@ ${slot >= 46 ? `<text${isWorking ? ' class="t"' : ' class="s"'} x="${x}" y="${y 
     castGrow = 1
     figureDefs = null
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${FONT}">${PANE_CSS}${CRAB_CSS}${cyberOf() ? `<style>${EGG_CSS}</style>` : ''}
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${FONT}">${PANE_CSS}${CRAB_CSS}${cyberOf() ? `<style>${EGG_CSS}</style>` : themeOf() ? `<style>${themeOf()?.css}</style>` : ''}
 <defs>${figureDefsMarkup(figures)}${isLight ? '' : orgMarks()}
 <radialGradient id="aura"><stop offset="0" stop-color="${SKIN.boss[0]}" stop-opacity=".45"/><stop offset=".6" stop-color="${SKIN.boss[0]}" stop-opacity=".12"/><stop offset="1" stop-color="${SKIN.boss[0]}" stop-opacity="0"/></radialGradient>
 <linearGradient id="ring" x1="0" x2="1"><stop offset="0" stop-color="${SKIN.boss[0]}"/><stop offset=".5" stop-color="${SKIN.boss[2]}" stop-opacity=".2"/><stop offset="1" stop-color="${SKIN.boss[3]}"/></linearGradient>
@@ -4364,6 +4623,7 @@ ${slot >= 46 ? `<text${isWorking ? ' class="t"' : ' class="s"'} x="${x}" y="${y 
 .spark{animation:spark 1.1s ease-out infinite;opacity:0}.s1{animation-delay:-.37s}.s2{animation-delay:-.74s}
 @keyframes spark{0%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-12px)}}
 @media (prefers-reduced-motion: reduce){.flow,.aura,.spark{animation:none}.spark{opacity:0}}</style>
+${themeOf()?.pane && !isLight ? themeOf()?.pane?.backdrop(W, H, 0, SKIN.colors) : ''}
 ${edges.join('\n')}
 ${nodes.join('\n')}${SKIN.effects.scanlines && !isLight ? scanlines(W, H) : ''}</svg>`
 }
@@ -4456,7 +4716,7 @@ const receiptText = (boss: Manager, all: AgentRun[], info: Env, at: number): str
   const crew = crewOf(all, boss)
   const total = Math.max(0, info.costUsd - (boss.costAtStart ?? info.costUsd))
   const ms = boss.startedAt ? Math.max(0, (boss.doneAt ?? at) - boss.startedAt) : 0
-  const rows = [...crew].sort((x, y) => y.costUsd - x.costUsd).map(a => `| ${(a.description || a.type).replace(/\|/g, '/')} | ${modelName(a.model)} · ${effortWord(runEffort(a))} | ${fmtTokens(a.tokens)} | ≈${fmtCost(a.costUsd)} |`)
+  const rows = [...crew].sort((x, y) => y.costUsd - x.costUsd).map(a => `| ${(a.description || a.type).replace(/\|/g, '/')} | ${modelName(a.model)} · ${effortLabel(runEffort(a), a.isUltra)} | ${fmtTokens(a.tokens)} | ≈${fmtCost(a.costUsd)} |`)
   return [
     `**Claude Code receipt**${boss.task ? ` · ${clip(boss.task.replace(/\s+/g, ' '), 80)}` : ''}`,
     '',
@@ -4476,11 +4736,15 @@ const MOOD_WORD = ['Healthy', 'Watch it', 'Act now'] as const
 // refresh pauses it until the next prompt.
 const warmTurns = new Set<string>()
 let isRefreshing = false
+// What the next prompt saves when it finds the cache warm: a lapsed cache's rewrite.
+// Counted as saved once, when that prompt comes, however many refreshes kept it warm.
+let warmPendingUsd = 0
 
 async function keepWarm($: EngineInterface): Promise<void> {
   if (isRefreshing) return
   isRefreshing = true
-  const halt = (why: string, spent = 0) => update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), halted: why, spentUsd: (prev.warm ?? BLANK_WARM).spentUsd + spent } }))
+  // `savedUsd` is net: every refresh's cost comes off it, a wasted one's too.
+  const halt = (why: string, spent = 0) => update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), halted: why, spentUsd: (prev.warm ?? BLANK_WARM).spentUsd + spent, savedUsd: (prev.warm ?? BLANK_WARM).savedUsd - spent } }))
   try {
     const [st, w, list, bg, info] = await Promise.all([read($, session), read($, watch), read($, agents), read($, background), read($, env)])
     const kw = w.warm ?? BLANK_WARM
@@ -4488,7 +4752,7 @@ async function keepWarm($: EngineInterface): Promise<void> {
     // Work still running is a sure return; its own requests do not warm the main cache.
     const isLikely = list.some(a => a.status === 'running') || bg.tasks.length + bg.crons.length > 0
     if (warmLimitHit(isLikely, kw.idle, kw.busy)) return void (await halt(isLikely ? 'refresh limit reached' : 'idle limit reached'))
-    const call = warmCall(priceOf(st.model, st.promptTokens), st.promptTokens, isLikely, info.contextPct)
+    const call = warmCall(priceOf(st.model, st.promptTokens), st.promptTokens, isLikely, info.contextPct, undefined, fmtCost)
     if (!call.isWarm) {
       await halt(call.reason ?? 'does not pay')
       // Keep-Warm explains itself: the one time it decides not to, it says why in money.
@@ -4502,6 +4766,8 @@ async function keepWarm($: EngineInterface): Promise<void> {
     const cost = costOf(st.model, usage, true)
     const at = await $.clock.now()
     if (!isWarmed(usage.cache_read_input_tokens || 0, st.promptTokens)) {
+      // The cache went before its hour: the earlier refreshes kept nothing for the next prompt.
+      warmPendingUsd = 0
       await halt(reply.isAnswered ? 'the cache had already lapsed' : `refresh failed (${reply.reason})`, cost)
       $.ui.toast(`🧊 Keep-warm: the cache had lapsed · ${fmtCost(cost)}`, { timeoutMs: 15000 })
       return
@@ -4510,8 +4776,9 @@ async function keepWarm($: EngineInterface): Promise<void> {
     await update($, session, prev => ({ ...prev, cacheUntil: at + CACHE_TTL_MS, cacheLeft: CACHE_TTL_MS / 1000, warned: 0 }))
     await update($, watch, prev => {
       const p = prev.warm ?? BLANK_WARM
-      return { ...prev, warm: { ...p, idle: p.idle + (isLikely ? 0 : 1), busy: p.busy + (isLikely ? 1 : 0), count: p.count + 1, spentUsd: p.spentUsd + cost, savedUsd: p.savedUsd + saved } }
+      return { ...prev, warm: { ...p, idle: p.idle + (isLikely ? 0 : 1), busy: p.busy + (isLikely ? 1 : 0), count: p.count + 1, spentUsd: p.spentUsd + cost, savedUsd: p.savedUsd - cost } }
     })
+    warmPendingUsd = call.missUsd
     $.ui.toast(`🧊 Cache kept warm · ${fmtCost(cost)} · saves ≈${fmtCost(Math.max(0, saved))} on your next prompt`, { timeoutMs: 15000 })
   } finally {
     isRefreshing = false
@@ -4554,6 +4821,10 @@ const tokenSvg = (W: number, r: TokenReport, isWatching: boolean): string => {
   const color = MOOD_COLOR[r.mood]
   const word = MOOD_WORD[r.mood]
   const pillW = Math.round(22 + textWidth(word, 11))
+  // A themed skin shows its heat (the Mentalist's red smileys) when the spend runs high.
+  const th = themeOf()
+  // ...and only where it clears the "Token Manager" title: a narrow pane drew it over the title.
+  const heatOn = Boolean(th?.pane) && r.mood > 0 && W - 14 - pillW - (th?.pane?.heatW ?? 0) - 8 >= 50 + textWidth('Token Manager', 13)
   const stats: Stat[] = [
     { k: 'Burn rate', v: `${fmtTokens(r.burnPerMin)}/min`, color: r.burnPerMin > 150_000 ? '#E9B44C' : undefined },
     { k: isApiCredits(BILLING) ? (r.budget ? `API credits · of ${fmtCost(r.budget)}` : 'API credits · task') : r.budget ? `This task · of ${fmtCost(r.budget)}` : 'This task', v: `${fmtTokens(r.taskTokens)} · ≈${fmtCost(r.taskCost)}`, color: r.budget && r.taskCost >= r.budget ? '#E5675E' : undefined },
@@ -4574,9 +4845,10 @@ ${cardShape(0.5, 0.5, W - 1, H - 1, `fill="none" stroke="${color}" stroke-opacit
 <rect x="0.5" y="14" width="3" height="${H - 28}" rx="1.5" fill="${color}"/>
 ${crab(10, 4, 'role:banker', false, isWatching, 1.05)}
 <text x="50" y="22" font-family="${FONT}" font-size="13" font-weight="800" fill="${color}" class="gl">Token Manager<tspan class="s" font-weight="400" font-size="11.5">${(() => {
-  const room = W - 14 - pillW - 8 - 50 - textWidth('Token Manager', 13) - 12
+  const room = W - 14 - pillW - 8 - 50 - textWidth('Token Manager', 13) - 12 - (heatOn ? (th?.pane?.heatW ?? 0) : 0)
   return room >= 60 ? `   ${xml(fitText(isApiCredits(BILLING) ? 'paid with API credits: real money' : 'watching every token, at no cost', 11.5, room))}` : ''
 })()}</tspan></text>
+${heatOn && th?.pane ? th.pane.heat(W - 14 - pillW - th.pane.heatW, 24, r.mood === 2 ? 5 : 3, SKIN.colors) : ''}
 <rect x="${W - 14 - pillW}" y="10" width="${pillW}" height="18" rx="9" fill="${color}"/>
 <text x="${W - 14 - pillW / 2}" y="22.5" text-anchor="middle" font-family="${FONT}" font-size="11" font-weight="700" fill="${inkOn(color)}">${word}</text>
 ${statGrid(50, 38, W - 50 - 14, stats)}
@@ -5013,6 +5285,7 @@ const heartbeat = (x: number, y: number, w: number, color: string): string => {
 // The full readouts stay in the pane; Settings brings the full band back.
 const SIMPLE_H = 100
 const SIMPLE_OUT_H = SIMPLE_H + HUD_PAD * 2
+const SIMPLE_CRABS = 6
 const hudSimpleSvg = (OW: number, d: HudData): string => {
   const c = SKIN.colors
   const OH = SIMPLE_OUT_H
@@ -5022,6 +5295,9 @@ const hudSimpleSvg = (OW: number, d: HudData): string => {
   const left = 52
   const titleW = Math.min(180, textWidth(d.title, 13) + 4)
   const pillW = Math.round(20 + textWidth(d.status, 10.5))
+  // The Timekeeper's clock (elapsed/budget) sits at the right of row 1 while a job has a budget; it takes room from the action text.
+  const clockTxt = d.budget ? `⏱\uFE0E ${budgetLabel(d.budget.usedMs, d.budget.min)}` : ''
+  const clockW = clockTxt ? textWidth(clockTxt, 11.5) + 12 : 0
   const pct = d.progress === null ? null : Math.round(d.progress * 100)
   const barW = Math.max(40, W - left - 64)
   const gaugeY = 28
@@ -5043,8 +5319,12 @@ const hudSimpleSvg = (OW: number, d: HudData): string => {
   const done = d.crew.filter(m => m.status !== 'running').length
   const count = d.crew.length ? [working ? `${working} working` : '', quiet ? `${quiet} quiet` : '', done ? `${done} done` : ''].filter(Boolean).join(' · ') : 'Just Claude on this one'
   const countW = textWidth(count, 12) + 8
-  const room = Math.max(0, Math.floor((W - 14 - countW - 16 - left) / 22))
-  const crabs = d.crew.slice(0, room).map((m, i) => {
+  // A drawn crab is several kB of Svg; the engine refuses a picture over 131072 characters (the whole band then
+  // goes missing), so at most SIMPLE_CRABS are drawn, the busy ones first, and the rest are the "+N".
+  const room = Math.min(SIMPLE_CRABS, Math.max(0, Math.floor((W - 14 - countW - 16 - left) / 22)))
+  const rank = (m: HudData['crew'][number]): number => (m.status === 'running' && !m.isQuiet ? 0 : m.isQuiet ? 1 : 2)
+  const shown = d.crew.map((m, i) => ({ m, i })).sort((a, b) => rank(a.m) - rank(b.m) || a.i - b.i).slice(0, room).map(x => x.m)
+  const crabs = shown.map((m, i) => {
     const x = left + i * 22
     return `${crab(x, y2, m.costume, m.status !== 'running', m.status === 'running' && !m.isQuiet, 0.68)}${m.isQuiet ? `<circle cx="${x + 10}" cy="${y2 + 10}" r="11" fill="none" stroke="${c.alert}" stroke-width="1.5"/>` : ''}`
   }).join('')
@@ -5052,6 +5332,9 @@ const hudSimpleSvg = (OW: number, d: HudData): string => {
   // Row 3: the money and the context, in words.
   const y3 = 86
   const ctxTone = gaugeColor(d.ctxPct)
+  // Today's spend in the warn colour from 80% of the daily cap, the alert colour from 100%.
+  const capPct = dailyCapUsd > 0 ? ((d.todayUsd ?? 0) / dailyCapUsd) * 100 : 0
+  const todayFill = capPct >= 100 ? ` fill="${c.alert}"` : capPct >= 80 ? ` fill="${c.warn}"` : ''
   const label = (y: number, text: string) => `<text class="m" x="14" y="${y}" font-family="${FONT}" font-size="10" font-weight="700" letter-spacing=".6">${text}</text>`
   return svg(
     OW,
@@ -5065,7 +5348,8 @@ ${dancing(`${crab(10, 6, 'boss', false, d.isWorking, 1.05)}${crown(10, 6, 1.05)}
 <text x="${left}" y="17" font-family="${FONT}" font-size="13" font-weight="800" fill="${c.accent}">${xml(fitText(d.title, 13, titleW))}</text>
 <rect x="${left + titleW + 8}" y="6" width="${pillW}" height="15" rx="7.5" fill="${tone}" fill-opacity="${d.isWorking || d.isParty ? 0.95 : 0.25}"/>
 <text x="${left + titleW + 8 + pillW / 2}" y="17" text-anchor="middle" font-family="${FONT}" font-size="10.5" font-weight="800" fill="${d.isWorking || d.isParty ? inkOn(tone) : c.text}">${xml(d.status)}</text>
-<text class="s" x="${left + titleW + pillW + 18}" y="17" font-family="${FONT}" font-size="11.5">${xml(fitText(d.activity ? `▸ ${d.activity}` : '', 11.5, Math.max(0, W - (left + titleW + pillW + 18) - 14)))}</text>
+<text class="s" x="${left + titleW + pillW + 18}" y="17" font-family="${FONT}" font-size="11.5">${xml(fitText(d.activity ? `▸ ${d.activity}` : '', 11.5, Math.max(0, W - (left + titleW + pillW + 18) - 14 - clockW)))}</text>
+${d.budget && clockTxt ? `<text class="m" x="${W - 14}" y="17" text-anchor="end" font-family="${FONT}" font-size="11.5" font-variant-numeric="tabular-nums">${budgetClock([clockTxt], clockTxt, d.budget)}</text>` : ''}
 ${gauge}
 ${pctText}
 <line x1="12" y1="${y2 - 6.5}" x2="${W - 12}" y2="${y2 - 6.5}" stroke="${c.line}"/>
@@ -5073,17 +5357,287 @@ ${label(y2 + 14, 'CREW')}
 ${crabs}${more}
 <text class="s" x="${W - 14}" y="${y2 + 14}" text-anchor="end" font-family="${FONT}" font-size="12">${xml(count)}</text>
 ${label(y3, 'COST')}
-<text class="t" x="${left}" y="${y3}" font-family="${FONT}" font-size="12.5" font-variant-numeric="tabular-nums">This task <tspan font-weight="800">≈${fmtCost(d.taskUsd ?? 0)}</tspan><tspan class="m">   ·   </tspan>Today <tspan font-weight="800">≈${fmtCost(d.todayUsd ?? 0)}</tspan></text>
+<text class="t" x="${left}" y="${y3}" font-family="${FONT}" font-size="12.5" font-variant-numeric="tabular-nums">This task <tspan font-weight="800">≈${fmtCost(d.taskUsd ?? 0)}</tspan><tspan class="m">   ·   </tspan>Today <tspan font-weight="800"${todayFill}>≈${fmtCost(d.todayUsd ?? 0)}</tspan></text>
 <text class="s" x="${W - 14}" y="${y3}" text-anchor="end" font-family="${FONT}" font-size="12">Context <tspan font-weight="800" fill="${ctxTone}">${d.ctxPct}%</tspan></text>
 </g>`,
   )
+}
+
+// The slim band of The Mentalist and Red John (themes.ts `slimBand`): 132 high, four type sizes
+// (9.5 caps labels, 11.5 body, 13 values, 15 title) in two weights. Header, task row, then two
+// info rows; nothing decorative (no skin chip, beam or brackets), the hidden smiley in a corner of its own.
+const SLIM_H = 132
+const slimHeight = (): number => themeOf()?.slim?.h ?? SLIM_H
+/** `fg` lightened toward white until it has `min`:1 contrast on `bg` (unchanged when it already has). */
+const liftContrast = (fg: string, bg: string, min = 4.5): string => {
+  const m = /^#([0-9a-f]{6})$/i.exec(fg)
+  if (!m) return fg
+  const ch = (i: number) => parseInt((m[1] as string).slice(i, i + 2), 16)
+  let [r, g, b] = [ch(0), ch(2), ch(4)]
+  for (let i = 0; i < 12 && (contrast(`#${[r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('')}`, bg) ?? 21) < min; i++) [r, g, b] = [r + (255 - r) * 0.12, g + (255 - g) * 0.12, b + (255 - b) * 0.12]
+  return `#${[r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('')}`
+}
+const slimBandSvg = (OW: number, d: HudData): string => {
+  const c = SKIN.colors
+  const th = themeOf() as ThemeEggs
+  const W = OW
+  const sl = th.slim
+  const H = slimHeight()
+  const sw = sl?.sw ?? serifW
+  // A theme with its own sans measures it itself, in bold where the design says so; the Mentalist's call is unchanged.
+  const bold = Boolean(sl)
+  const fitW = (text: string, size: number, max: number): string => (sl ? sansClipTo(sw, text, size, max) : fitText(text, size, max))
+  const RJ = '#E0261F'
+  const edge = d.isParty ? c.done : d.isWorking ? c.accent : c.line
+  // Text in a skin colour (the title, the role pills) is lifted toward white until it reads at 4.5:1 on the tile.
+  const lift = (fg: string): string => liftContrast(fg, c.tile)
+  const x0 = 20
+  const xr = W - 20
+  const Lb = (x: number, y: number, text: string, anchor = 'start', fill = c.muted) =>
+    `<text x="${r2(x)}" y="${y}"${anchor !== 'start' ? ` text-anchor="${anchor}"` : ''} font-family="${FONT}" font-size="9.5" font-weight="700" letter-spacing=".8" fill="${fill}">${xml(text)}</text>`
+  const Vl = (x: number, y: number, text: string, fill = c.text, anchor = 'start') =>
+    `<text x="${r2(x)}" y="${y}"${anchor !== 'start' ? ` text-anchor="${anchor}"` : ''} font-family="${FONT}" font-size="13" font-weight="700" fill="${fill}" font-variant-numeric="tabular-nums">${xml(text)}</text>`
+  const Bd = (x: number, y: number, text: string, fill = c.subtext, extra = '') => `<text x="${r2(x)}" y="${y}" font-family="${FONT}" font-size="11.5" fill="${fill}" ${extra}>${xml(text)}</text>`
+  const s: string[] = []
+  s.push(`<style>.tea{animation:tea 1.6s ease-in-out infinite}@keyframes tea{50%{opacity:.6}}.rjs{animation:rjs2 3.6s ease-in-out infinite}@keyframes rjs2{50%{opacity:.12}}@media (prefers-reduced-motion: reduce){.tea,.rjs{animation:none}}${th.css}</style>`)
+  // A theme that draws its own edge (a chamfered glass tile) leaves out the engine's rounded one.
+  if (!sl?.ownEdge) s.push(`<rect x=".5" y=".5" width="${W - 1}" height="${H - 1}" rx="10" class="tile"/><rect x=".5" y=".5" width="${W - 1}" height="${H - 1}" rx="10" fill="none" stroke="${edge}" stroke-opacity=".5"${d.isWorking ? ' class="hedge"' : ''}/>`)
+  const overBudget = Boolean(d.budget && d.budget.usedMs > d.budget.min * 60_000)
+  const tctx: ThemeCtx = { ctxPct: d.ctxPct, overBudget, isWorking: d.isWorking, capri: roamOnBand(th, d.at, d.ctxPct) }
+  if (sl) s.push(sl.foot(W, H, c, tctx))
+  if (!sl?.ownEdge) s.push(`<rect x=".5" y="14" width="3" height="${H - 28}" rx="1.5" fill="${edge}"/>`)
+  // ---- header (baseline 22)
+  const y = 22
+  const lead = sl ? sl.head(x0, y, c, FONT) : { svg: '', w: 0 }
+  if (lead.svg) s.push(lead.svg)
+  const nx = lead.w ? x0 + lead.w + 10 : x0
+  // A theme may draw the name in its own hand (a paper label, a patch, a line of identity).
+  const own = sl?.name?.(x0, y, W, c, FONT, tctx)
+  s.push(own ? own.svg : Lb(nx, y, 'MISSION CONTROL', 'start', c.accent2).replace('letter-spacing=".8"', 'letter-spacing="1.6"'))
+  let hx = own ? x0 + own.w + 14 : nx + sw('MISSION CONTROL', 9.5, 1.6, true) + 16
+  const chip = th.chip(hx, y, d.ctxPct, c, FONT)
+  s.push(chip.svg)
+  if (chip.w) hx += chip.w + 16
+  const smallChip = (x: number, label: string, tip: string, live: boolean) => {
+    const w = Math.round(sw(label, 9.5, 0.8, true) + 14)
+    s.push(`<rect${live ? ' class="live"' : ''} x="${x}" y="${y - 10.5}" width="${w}" height="14" rx="3" fill="none" stroke="${c.subtext}" stroke-opacity=".4"/><text x="${x + w / 2}" y="${y}" text-anchor="middle" font-family="${FONT}" font-size="9.5" font-weight="700" letter-spacing=".8" fill="${c.subtext}"><title>${xml(tip)}</title>${xml(label)}</text>`)
+    return w + 10
+  }
+  if (d.crewMode) hx += smallChip(hx, 'CREW MODE', d.crewMode, true)
+  if (d.bg) hx += smallChip(hx, `${d.bg} BACKGROUND`, `${d.bg} ${tr().bgBand}`, false)
+  const model = [PROVIDER, d.model, d.effort].filter(Boolean).join(' · ')
+  const modelW = sw(model, 11.5)
+  const clockTxt = d.budget ? `${fmtTime(d.budget.usedMs)} / ${d.budget.min}m` : d.taskMs > 0 ? fmtTime(d.taskMs) : ''
+  const clockW = clockTxt ? sw(clockTxt, 11.5) + 4 : 0
+  const epm = /^(?:\S+\s+)?(S\d+E\d+|EP \d+)\s+(.*)$/.exec(th.ticker(d.at))
+  const ep: [string, string] = epm ? [epm[1] as string, epm[2] as string] : ['', '']
+  // The episode shrinks to its code (S1E4) before it goes, and goes last of the header's extras.
+  const epWFull = ep[0] ? (sl?.ep ? sl.ep.w(ep[0], ep[1], true) : sw(ep[0], 9.5, 0.8, true) + sw(ep[1], 11.5) + 12) : 0
+  const epWCode = ep[0] ? (sl?.ep ? sl.ep.w(ep[0], ep[1], false) : sw(ep[0], 9.5, 0.8, true) + 2) : 0
+  let epMode: 0 | 1 | 2 = epWFull > 0 ? 0 : 2
+  const epWof = (): number => (epMode === 0 ? epWFull : epMode === 1 ? epWCode : 0)
+  const rightEdge = (withEp: boolean) => xr - clockW - (withEp && epWof() ? epWof() + (clockW ? 28 : 0) : 0)
+  let showModel = Boolean(model)
+  // A theme's own gauge goes first when the room runs out, then the model, then the episode.
+  const pg0 = sl?.gauge(0, y, d.isWorking, d.steps.filter(st => st === 'done').length, d.steps.length, c, FONT, tctx)
+  const gW = pg0 ? pg0.w + 26 : 0
+  let showGauge = Boolean(pg0)
+  if (showGauge && rightEdge(true) - gW - (hx + (showModel ? modelW + 24 : 0)) < 24) showGauge = false
+  if (showModel && rightEdge(true) - (showGauge ? gW : 0) - (hx + modelW + 24) < 24) showModel = false
+  if (epMode === 0 && rightEdge(true) - (showGauge ? gW : 0) - hx < 24) epMode = 1
+  if (epMode === 1 && rightEdge(true) - (showGauge ? gW : 0) - hx < 24) epMode = 2
+  const showEp = epMode < 2
+  const baseEnd = showModel ? hx + modelW + 24 : hx
+  if (showModel) s.push(Bd(hx, y, model, c.muted))
+  const tone = d.budget ? budgetTone(d.budget.usedMs, d.budget.min, c.subtext) : c.subtext
+  if (clockTxt) {
+    s.push(!d.budget && d.taskFrom
+      ? liveText(xr, y, d.at, 11.5, `text-anchor="end" font-family="${FONT}" font-size="11.5" fill="${tone}" font-variant-numeric="tabular-nums"`, t => fmtTime(Math.max(0, t - (d.taskFrom ?? t))))
+      : `<text x="${xr}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11.5" fill="${tone}" font-variant-numeric="tabular-nums">${xml(clockTxt)}</text>`)
+  }
+  let epLeft = xr - clockW
+  if (showEp) {
+    const ex = xr - clockW - 14
+    if (clockW) s.push(`<line x1="${r2(ex + 7)}" y1="${y - 10}" x2="${r2(ex + 7)}" y2="${y + 2}" stroke="${c.line}"/>`)
+    if (sl?.ep) s.push(sl.ep.draw(clockW ? ex - 4 : xr, y, ep[0], ep[1], epMode === 0, c))
+    else s.push(`<text x="${r2(clockW ? ex - 4 : xr)}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11.5" fill="${c.muted}"><tspan font-size="9.5" font-weight="700" letter-spacing=".8">${xml(ep[0])}</tspan>${epMode === 0 ? `  <tspan font-style="italic" fill="${c.subtext}">${xml(ep[1])}</tspan>` : ''}</text>`)
+    epLeft = (clockW ? ex - 4 : xr) - epWof()
+  }
+  if (showGauge && sl) s.push(sl.gauge(epLeft - 26, y, d.isWorking, d.steps.filter(st => st === 'done').length, d.steps.length, c, FONT, tctx).svg)
+  const cold = th.coldLine?.(d.title) ?? ''
+  const crRight = epLeft - 28
+  if (cold && crRight - baseEnd > 220) s.push(`<text x="${r2(crRight)}" y="${y}" text-anchor="end" font-family="${FONT}" font-size="11.5" font-style="italic" fill="${c.muted}">${xml(serifClip(`“${cold}”`, 11.5, crRight - baseEnd))}</text>`)
+  s.push(`<line x1="14" y1="32.5" x2="${W - 14}" y2="32.5" stroke="${c.line}"/>`)
+  // ---- task row
+  const fig = sl ? sl.figure() : `${crab(14, 38, 'boss', false, d.isWorking, 1.05)}${crown(14, 38, 1.05)}`
+  s.push(dancing(fig, d.isParty))
+  const tx = 64
+  // Below 1100 px the three readouts shrink to short labels and values (no bars), so they stay on screen.
+  const compact = W < 1100
+  const rw = compact ? 62 : sl ? 100 : 92
+  const pillW = Math.round(sw(d.status, 11.5, 0, bold) + 18)
+  const natTitle = Math.ceil(sw(d.title, 15, 0, bold) * 1.04) + 4
+  const hasReadouts = compact ? W >= 520 : W >= tx + Math.min(300, natTitle) + pillW + 80 + rw * 3 + 40
+  const r0 = hasReadouts ? W - 20 - rw * 3 : W - 14
+  // The title, the Tasks pill and the action sit together on the left; a narrow band lets the title have 55% of the room.
+  const leftRoom = (hasReadouts ? r0 - 18 : W - 14) - 20 - tx
+  const titleW = Math.min(300, natTitle, Math.max(90, Math.floor((leftRoom - pillW - 24) * (compact ? 0.55 : 1))))
+  // The plain title, always: a glitch on the band once hid it (a ☺ stayed, the title never came back).
+  s.push(`<text x="${tx}" y="54" font-family="${FONT}" font-size="15" font-weight="700" fill="${lift(c.accent)}">${xml(fitW(d.title, 15, titleW))}</text>`)
+  const px = tx + titleW + 12
+  const statusOn = d.isWorking || d.isParty
+  const pillFill = d.isParty ? c.done : d.isWorking ? c.accent : c.muted
+  s.push(`${sl?.pill ? sl.pill(px, 41, pillW, 18, pillFill, statusOn ? 1 : 0.25) : `<rect x="${px}" y="41" width="${pillW}" height="18" rx="9" fill="${pillFill}" fill-opacity="${statusOn ? 1 : 0.25}"/>`}<text x="${px + pillW / 2}" y="54" text-anchor="middle" font-family="${FONT}" font-size="11.5" font-weight="700" fill="${statusOn ? inkOn(pillFill) : c.text}">${xml(d.status)}</text>`)
+  const ax = px + pillW + 12
+  const actRoom = Math.max(0, (hasReadouts ? r0 - 18 : W - 14) - ax - 12)
+  if (d.activity && actRoom >= 60) s.push(Bd(ax, 54, `› ${fitW(d.activity, 11.5, Math.max(0, actRoom - 14))}`))
+  if (hasReadouts) {
+    s.push(`<line x1="${r0 - 18}" y1="40" x2="${r0 - 18}" y2="76" stroke="${c.line}"/>`)
+    const ctxTone = d.ctxPct >= 95 ? c.alert : d.ctxPct >= 85 ? c.warn : c.text
+    const lim = d.limitPct === null ? null : Math.round(d.limitPct)
+    const limTone = (lim ?? 0) >= 90 ? c.alert : (lim ?? 0) >= 70 ? c.warn : c.text
+    const cols: [string, string, string, number | null][] = [[compact ? 'CTX' : 'CONTEXT', `${d.ctxPct}%`, ctxTone, d.ctxPct], [compact ? '5H' : '5-HOUR LIMIT', lim === null ? '—' : `${lim}%`, limTone, lim], [compact ? 'BURN' : 'BURN / MIN', fmtTokens(d.burnPerMin), c.text, null]]
+    cols.forEach(([k, v, tn, pct], i) => {
+      const rx = r0 + i * rw
+      s.push(Lb(rx, 50, k))
+      s.push(Vl(rx, 70, v, tn))
+      if (pct !== null && !compact) {
+        const bx = rx + sw(v, 13, 0, bold) + 8
+        const fill = tn === c.text ? c.accent : tn === c.alert ? (sl ? c.alert : RJ) : tn
+        s.push(`<rect x="${r2(bx)}" y="63" width="34" height="4" fill="${c.track}"/><rect x="${r2(bx)}" y="63" width="${r2((34 * Math.min(100, pct)) / 100)}" height="4" fill="${fill}"/>`)
+      }
+    })
+  }
+  // gauge
+  const idle = !d.isWorking && !d.isParty && th.idle
+  const gw = (hasReadouts ? r0 - 18 : W - 14) - 20 - tx - 44 - (idle ? 30 : 0)
+  const segs = Math.max(0, Math.floor(gw / 6))
+  const pct = d.progress === null ? null : Math.round(d.progress * 100)
+  const climb = d.progressAt
+  const gy = 66
+  const litN = pct === null ? 0 : Math.round((pct / 100) * segs)
+  if (segs > 0) {
+    if (sl?.tear) s.push(sl.tear(tx, 64, segs * 6 - 2, pct ?? 0, c, tctx))
+    else if (pct !== null && climb) s.push(liveSegmentBar(tx, gy, segs * 6 - 2, d.at, t => Math.round(climb(t) * 100), d.isParty ? c.done : c.accent).replace(/height="8"/g, 'height="6"'))
+    else s.push(`<g shape-rendering="crispEdges">${Array.from({ length: segs }, (_, i) => `<rect x="${tx + i * 6}" y="${gy}" width="4" height="6" fill="${i < litN ? (d.isParty ? c.done : c.accent) : c.track}"/>`).join('')}</g>`)
+    if (pct !== null && climb && !sl?.tear) s.push(liveText(tx + segs * 6 + 8, 73, d.at, 13, `font-family="${FONT}" font-size="13" font-weight="700" fill="${c.text}" font-variant-numeric="tabular-nums"`, t => `${Math.round(climb(t) * 100)}%`))
+    else s.push(Vl(tx + segs * 6 + 8, 73, pct === null ? (d.isWorking ? '···' : '') : `${pct}%`))
+    if (idle) s.push(th.idle?.(tx + segs * 6 + 8 + 44, 56, c) ?? '')
+  }
+  s.push(`<line x1="14" y1="84.5" x2="${W - 14}" y2="84.5" stroke="${c.line}"/>`)
+  // ---- row A: steps left, crew right. The step dots always stay; role pills give way first, and the "+N" shows only after four figures.
+  const ya = 103
+  const stepDone = d.steps.filter(st => st === 'done').length
+  const nSteps = d.steps.length
+  const pipsN = Math.min(16, nSteps)
+  const cnt = `${stepDone}/${nSteps}`
+  const cntW = sw(cnt, 13, 0, bold)
+  const pitch = d.lite ? 20 : sl ? 13 : 24
+  const leftEnd = x0 + (nSteps ? pipsN * 13 + 10 + cntW + 10 : sw('No steps yet', 11.5)) + 90
+  const figMin = Math.min(d.crew.length, 4) * pitch + 8
+  let cx = xr
+  const pills: string[] = []
+  for (const r of [...d.roles].reverse().slice(0, 4)) {
+    const txt = `${r.role} ${r.count}`
+    const w = Math.round(sw(txt, 11.5) + 18)
+    if (cx - w < leftEnd + figMin + 8) break
+    cx -= w
+    pills.push(`${sl?.pill ? sl.pill(cx, ya - 12, w, 16, r.color, 0.14, r.color) : `<rect x="${cx}" y="${ya - 12}" width="${w}" height="16" rx="8" fill="${r.color}" fill-opacity=".14" stroke="${r.color}" stroke-opacity=".55"/>`}<text x="${cx + w / 2}" y="${ya}" text-anchor="middle" font-family="${FONT}" font-size="11.5" fill="${lift(r.color)}">${xml(txt)}</text>`)
+    cx -= 6
+  }
+  s.push(...pills.reverse())
+  let crewLeft = cx
+  if (d.crew.length) {
+    cx -= 8
+    const avail = cx - leftEnd
+    let room = Math.max(0, Math.floor(avail / pitch))
+    if (room < d.crew.length && room >= 4) room = Math.max(4, Math.floor((avail - 26) / pitch))
+    const shown = d.crew.slice(0, room)
+    shown.forEach((m, i) => {
+      const fx = cx - (shown.length - i) * pitch
+      if (sl && !d.lite) s.push(sl.crew(fx, ya - 14, m.color))
+      else if (d.lite) s.push(`<circle cx="${fx + 9}" cy="${ya - 4}" r="4.5" fill="${m.color}" fill-opacity="${m.status === 'running' ? 1 : 0.4}"/>`)
+      else s.push(crab(fx, ya - 23, m.costume, m.status !== 'running', m.status === 'running' && !m.isQuiet, 0.75) + (m.isQuiet ? `<circle cx="${fx + 11}" cy="${ya - 9.5}" r="10.5" fill="none" stroke="${c.alert}" stroke-width="1.3"/>` : ''))
+    })
+    crewLeft = cx - shown.length * pitch
+    if (d.crew.length > shown.length && shown.length >= 4) {
+      s.push(Bd(crewLeft - 26, ya, `+${d.crew.length - shown.length}`, c.muted))
+      crewLeft -= 26
+    }
+  } else s.push(Bd(xr, ya, 'No crew on this job yet', c.muted, 'text-anchor="end"'))
+  // steps
+  if (!nSteps) s.push(Bd(x0, ya, 'No steps yet', c.muted))
+  else {
+    d.steps.slice(0, pipsN).forEach((st, i) => {
+      const px2 = x0 + 5 + i * 13
+      const py = ya - 4
+      s.push(sl ? sl.pip(st, px2, py, c) : st === 'done' ? `<circle cx="${px2}" cy="${py}" r="4.2" fill="${c.done}"/>`
+        : st === 'running' ? `<circle cx="${px2}" cy="${py}" r="3.9" fill="none" stroke="${c.accent}" stroke-width="1.3"/><circle class="live" cx="${px2}" cy="${py}" r="1.9" fill="${c.accent}"/>`
+        : st === 'failed' ? `<path d="M${px2 - 3.2} ${py - 3.2}l6.4 6.4M${px2 + 3.2} ${py - 3.2}l-6.4 6.4" stroke="${c.alert}" stroke-width="1.8" stroke-linecap="round"/>`
+        : st === 'stopped' ? `<rect x="${px2 - 3.2}" y="${py - 3.2}" width="6.4" height="6.4" rx="1.2" fill="${c.muted}"/>`
+        : `<circle cx="${px2}" cy="${py}" r="4" fill="none" stroke="${c.muted}" stroke-width="1.3"/>`)
+    })
+    const sx = x0 + pipsN * 13 + 10
+    s.push(Vl(sx, ya, cnt))
+    s.push(Bd(sx + cntW + 10, ya, fitW(d.stepText, 11.5, Math.max(0, crewLeft - 12 - (sx + cntW + 10)))))
+  }
+  // ---- row B: tip left, totals right; the corner is the smiley's
+  const yb = 123
+  const ss = d.session
+  const left = ss.cacheLeft
+  const cacheTone = ss.isBusy || left === null ? c.accent2 : left <= 600 ? c.alert : left <= 1200 ? c.warn : c.accent2
+  const until = !ss.isBusy && left ? ss.cacheUntil : null
+  const leftAt = (t: number) => Math.max(0, Math.floor(((until ?? t) - t) / 1000))
+  const cacheText = cacheTextOf(ss.isBusy, left)
+  const barW = 36
+  const barX = xr - 24 - barW
+  const cacheShare = ss.isBusy ? 1 : left === null ? 0 : Math.min(1, left / (CACHE_TTL_MS / 1000))
+  const live = until ? liveWidth(d.at, t => barW * Math.min(1, leftAt(t) / (CACHE_TTL_MS / 1000))) : null
+  const tipX = x0 + 14
+  const parts: [string, string][] = [['TODAY', `${d.today.tasks} ${d.today.tasks === 1 ? 'task' : 'tasks'} · ≈${fmtCost(d.today.costUsd)}`], ['TURN', `${ss.turn} · ${fmtCost(ss.turnCost)}`]]
+  // What goes on the right, from the right: CACHE, then TURN, then TODAY, as long as the tip keeps 160px.
+  const rights: string[] = []
+  let rx = barX - 8
+  const cacheW = sw(cacheText, 11.5) + 6
+  const place = (label: string, value: string | null, valueW: number): boolean => {
+    const need = valueW + 7 + sw(label, 9.5, 0.8, true) + 22
+    if (rx - need < tipX + 160) return false
+    if (value !== null) rights.push(`<text x="${r2(rx)}" y="${yb}" text-anchor="end" font-family="${FONT}" font-size="11.5" font-weight="700" fill="${c.text}" font-variant-numeric="tabular-nums">${xml(value)}</text>`)
+    rx -= valueW + 7
+    rights.push(Lb(rx, yb, label, 'end'))
+    rx -= sw(label, 9.5, 0.8, true) + 22
+    return true
+  }
+  const cacheOk = rx - (cacheW + 7 + sw('CACHE', 9.5, 0.8, true)) > tipX + 160
+  if (cacheOk) {
+    if (until) rights.push(liveText(rx, yb, d.at, 11.5, `text-anchor="end" font-family="${FONT}" font-size="11.5" font-weight="700" font-variant-numeric="tabular-nums"`, t => cacheTextOf(false, leftAt(t)), cacheTone))
+    else rights.push(`<text x="${r2(rx)}" y="${yb}" text-anchor="end" font-family="${FONT}" font-size="11.5" font-weight="700" fill="${cacheTone}" font-variant-numeric="tabular-nums">${xml(cacheText)}</text>`)
+    rx -= cacheW + 7
+    rights.push(Lb(rx, yb, 'CACHE', 'end'))
+    rx -= sw('CACHE', 9.5, 0.8, true) + 22
+    rights.push(`<rect class="k" x="${barX}" y="${yb - 7}" width="${barW}" height="4"/><rect x="${barX}" y="${yb - 7}" width="${live ? live.start : r2(barW * cacheShare)}" height="4" fill="${cacheTone}"${left !== null && left <= 600 && !ss.isBusy ? ' class="live"' : ''}>${live ? live.animate : ''}</rect>`)
+    for (const [k, v] of [parts[1], parts[0]] as [string, string][]) if (!place(k, v, sw(v, 11.5) + 2)) break
+  }
+  s.push(...rights)
+  const tipLive = d.tip.level === 2
+  s.push(`<circle${tipLive ? ' class="live"' : ''} cx="${x0 + 4}" cy="${yb - 4}" r="3.5" fill="${MOOD_COLOR[d.tip.level]}"/>`)
+  s.push(Bd(tipX, yb, fitW(d.tip.text, 11.5, Math.max(0, rx - tipX - 12)), tipLive ? c.text : c.subtext))
+  if (!sl && (d.ctxPct >= 95 || overBudget)) s.push(flatSmiley(W - 21, H - 19, 9, RJ, 0.3, 'rjs'))
+  // A roaming character (a walk, a peek at the episode, a sit on the gauge, now and then a takeover) goes last, over the celebration.
+  const roam = th.roamer
+    ? roamOverlay(th, { W, H, surface: 'band', at: d.at, ctxPct: d.ctxPct, party: d.isParty, spots: { ...(showEp && sl?.ep ? { peek: { x: epLeft, y: 22 } } : {}), ...(th.roamer.bandSpots?.(W, H) ?? {}), ...((sl?.tear || th.roamer.sitBar) && segs > 0 ? { sit: { x: tx + ((segs * 6 - 2) * (pct ?? 0)) / 100, y: sl?.tear ? 64 : gy } } : {}) } })
+    : ''
+  const body = `${s.join('\n')}${d.isParty ? th.cheer(W, H, FONT, c, d.partyAt) : ''}${d.isParty && th.roamer?.hushParty ? '' : roam}`
+  return svg(W, H, body)
 }
 
 const hudBandSvg = (OW: number, d: HudData): string => {
   const c = SKIN.colors
   const any = eggOf()
   const egg = cyberOf()
+  const th = themeOf()
   if (d.simple && !any) return hudSimpleSvg(OW, d)
+  if (th?.slimBand) return slimBandSvg(OW, d)
   // The frame takes the whole box; the content sits inside it, padded.
   const OH = HUD_OUT_H
   const W = OW - HUD_PAD * 2
@@ -5113,8 +5667,8 @@ const hudBandSvg = (OW: number, d: HudData): string => {
 <text class="m" x="${rx + 74}" y="20" font-family="${FONT}" font-size="9.5" letter-spacing=".4">5H LIMIT</text>
 ${d.limitPct === null ? `<text class="m" x="${rx + 74}" y="33" font-family="${FONT}" font-size="11">—</text>` : `${segmentBar(rx + 74, 27, 54, d.limitPct, limitTone).replace(/height="8"/g, 'height="5"').replace(/height="3"/g, 'height="0"')}<text x="${rx + 134}" y="33" font-family="${FONT}" font-size="12" font-weight="800" fill="${limitTone}" font-variant-numeric="tabular-nums">${Math.round(d.limitPct)}%</text>`}
 <line x1="${rx + 168}" y1="14" x2="${rx + 168}" y2="34" stroke="${c.line}" stroke-opacity=".6"/>
-<text class="m" x="${rx + 178}" y="20" font-family="${FONT}" font-size="9.5" letter-spacing=".4">${egg ? 'HEAT' : 'BURN/MIN'}</text>
-${egg ? heatStars(rx + 178, 43, burnStars(d.burnPerMin), egg) : ''}
+<text class="m" x="${rx + 178}" y="20" font-family="${FONT}" font-size="${th?.heat ? 8.5 : 9.5}" letter-spacing=".4">${egg ? 'HEAT' : th?.heat ? th.heatLabel ?? 'HEAT' : 'BURN/MIN'}</text>
+${egg ? heatStars(rx + 178, 43, burnStars(d.burnPerMin), egg) : th?.heat ? th.heat(rx + 178, 43, Math.max(burnStars(d.burnPerMin), th.heatFromTime?.(d.taskMs) ?? 0), c) : ''}
 <path d="M${rx + 183} 24l-4 6h3l-1.5 5l5-7h-3l1.5-4z" fill="${MOOD_COLOR[burnMood(d.burnPerMin)]}"/>
 <text x="${rx + 188}" y="33" font-family="${FONT}" font-size="12" font-weight="800" fill="${MOOD_COLOR[burnMood(d.burnPerMin)]}" font-variant-numeric="tabular-nums">${fmtTokens(d.burnPerMin)}</text>`
   // The gauge: the real share when there is one, else a scanner sweeping while it works.
@@ -5135,7 +5689,7 @@ ${egg ? heatStars(rx + 178, 43, burnStars(d.burnPerMin), egg) : ''}
 .shine{animation:shine 2.2s ease-in-out infinite}@keyframes shine{from{transform:translateX(-30px);opacity:0}30%{opacity:1}to{transform:translateX(${Math.max(40, Math.round((barW * (pct ?? 0)) / 100))}px);opacity:0}}
 .cur{animation:cur 1.1s steps(1) infinite}@keyframes cur{50%{opacity:0}}
 @media (prefers-reduced-motion: reduce){.ekg,.hscan,.hedge,.beam,.brk,.shine,.cur{animation:none}}
-${egg ? EGG_CSS : isCaseEgg(any) ? MENT_CSS : ''}
+${egg ? EGG_CSS : th ? th.css : ''}
 </style>`
   // A beam of light that crosses the card, clipped to its shape.
   const beam = `<defs><clipPath id="hudclip">${cardShape(0.5, 0.5, OW - 1, OH - 1, '', 10)}</clipPath>
@@ -5161,7 +5715,7 @@ ${egg ? EGG_CSS : isCaseEgg(any) ? MENT_CSS : ''}
     `${css}
 ${cardShape(0.5, 0.5, OW - 1, OH - 1, `class="tile"`, 10)}
 ${cardShape(0.5, 0.5, OW - 1, OH - 1, `fill="none" stroke="${edge}" stroke-opacity="${d.isWorking ? 0.45 : 0.6}" stroke-width="1.2"${d.isWorking ? ' class="hedge"' : ''}`, 10)}
-${egg && !d.lite ? `<g clip-path="url(#hudclip)">${skyline(OW, OH - 16, 14, egg).replace('<g opacity=".5">', '<g opacity=".25">')}</g>` : ''}
+${egg && !d.lite ? `<g clip-path="url(#hudclip)">${skyline(OW, OH - 16, 14, egg).replace('<g opacity=".5">', '<g opacity=".25">')}</g>` : th?.skyline && !d.lite ? `<g clip-path="url(#hudclip)">${th.skyline(OW, OH - 16, 14, c)}</g>` : ''}
 ${beam}
 ${brackets}
 <rect x="0.5" y="12" width="3" height="${OH - 24}" rx="1.5" fill="${edge}"/>
@@ -5171,11 +5725,13 @@ ${hudHead(W, d)}
 <line x1="12" y1="${HUD_TOP + 0.5}" x2="${W - 12}" y2="${HUD_TOP + 0.5}" stroke="${c.line}"/>
 ${(() => {
   const figure = `${crab(10, 9, 'boss', false, d.isWorking, 1.05)}${crown(10, 9, 1.05)}`
+  // (a themed skin's afterimages trail the figure in the pane; the band keeps to the cyberpunk ones)
   if (!egg || !d.isWorking || d.lite) return dancing(figure, d.isParty)
   const sv = sandevistan(figure, egg)
   return `<defs>${sv.defs}</defs>${sv.svg}${dancing(figure, d.isParty)}`
 })()}
-${egg ? relicText(left, 20, fitText(d.title, 13, titleW), `font-family="${FONT}" font-size="13" font-weight="800" fill="${c.accent}"`, egg) : `<text x="${left}" y="20" font-family="${FONT}" font-size="13" font-weight="800" class="ac gl">${xml(fitText(d.title, 13, titleW))}</text>`}
+${egg ? relicText(left, 20, fitText(d.title, 13, titleW), `font-family="${FONT}" font-size="13" font-weight="800" fill="${c.accent}"`, egg) : th?.glitch ? th.glitch(left, 20, fitText(d.title, 13, titleW), `font-family="${FONT}" font-size="13" font-weight="800" fill="${c.accent}"`, titleW) : `<text x="${left}" y="20" font-family="${FONT}" font-size="13" font-weight="800" class="ac gl">${xml(fitText(d.title, 13, titleW))}</text>`}
+${th?.mark ? th.mark(left - 15, 7) : ''}
 <rect x="${left + titleW + 8}" y="9" width="${pillW}" height="15" rx="7.5" fill="${statusTone}" fill-opacity="${d.isWorking || d.isParty ? 0.95 : 0.25}"/>
 <text x="${left + titleW + 8 + pillW / 2}" y="20" text-anchor="middle" font-family="${FONT}" font-size="10.5" font-weight="800" fill="${d.isWorking || d.isParty ? inkOn(statusTone) : c.text}">${xml(d.status)}</text>
 <text class="s" x="${left + titleW + pillW + 18}" y="20" font-family="${FONT}" font-size="11.5">${xml(fitText(d.activity ? `▸ ${d.activity}` : '', 11.5, Math.max(0, W - right - (left + titleW + pillW + 18) - 8)))}</text>
@@ -5192,8 +5748,8 @@ ${hudLines(W, d)}
 ${hudSpare(W)}
 </g>
 ${egg && d.isParty ? celebration(OW, OH, egg, FONT, d.partyAt) : ''}
-${isCaseEgg(any) && d.isParty ? caseClosed(OW, OH, FONT, c, d.partyAt) : ''}
-${any === 'mentalist' && (d.ctxPct >= 95 || (d.budget && d.budget.usedMs > d.budget.min * 60_000)) ? hiddenSmiley(OW, OH) : ''}`,
+${th && d.isParty ? th.cheer(OW, OH, FONT, c, d.partyAt) : ''}
+${th?.corner ? th.corner(OW, OH, { ctxPct: d.ctxPct, overBudget: Boolean(d.budget && d.budget.usedMs > d.budget.min * 60_000) }) : ''}`,
   )
 }
 
@@ -5207,7 +5763,10 @@ const hudHead = (W: number, d: HudData): string => {
   const nameW = textWidth(name, 10.5) * 1.08 + name.length * 0.9 + textWidth('▮', 10.5) + 4
   const skin = SKIN.name.toUpperCase()
   const skinW = Math.round(textWidth(skin, 9.5) + 14)
-  const sx = 24 + nameW + 8
+  // Small tiles beside the name (Breaking Bad's Br and Ba), when the band has room for them.
+  const tiles = themeOf()?.tiles?.(24 + nameW + 8, y, c, FONT)
+  const hasTiles = Boolean(tiles) && W >= 24 + nameW + 8 + (tiles?.w ?? 0) + skinW + 220
+  const sx = 24 + nameW + 8 + (hasTiles && tiles ? tiles.w + 8 : 0)
   const crewLabel = d.crewMode ? '⚑ CREW MODE' : ''
   const crewW = crewLabel ? Math.round(textWidth(crewLabel, 9.5) + 16) : 0
   // The skin's chip only when it fits the band.
@@ -5218,13 +5777,13 @@ const hudHead = (W: number, d: HudData): string => {
   const bgW = bgLabel ? Math.round(textWidth(bgLabel, 9.5) + 14) : 0
   const bx = cx + (crewW ? crewW + 8 : 0)
   const mx = bgW ? bx + bgW + 12 : cx + (crewW ? crewW + 12 : 4)
-  const any = eggOf()
   const egg = cyberOf()
-  const psy = egg ? psychoChip(mx, y, d.ctxPct, FONT) : isCaseEgg(any) ? teaChip(mx, y, d.ctxPct, c, FONT) : { svg: '', w: 0 }
+  const th = themeOf()
+  const psy = egg ? psychoChip(mx, y, d.ctxPct, FONT) : th ? th.chip(mx, y, d.ctxPct, c, FONT) : { svg: '', w: 0 }
   const mx2 = mx + (psy.w ? psy.w + 10 : 0)
   const model = [PROVIDER, d.model, d.effort].filter(Boolean).join(' · ')
   const clock = d.budget ? `⏱\uFE0E ${budgetLabel(d.budget.usedMs, d.budget.min)}` : d.taskMs > 0 ? `⏱\uFE0E ${fmtTime(d.taskMs)}` : ''
-  const parts = [egg ? `♪ ${radio(d.at)}` : isCaseEgg(any) ? episodeAt(d.at, any === 'redjohn') : '', d.folder ? `▤ ${d.folder}` : '', clock].filter(Boolean)
+  const parts = [egg ? `♪ ${radio(d.at)}` : th ? th.ticker(d.at) : '', d.folder ? `▤ ${d.folder}` : '', clock].filter(Boolean)
   const widthOf = (xs: string[]) => (xs.length ? textWidth(xs.join('   '), 11) + 8 : 0)
   while (parts.length > (clock ? 1 : 0) && W - 14 - widthOf(parts) < mx2 + 60) parts.shift()
   const right = parts.join('   ')
@@ -5232,14 +5791,15 @@ const hudHead = (W: number, d: HudData): string => {
   const done = d.steps.filter(st => st === 'done').length
   // The breach ticker takes the middle when there is room for it.
   const breachX = W - 14 - rightW - BREACH_W - 24
-  const coldX = W - 14 - rightW - COLD_W - 24
+  const coldX = W - 14 - rightW - (th?.readout.w ?? 0) - 24
   const hasBreach = Boolean(egg) && breachX > mx2 + 120
-  const hasCold = isCaseEgg(any) && coldX > mx2 + 120
-  return `${any === 'redjohn' ? smiley(10, y - 11, 11, 1, 'rjs') : `<rect x="14" y="${y - 7}" width="5" height="5" fill="${c.accent2}" transform="rotate(45 16.5 ${y - 4.5})"/>`}
+  const hasCold = Boolean(th) && coldX > mx2 + 120
+  return `${th?.logo ? th.logo(10, y - 11) : `<rect x="14" y="${y - 7}" width="5" height="5" fill="${c.accent2}" transform="rotate(45 16.5 ${y - 4.5})"/>`}
 <text x="24" y="${y}" font-family="${FONT}" font-size="10.5" font-weight="800" letter-spacing=".9" fill="${c.accent2}">${name}<tspan class="cur">▮</tspan></text>
-${egg ? `<text x="24" y="${y + 7}" font-family="${FONT.replace(/,?sans-serif$/, '')},${CJK_FONT}" font-size="7" letter-spacing="1.2" fill="${c.accent2}" fill-opacity=".5">${KATAKANA[egg]}</text>` : ''}
+${egg ? `<text x="24" y="${y + 7}" font-family="${FONT.replace(/,?sans-serif$/, '')},${CJK_FONT}" font-size="7" letter-spacing="1.2" fill="${c.accent2}" fill-opacity=".5">${KATAKANA[egg]}</text>` : th?.glyphs ? th.glyphs(24, y + 7, nameW, c, FONT) : ''}
+${hasTiles && tiles ? tiles.svg : ''}
 ${hasBreach && egg ? breachTicker(breachX, y, d.isWorking, done, d.steps.length, egg, FONT) : ''}
-${hasCold ? coldTicker(coldX, y, d.isWorking, done, d.steps.length, c, FONT) : ''}
+${hasCold && th ? th.readout.draw(coldX, y, d.isWorking, done, d.steps.length, c, FONT) : ''}
 ${psy.svg}
 ${hasSkinChip ? `<rect x="${sx}" y="${y - 10}" width="${skinW}" height="13" rx="2" fill="none" stroke="${c.accent2}" stroke-opacity=".55"/>
 <text x="${sx + skinW / 2}" y="${y - 0.5}" text-anchor="middle" font-family="${FONT}" font-size="9.5" font-weight="700" letter-spacing=".4" fill="${c.accent2}">${xml(skin)}</text>` : ''}
@@ -5512,8 +6072,9 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
   const kept = cleanLegends(await $.store.get('legends').catch(() => []))
   await $.store.set('legends', [legend, ...kept].slice(0, LEGENDS_KEPT)).catch(() => undefined)
   const egg = eggOf()
+  const th = themeOf()
   // A long job makes a legend: the Afterlife names a drink after it.
-  if (isCaseEgg(egg) && legend.ms >= 180_000) $.ui.toast(CLOSED_FILES_TOAST)
+  if (th && legend.ms >= 180_000) $.ui.toast(typeof th.legends.toast === 'function' ? th.legends.toast(legend.task) : th.legends.toast)
   else if (egg && legend.ms >= 180_000) $.ui.toast(egg === 'corpo' ? `▣ Engram filed in Mikoshi: ${clip(legend.task, 40)}` : `🍸 The Afterlife named a drink after you: The ${clip(legend.task, 40)}`)
   $.ui.toast(`🎉 Done: ${clip(job.task, 60)}`)
   void $.ui.notify(`Claude finished: ${clip(job.task, 80)}`).catch(() => undefined)
@@ -5524,7 +6085,7 @@ async function finishIfIdle($: EngineInterface): Promise<void> {
   }
   // One chime, not two cut short: the level-up's when the job earned one, else the skin's.
   const isCheer = await paid.catch(() => false)
-  void play($, !egg || isCaseEgg(egg) ? 'assets/done.wav' : isCheer ? `${ADDON}/assets/levelup.wav` : `${ADDON}/assets/done-${egg}.wav`)
+  void play($, !egg || th ? 'assets/done.wav' : isCheer ? `${ADDON}/assets/levelup.wav` : `${ADDON}/assets/done-${egg}.wav`)
 }
 
 // What everyone is doing right now, from each tool call: the live activity line,
@@ -5825,6 +6386,7 @@ async function registerEntryPoints($: EngineInterface): Promise<void> {
               title: { type: 'string', description: 'A few words; reused verbatim as the Agent description.' },
               tier: { type: 'string', enum: [...TIERS], description: 'Worker size: fable, heavy, careful, medium or light.' },
               after: { type: 'array', items: { type: 'integer' }, description: 'Numbers of the tasks this one waits for.' },
+              ultra: { type: 'boolean', description: ULTRA_TASK_HINT },
               minutes: { type: 'integer', minimum: 1, description: "Time budget for this task, in minutes; its sub-agent is flagged once it runs past it. Without the plan's own `minutes`, the tasks' sum is the job's budget." },
             },
             required: ['title', 'tier'],
@@ -5873,7 +6435,7 @@ async function registerEntryPoints($: EngineInterface): Promise<void> {
   }).catch(() => undefined)
   await $.command.register({
     name: 'tokens',
-    description: 'Token Manager: /tokens for a report, budget <dollars|off>, daily <dollars|off>, autopilot <on|off>, staffing <on|off>, ultra <add|remove|list|off> <role>, warm <on|off>, receipt, pr, whatif, rescue, spend today|week|month|<from> <to>, export [period], model <id> <model>',
+    description: 'Token Manager: /tokens for a report, budget <dollars|off>, daily <dollars|off>, autopilot <on|off>, staffing <on|off>, ultra <manager|me|add|remove|list|off> <role>, warm <on|off>, receipt, pr, whatif, rescue, spend today|week|month|<from> <to>, export [period], model <id> <model>',
   }).catch(() => undefined)
   await $.command.register(TIMEKEEPER_COMMAND).catch(() => undefined)
 }
@@ -5991,6 +6553,7 @@ export const register: Register = (on, options) => {
     staffSaved = { session: staffSaved.session, total: Number(await $.store.get(STAFF_SAVED_KEY).catch(() => 0)) || 0 }
     ultraRules = cleanUltraRules(await $.store.get(ULTRA_KEY).catch(() => undefined))
     oneShotMode = cleanOneShot(await $.store.get(ONESHOT_KEY).catch(() => undefined))
+    ultraBy = cleanUltraBy(await $.store.get(ULTRA_BY_KEY).catch(() => undefined))
     const budget = Number(await $.store.get('budgetUsd').catch(() => 0)) || 0
     const keepWarmOn = (await $.store.get('keepWarm').catch(() => false)) === true
     await update($, watch, prev => ({ ...prev, autopilot, budgetUsd: budget, warm: { ...(prev.warm ?? BLANK_WARM), on: keepWarmOn } }))
@@ -6144,7 +6707,7 @@ export const register: Register = (on, options) => {
   // Anything that is not heavy goes straight through. Registered after the activity tracker, so a
   // command waiting for the lock still shows as running (not as a quiet agent).
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    const input = e as unknown as { command?: string; tool_use_id?: string }
+    const input = e as unknown as { command?: string; tool_use_id?: string; run_in_background?: boolean }
     const label = heavyCommand(input.command)
     if (!label) return next(e)
     const owner = `${input.tool_use_id ?? 'call'}:${e.agentId ?? 'main'}:${await $.clock.now()}`
@@ -6152,6 +6715,7 @@ export const register: Register = (on, options) => {
     try {
       const deny = await takeHeavy($, owner, label, next.signal)
       if (deny) return { deny }
+      if (input.run_in_background === true) mgNoLearnUntil = (await $.clock.now()) + LOCK_STALE_MS
       const done = await next(e)
       // The kill switch stopped a process while this ran: the model reads why, so it does not just run it again.
       return mgKillSeq !== stoppedBefore && 'result' in done ? { ...done, context: [...(done.context ?? []), killContext(label)] } : done
@@ -6212,15 +6776,27 @@ export const register: Register = (on, options) => {
     // Ultra: a role with a rule gets a deep-check brief and max effort from its first request.
     const ultraRule = matchUltra(ultraRules, e.subagentType, e.description)
     const routed0 = staff?.model ? { ...piloted, model: staff.model } : piloted
-    const routed = ultraRule ? { ...routed0, prompt: withUltraBrief(routed0.prompt) } : routed0
+    // Manager mode: the plan's task with this description may carry the Manager's `ultra: true`.
+    // Matched as the panel matches runs to tasks. The person's ⚡ button still beats it later.
+    const plan = ultraBy === 'manager' && !ultraRule ? await read($, flow) : null
+    const livePlan = plan && !plan.isFinished ? plan : null
+    const byManager = managerPicks(ultraBy, planTaskFor(livePlan, e.description))
+    const isUltraSpawn = Boolean(ultraRule) || byManager
+    const routed = isUltraSpawn ? { ...routed0, prompt: withUltraBrief(routed0.prompt) } : routed0
     const started = await next(routed).finally(() => releaseSpawn(gate.at))
     // A workflow's agent is not in $.agent.list(): Machine Guard counts it from here.
     if (e.workflow && started.agentId && started.deny === undefined) mgWorkflow.set(started.agentId, gate.at ?? 0)
     if (started.deny !== undefined) return started
     rememberTask(started.agentId, { prompt: e.prompt, description: e.description, subagentType: e.subagentType })
-    if (ultraRule && started.agentId) {
+    if (isUltraSpawn && started.agentId) {
       ultraFlag.set(started.agentId, true)
-      $.ui.toast(`⚡ Ultra: "${clip(e.description, 30)}" runs at max effort with a deep check`)
+      if (byManager && livePlan) {
+        // Once per job: how many of the plan's tasks the Manager put on Ultra.
+        if (ultraToastFor !== livePlan.title) {
+          ultraToastFor = livePlan.title
+          $.ui.toast(ultraPlanToast(livePlan.tasks))
+        }
+      } else $.ui.toast(`⚡ Ultra: "${clip(e.description, 30)}" runs at max effort with a deep check`)
     }
     if (staff && started.agentId) {
       staffEffort.set(started.agentId, staff.effort)
@@ -6264,7 +6840,8 @@ export const register: Register = (on, options) => {
         steps: 0,
         round,
         parentAgentId: e.parentAgentId,
-        ...(ultraRule ? { isUltra: true } : {}),
+        ...(isUltraSpawn ? { isUltra: true } : {}),
+        ...(byManager ? { isUltraByManager: true } : {}),
         // Its end queues a report the main loop answers in a turn of its own (one an
         // agent started reports to that agent, a workflow's to its script).
         ...(e.background && !e.workflow && !e.parentAgentId ? { isBackground: true } : {}),
@@ -6292,8 +6869,13 @@ export const register: Register = (on, options) => {
       return next(e)
     }
     if (!e.agentId) {
-      // A prompt: the refreshes count again from zero.
-      await update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), idle: 0, busy: 0, halted: '' } }))
+      // A prompt: the refreshes count again from zero. One that finds the cache the
+      // refreshes kept warm is what they saved.
+      const promptAt = await $.clock.now()
+      const cacheUntil = (await read($, session)).cacheUntil
+      const gain = warmPendingUsd > 0 && cacheUntil !== null && promptAt < cacheUntil ? warmPendingUsd : 0
+      warmPendingUsd = 0
+      await update($, watch, prev => ({ ...prev, warm: { ...(prev.warm ?? BLANK_WARM), idle: 0, busy: 0, halted: '', savedUsd: (prev.warm ?? BLANK_WARM).savedUsd + gain } }))
       const total = (await $.session.usage().catch(() => null))?.cost?.usd ?? (await read($, env)).costUsd
       await update($, session, prev => ({ ...prev, turn: prev.turn + 1, costAtStart: total, isBusy: true }))
       // A slash command's turn is its job; any other main turn is the manager at work.
@@ -6384,7 +6966,7 @@ export const register: Register = (on, options) => {
       if (ctx < 80) psyWarned = false
       else if (egg && ctx >= 85 && !psyWarned) {
         psyWarned = true
-        $.ui.toast(isCaseEgg(egg) ? TEA_WARNING(ctx) : `⚠ Cyberpsychosis risk: context ${ctx}%. Take your immunosuppressants: /compact`)
+        $.ui.toast(themeOf() ? (themeOf() as ThemeEggs).warning(ctx) : `⚠ Cyberpsychosis risk: context ${ctx}%. Take your immunosuppressants: /compact`)
       }
       if (typeof e.effort === 'string') {
         const effort = e.effort
@@ -6556,13 +7138,14 @@ export const register: Register = (on, options) => {
     const t = totals(list, at)
     const info = liveEnv(await read($, env), clockNow)
     const rules = await read($, memory)
-    const opened = new Set(p.expanded ?? [])
+    const opened = new Set((p.expanded ?? []).filter(id => allAgents.some(a => a.id === id)))
     const rows = buildTree(list, p.isDoneCollapsed)
     // On a desktop only the first few running agents get a card; each of the rest
     // gets a slim live row, so a big crew stays listed in full and under the app's
-    // size limit. A card that ends hands its place to the next.
+    // size limit. A card that ends hands its place to the next. A running agent the
+    // person opened keeps its card over and above those.
     const treeWith = (cards: number): TreeRow[] => {
-      const slim = new Set(e.surface === 'desktop' ? rows.flatMap(r => (r.kind === 'agent' && r.a.status === 'running' ? [r.a.id] : [])).slice(cards) : [])
+      const slim = new Set(e.surface === 'desktop' ? rows.flatMap(r => (r.kind === 'agent' && r.a.status === 'running' && !opened.has(r.a.id) ? [r.a.id] : [])).slice(cards) : [])
       return rows.map(r => (r.kind === 'agent' ? { ...r, folded: r.a.status !== 'running' && !opened.has(r.a.id), slim: slim.has(r.a.id) } : r))
     }
     const tree = treeWith(MAX_CARDS)
@@ -6570,11 +7153,11 @@ export const register: Register = (on, options) => {
     const listed = new Set(rows.flatMap(r => (r.kind === 'agent' ? [r.a.id] : [])))
     const hiddenDone = p.isDoneCollapsed ? finished.filter(a => !listed.has(a.id)) : []
     const toggleOpen = (id: string) =>
-      update($, panel, prev => {
+      setPaneView($, prev => {
         const set = new Set(prev.expanded ?? [])
         if (set.has(id)) set.delete(id)
         else set.add(id)
-        return { ...prev, expanded: [...set].slice(-50) }
+        return { expanded: [...set].slice(-50) }
       })
     noteTypicalRun(allAgents)
     const steps = workSteps(f, list, boss, clockNow)
@@ -6692,7 +7275,7 @@ export const register: Register = (on, options) => {
             <Box flexDirection="column">
               <Text dimColor>Too many agents to draw in full: this is the short view.</Text>
               <Box flexDirection="row" gap={2}>
-                {opened.size > 0 && <Button key="fold-all" label="Fold the opened agents" plain onPress={() => update($, panel, prev => ({ ...prev, expanded: [] }))} />}
+                {opened.size > 0 && <Button key="fold-all" label="Fold the opened agents" plain onPress={() => setPaneView($, () => ({ expanded: [] }))} />}
                 {finished.length > 0 && !p.isDoneCollapsed && toggleDone}
               </Box>
             </Box>
@@ -6705,6 +7288,7 @@ export const register: Register = (on, options) => {
       )
       if (p.isCompact) return keep(compactView())
       const egg = eggOf()
+      const th = themeOf()
       // A skin with a backdrop paints the pane body behind the cards.
       const fill = SKIN.backdrop.fill
       // A row's own drawing does not change when the rows around it go: drawn once.
@@ -6720,7 +7304,7 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="boot" marginBottom={1}>
                 <Svg
-                  source={isCaseEgg(egg) ? bootStrip(W, SKIN.colors, FONT, ...(egg === 'redjohn' ? REDJOHN_BOOT : MENTALIST_BOOT) as [string, string]) : bootStrip(W, SKIN.colors, FONT, 'JACKING IN…', egg === 'corpo' ? 'ARASAKA NETWORK › IDENTITY VERIFIED › ACCESS GRANTED' : egg === 'samurai' ? 'WAKE UP, SAMURAI › AMPS ON › LIVE AT THE ATLANTIS' : egg === 'netrun' ? 'JACKED IN › DIVING THE NET › ICE BYPASSED' : 'LINK ESTABLISHED › NEURAL HANDSHAKE OK › ICE BYPASSED')}
+                  source={th ? (th.bootDraw ? th.bootDraw(W) : bootStrip(W, SKIN.colors, FONT, ...th.boot)) : bootStrip(W, SKIN.colors, FONT, 'JACKING IN…', egg === 'corpo' ? 'ARASAKA NETWORK › IDENTITY VERIFIED › ACCESS GRANTED' : egg === 'samurai' ? 'WAKE UP, SAMURAI › AMPS ON › LIVE AT THE ATLANTIS' : egg === 'netrun' ? 'JACKED IN › DIVING THE NET › ICE BYPASSED' : 'LINK ESTABLISHED › NEURAL HANDSHAKE OK › ICE BYPASSED')}
                   alt="Mission Control online"
                 />
               </Box>
@@ -6740,8 +7324,8 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="cred" marginBottom={1}>
                 <Svg
-                  source={isCaseEgg(egg) ? credCard(W, streetCred, SKIN.colors, FONT, cardShape, 'CBI CRED', '', cbiRankOf, CBI_WORDS) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
-                  alt={`Level ${levelOf(streetCred.xp)} ${(isCaseEgg(egg) ? cbiRankOf : egg === 'samurai' ? rockerRankOf : rankOf)(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
+                  source={th ? ((src: string) => (th.roamer ? overlayInto(src, th, { at: clockNow, ctxPct: info.contextPct, party: (boss.celebrateUntil ?? 0) > clockNow }) : src))(th.cred.card ? th.cred.card(W, streetCred, SKIN.colors, FONT, cardShape) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, th.cred.title, '', th.cred.ranks, th.cred.words)) : credCard(W, streetCred, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'ROCKERBOY CRED' : 'STREET CRED', 'ストリートクレッド', egg === 'samurai' ? rockerRankOf : rankOf)}
+                  alt={`Level ${levelOf(streetCred.xp)} ${(th ? th.cred.ranks : egg === 'samurai' ? rockerRankOf : rankOf)(levelOf(streetCred.xp))}, ${streetCred.xp} XP, ${streetCred.badges.length} badges`}
                 />
               </Box>
             ) : null}
@@ -6763,31 +7347,31 @@ export const register: Register = (on, options) => {
             {egg ? (
               <Box key="breach" marginBottom={1}>
                 <Svg
-                  source={isCaseEgg(egg) ? coldReadCard(W, boss.task, boss.isWorking, steps.filter(st => st.state === 'done').length, steps.length, SKIN.colors, FONT, cardShape, egg === 'redjohn') : breachCard(W, steps.filter(st => st.state === 'done').length, steps.length, boss.isWorking, egg, FONT, cardShape)}
-                  alt={isCaseEgg(egg) ? `Cold read: ${boss.isWorking ? 'reading' : 'waiting'}, ${steps.filter(st => st.state === 'done').length} of ${steps.length} steps` : `Breach Protocol: ${steps.filter(st => st.state === 'done').length} of ${steps.length} steps`}
+                  source={th ? th.card.draw(W, boss.task, boss.isWorking, steps.filter(st => st.state === 'done').length, steps.length, SKIN.colors, FONT, cardShape, legends) : breachCard(W, steps.filter(st => st.state === 'done').length, steps.length, boss.isWorking, egg, FONT, cardShape)}
+                  alt={th ? th.card.alt(boss.isWorking, steps.filter(st => st.state === 'done').length, steps.length) : `Breach Protocol: ${steps.filter(st => st.state === 'done').length} of ${steps.length} steps`}
                 />
               </Box>
             ) : null}
-            {egg ? (
+            {egg && !th?.legends.hidden ? (
               <Box key="legends" marginBottom={1}>
                 <Svg
                   source={legendsCard(W, legends, egg, FONT, fmtCost, cardShape)}
-                  alt={`${isCaseEgg(egg) ? 'Closed files' : egg === 'corpo' ? 'Mikoshi engrams' : 'Afterlife drinks'}: ${legends.map(l => l.task).join(', ') || 'none yet'}`}
+                  alt={`${th ? th.legends.alt : egg === 'corpo' ? 'Mikoshi engrams' : 'Afterlife drinks'}: ${legends.map(l => l.task).join(', ') || 'none yet'}`}
                 />
               </Box>
             ) : null}
             {egg ? (
               <Box key="bd" flexDirection="column" marginBottom={1}>
                 <Svg
-                  source={isCaseEgg(egg) ? braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, 'CASE BOARD', undefined, ['CLUES', 'ALIBIS', 'TELLS'], 'REPLAY') : braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
-                  alt={braindanceAlt(beats, pick)}
+                  source={th ? hackInto(th.log.draw(W, beats, pick, SKIN.colors, FONT, cardShape), th, { at: clockNow, ctxPct: info.contextPct, card: 'log', party: (boss.celebrateUntil ?? 0) > clockNow }) : braindanceCard(W, beats, pick, SKIN.colors, FONT, cardShape, egg === 'samurai' ? 'SETLIST' : 'BRAINDANCE')}
+                  alt={th?.log.alt ? th.log.alt(beats, pick) : th && !th.log.hasControls ? `Lab log: ${beats.length} tool calls` : braindanceAlt(beats, pick)}
                 />
-                <Box flexDirection="row" gap={2}>
+                {th && !th.log.hasControls ? null : <Box flexDirection="row" gap={2}>
                   <Button key="bd-first" label={'⏮\uFE0E First'} plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, () => (n ? 0 : -1)) }} />
                   <Button key="bd-prev" label={'◀\uFE0E Back'} plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, i => stepPick(i, n, -1)) }} />
                   <Button key="bd-next" label={'Next ▶\uFE0E'} plain onPress={async () => { const n = (await read($, timeline)).length; await update($, bdPick, i => stepPick(i, n, 1)) }} />
                   <Button key="bd-live" label="● Live" plain onPress={() => update($, bdPick, () => -1)} />
-                </Box>
+                </Box>}
               </Box>
             ) : null}
             <Svg
@@ -6823,11 +7407,20 @@ export const register: Register = (on, options) => {
               r.kind === 'role' ? (
                 <Svg key={r.key} source={treeRowSvg(W, r, drawn(r.key, () => roleSvg(rowInnerW(W, r), r)))} alt={`${r.role}: ${r.count} agents, ${r.running} working`} />
               ) : r.slim ? (
+                // A running agent's slim live row, opened to its card as a finished row is:
+                // the drawing shrinks into what the button leaves, the button never.
                 <Box key={r.key} flexDirection="column">
-                  <Svg
-                    source={treeRowSvg(W, r, drawn(`${lite ? 'lite' : 'slim'}:${r.key}`, () => liveRowSvg(rowInnerW(W, r), r.a, at, lite)), lite)}
-                    alt={`${r.a.description}: ${modelName(r.a.model)}, ${s.isRunning}${isQuiet(r.a) ? ', quiet' : ''}${isOver(r.a) ? `, ${tkStr().overWord}` : ''}`}
-                  />
+                  <Box flexDirection="row" alignItems="center">
+                    <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                      <Svg
+                        source={treeRowSvg(W - OPEN_W, r, drawn(`${lite ? 'lite' : 'slim'}:${r.key}`, () => liveRowSvg(rowInnerW(W - OPEN_W, r), r.a, at, lite)), lite)}
+                        alt={`${r.a.description}: ${modelName(r.a.model)}, ${s.isRunning}${isQuiet(r.a) ? ', quiet' : ''}${isOver(r.a) ? `, ${tkStr().overWord}` : ''}`}
+                      />
+                    </Box>
+                    <Box flexShrink={0}>
+                      <Button key={`open-${r.key}`} label="Open ▸" plain onPress={() => toggleOpen(r.a.id)} />
+                    </Box>
+                  </Box>
                   {rescueRow($, r.a, ui)}
                 </Box>
               ) : r.folded ? (
@@ -6850,9 +7443,10 @@ export const register: Register = (on, options) => {
                     source={treeRowSvg(W, r, drawn(r.key, () => agentSvg(rowInnerW(W, r), r.a, at, !isBoxed(r))))}
                     alt={`${r.a.description}: ${modelName(r.a.model)}, ${r.a.status === 'running' ? s.isRunning : r.a.status === 'failed' ? s.failed : r.a.status === 'stopped' ? s.stopped : s.isFinished}${isOver(r.a) ? `, ${tkStr().overWord}` : ''}`}
                   />
-                  {r.a.status !== 'running' && <Button key={`close-${r.key}`} label="▴ Collapse" plain onPress={() => toggleOpen(r.a.id)} />}
+                  {(r.a.status !== 'running' || opened.has(r.a.id)) && <Button key={`close-${r.key}`} label="▴ Collapse" plain onPress={() => toggleOpen(r.a.id)} />}
                   {rescueRow($, r.a, ui)}
-                  {r.a.status === 'running' && <Button key={`ultra-${r.key}`} label={r.a.isUltra ? '⚡ Ultra on · tap to turn off' : '⚡ Ultra'} plain onPress={() => toggleUltra($, r.a.id)} />}
+                  {r.a.isUltra && r.a.isUltraByManager && <Text key={`ultra-by-${r.key}`} dimColor>{"⚡ Manager's call"}</Text>}
+                  {r.a.status === 'running' && <Button key={`ultra-${r.key}`} label={r.a.isUltra ? '⚡ Turn Ultra off' : '⚡ Turn Ultra on'} plain onPress={() => toggleUltra($, r.a.id)} />}
                 </Box>
               ),
             )}
@@ -6872,20 +7466,30 @@ export const register: Register = (on, options) => {
       // then fewer cards; then the finished rows folded into one (all but the first
       // few, the opened ones and any with a card under them); at last the short view.
       const rich = orgSource(W, org)
+      // Measured as sent, each source compacted once per drawing however many fallbacks hold it.
+      const sent = new Map<string, number>()
+      const lengthOf = (src: string): number => sent.get(src) ?? sent.set(src, sentLength(src)).get(src) ?? src.length
+      const sizeOf = (v: unknown): number => drawnChars(v, lengthOf)
+      // Level `level` of the fallbacks fits: with room to spare when richer than the last drawn.
+      const fits = (level: number, size: number): boolean => size <= DRAW_MAX - (level < paneLevel ? DRAW_SLACK : 0)
+      const take = <T,>(level: number, v: T): T => {
+        paneLevel = level
+        return keep(v)
+      }
       // A crew with more slim rows than crabs can fit skips drawing them all to measure.
       const isCrowd = tree.filter(isSlim).length > MAX_CRAB_ROWS
       const view = isCrowd ? null : full(rich, tree, [])
-      if (view && drawnChars(view) <= DRAW_MAX) return keep(view)
+      if (view && fits(0, sizeOf(view))) return take(0, view)
       const lite = full(rich, tree, [], true)
-      const liteSize = drawnChars(lite)
-      if (liteSize <= DRAW_MAX) return keep(lite)
+      const liteSize = sizeOf(lite)
+      if (fits(1, liteSize)) return take(1, lite)
       const fewer = [2, 0].map(cards => full(rich, treeWith(cards), [], true))
-      const fewerSize = fewer.map(drawnChars)
-      for (const [i, v] of fewer.entries()) if ((fewerSize[i] ?? Infinity) <= DRAW_MAX) return keep(v)
+      const fewerSize = fewer.map(sizeOf)
+      for (const [i, v] of fewer.entries()) if (fits(2 + i, fewerSize[i] ?? Infinity)) return take(2 + i, v)
       const light = orgSvg(W, org, true)
-      if (liteSize - rich.length + light.length <= DRAW_MAX) return keep(full(light, tree, [], true))
+      if (fits(4, liteSize - lengthOf(rich) + lengthOf(light))) return take(4, full(light, tree, [], true))
       for (const [i, cards] of [2, 0].entries())
-        if ((fewerSize[i] ?? Infinity) - rich.length + light.length <= DRAW_MAX) return keep(full(light, treeWith(cards), [], true))
+        if (fits(5 + i, (fewerSize[i] ?? Infinity) - lengthOf(rich) + lengthOf(light))) return take(5 + i, full(light, treeWith(cards), [], true))
       const foldFinished = (rows: TreeRow[]) => {
         const fold = new Set(
           rows.flatMap((r, i) => {
@@ -6902,12 +7506,12 @@ export const register: Register = (on, options) => {
       const lean = foldFinished(treeWith(0))
       if (lean.isFolded) {
         const leanView = full(light, lean.shown, lean.done, true)
-        if (drawnChars(leanView) <= DRAW_MAX) return keep(leanView)
+        if (fits(7, sizeOf(leanView))) return take(7, leanView)
       }
       const short = compactView(rich)
-      if (drawnChars(short) <= DRAW_MAX) return keep(short)
+      if (fits(8, sizeOf(short))) return take(8, short)
       const shorter = compactView(light)
-      return keep(drawnChars(shorter) <= DRAW_MAX ? shorter : compactView(''))
+      return fits(9, sizeOf(shorter)) ? take(9, shorter) : take(10, compactView(''))
     }
 
     // Terminal: the same content in text rows.
@@ -6944,7 +7548,7 @@ export const register: Register = (on, options) => {
               {steps}{s.ctx} {ctx}% · {fmtTokens(a.contextTokens)} ≈{fmtCost(a.costUsd)} {fmtTime(elapsed(a, at))}
             </Text>
           </Text>
-          {a.status === 'running' && <Button key={`ultra-${a.id}`} label={a.isUltra ? '  ⚡ Ultra on · turn off' : '  ⚡ Ultra'} plain onPress={() => toggleUltra($, a.id)} />}
+          {a.status === 'running' && <Button key={`ultra-${a.id}`} label={a.isUltra ? '  ⚡ Turn Ultra off' : '  ⚡ Turn Ultra on'} plain onPress={() => toggleUltra($, a.id)} />}
         </Box>
       )
     }
@@ -7145,6 +7749,32 @@ export const register: Register = (on, options) => {
         await foundSecret($, found).catch(() => undefined)
       }
     }
+    // The same for "say my name" typed while wearing Breaking Bad: Heisenberg.
+    if (asked && SKIN.id === 'breaking-bad' && SAY_MY_NAME_RE.test(asked)) {
+      const found = SKINS.get('heisenberg')
+      if (found) {
+        applySkin(found)
+        await $.store.set('skin', found.id).catch(() => undefined)
+        await update($, skin, () => found.id)
+        await retitle($).catch(() => undefined)
+        await foundSecret($, found).catch(() => undefined)
+      }
+    }
+    // Edgerunners 2's secret skin: the third episode's title anywhere in a prompt, or "hi capri" within a minute of one of her
+    // takeovers (the plan is a pure function of the clock, so no memory of what was drawn is needed). The title again takes it off.
+    if (asked && (SKIN.id === 'edgerunners-2' || SKIN.id === 'capricorn')) {
+      const now = await $.clock.now().catch(() => 0)
+      const th = themeOf()
+      const toSecret = SKIN.id === 'edgerunners-2' && (CAPRICORN_RE.test(asked) || (HI_CAPRI_RE.test(asked) && Boolean(th) && takeoverWithin(th as ThemeEggs, now, HI_CAPRI_MS)))
+      const found = toSecret ? SKINS.get('capricorn') : SKIN.id === 'capricorn' && CAPRICORN_RE.test(asked) ? SKINS.get('edgerunners-2') : undefined
+      if (found) {
+        applySkin(found)
+        await $.store.set('skin', found.id).catch(() => undefined)
+        await update($, skin, () => found.id)
+        await retitle($).catch(() => undefined)
+        if (toSecret) await foundSecret($, found).catch(() => undefined)
+      }
+    }
     if (asked) await startJob($, asked)
     // A turn Claude starts on its own (a report to answer, a schedule, a peer) is work
     // in hand; a report read inside the running turn is answered there.
@@ -7188,8 +7818,11 @@ export const register: Register = (on, options) => {
     if (e.tools.includes('Agent') && e.tools.length >= mostTools * 0.9) {
       const auto = await readAutoCrew($)
       let reason = auto.on ? (await read($, session)).crewMode ?? '' : ''
-      // Every-job mode turned off mid-job: its reason no longer holds.
-      if (reason === EVERY_JOB && !auto.always) reason = ''
+      // Every-job mode turned off mid-job: its reason no longer holds, in the band either.
+      if (reason === EVERY_JOB && !auto.always) {
+        reason = ''
+        await dropEveryJob($)
+      }
       if (auto.on && !reason) {
         // A plan that grew long, or a context that filled, calls the crew mid-task.
         const boss = await read($, manager)
@@ -7212,6 +7845,7 @@ export const register: Register = (on, options) => {
     // One-shot, added last: what to do once a roadmap is approved. Main session only.
     if (e.tools.includes('Agent') && e.tools.length >= mostTools * 0.9) {
       sections.push(oneShotSection(cleanOneShot((await read($, settings)).oneShot ?? oneShotMode)))
+      if (ultraBy === 'manager') sections.push(ultraBySection())
     }
     return sections.length === composed.sections.length ? composed : { ...composed, sections }
   })
@@ -7274,7 +7908,7 @@ export const register: Register = (on, options) => {
 
   // Settings and billing, in a pane of their own. The main pane redraws in bursts while a
   // turn runs, which would close an open dropdown; this one reads only atoms that change
-  // when the person acts: skin, settings, timekeeper, billing and spendPick. (The spend
+  // when the person acts: skin, settings, guardSettings, billing and spendPick. (The spend
   // atom itself is also written at each sub-agent's end, when the day's cost grew, so this
   // pane reads spendPick, the period and typed days only, and takes the month list from the
   // store, which does not subscribe.) It reads no watch, agents, manager, env, today,
@@ -7287,7 +7921,7 @@ export const register: Register = (on, options) => {
     const { Box, Text, Button } = ui
     const clockNow = await $.clock.now().catch(() => 0)
     const prefs = await read($, settings)
-    const gd = await read($, guard)
+    const gd = await read($, guardSettings)
     const tkNow = { on: prefs.tkOn, jobMin: prefs.tkJobMin, agentMin: prefs.tkAgentMin }
     const sp = await read($, spendPick)
     const spendLedger = combineDays(cleanDays(await $.store.get('spendDays').catch(() => undefined)), cleanDays(await $.store.get('spendLog').catch(() => undefined)))
@@ -7305,7 +7939,7 @@ export const register: Register = (on, options) => {
         {bill.note ? <Text dimColor wrap="wrap">{bill.note}</Text> : null}
         {bill.isMac && Field ? (
           <Box key="bill-form" flexDirection="column">
-            <Text dimColor wrap="wrap">The box shows your key while you type: it cannot hide it. Paste, press Enter, and the box clears. To type it hidden, run this in your own terminal: {terminalAlternative()}</Text>
+            <Text dimColor wrap="wrap">The box shows a dot for each character, never the key (a paste can show for a moment before it turns to dots). Paste, press Enter, and the box clears. To type it fully hidden, run this in your own terminal: {terminalAlternative()}</Text>
             <Field
               key={`bill-key-${bill.nonce}`}
               label="Claude API key"
@@ -7541,6 +8175,15 @@ export const register: Register = (on, options) => {
         ),
       ),
       opt(
+        'opt-ultra-by',
+        'Who says which agents get max effort and a deep check: you, or the Manager per task.',
+        Pick ? (
+          <Pick key="set-ultraby-pick" label="⚡ Ultra decided by" value={among(cleanUltraBy(prefs.ultraBy), ULTRA_BY_OPTIONS)} options={ULTRA_BY_OPTIONS} onSelect={v => void setUltraBy($, cleanUltraBy(v))} />
+        ) : (
+          <Button key="set-ultraby" label={`⚡ Ultra decided by: ${cleanUltraBy(prefs.ultraBy) === 'manager' ? 'Manager' : 'Me'} ▸`} plain onPress={async () => setUltraBy($, cleanUltraBy((await read($, settings)).ultraBy) === 'manager' ? 'me' : 'manager')} />
+        ),
+      ),
+      opt(
         'opt-staffing',
         'Each agent gets the model and effort its job needs.',
         <Button key="set-staffing" label={`${box(prefs.staffing)} Smart staffing`} plain onPress={async () => setFlag($, 'staffing', !(await read($, settings)).staffing)} />,
@@ -7687,6 +8330,7 @@ export const register: Register = (on, options) => {
     if (next !== auto) await $.store.set('autoCrew', next).catch(() => undefined)
     await update($, settings, prev => ({ ...prev, crewMode: next.on, crewAlways: next.always === true }))
     if (!next.on) await update($, session, prev => ({ ...prev, crewMode: '' }))
+    else if (!next.always) await dropEveryJob($)
     return {
       text: next.always
         ? 'Crew mode on for every job: small ones go to a sub-agent too. /autocrew on goes back to big jobs only.'
@@ -7739,7 +8383,7 @@ export const register: Register = (on, options) => {
     }
     // Anything but a report, a budget or autopilot on|off gets the usage line.
     if ((verb && verb !== 'autopilot' && verb !== 'budget' && verb !== 'warm' && verb !== 'staffing' && verb !== 'ultra' && verb !== 'daily' && verb !== 'receipt' && verb !== 'rescue' && verb !== 'whatif' && verb !== 'pr') || ((verb === 'autopilot' || verb === 'warm') && arg && arg !== 'on' && arg !== 'off')) {
-      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>, /tokens staffing <on|off>, /tokens ultra <add|remove|list|off> [role], /tokens daily <dollars|off>, /tokens receipt, /tokens pr, /tokens whatif, /tokens rescue, /tokens spend today|week|month [YYYY-MM]|<from YYYY-MM-DD> <to YYYY-MM-DD>, /tokens export [period], /tokens model <id> <model|off>' }
+      return { text: 'Usage: /tokens for a report, /tokens budget <dollars|off>, /tokens autopilot <on|off>, /tokens warm <on|off>, /tokens staffing <on|off>, /tokens ultra <manager|me|add|remove|list|off> [role], /tokens daily <dollars|off>, /tokens receipt, /tokens pr, /tokens whatif, /tokens rescue, /tokens spend today|week|month [YYYY-MM]|<from YYYY-MM-DD> <to YYYY-MM-DD>, /tokens export [period], /tokens model <id> <model|off>' }
     }
     if (verb === 'warm') {
       const isOn = arg !== 'off'
@@ -7758,7 +8402,9 @@ export const register: Register = (on, options) => {
     if (verb === 'rescue') {
       const at = await $.clock.now()
       const quiet = quietOf(await read($, agents))
-      const [act = '', pick = ''] = arg.split(/\s+/)
+      // `/tokens rescue retry 2`: the action is the second word, the pick the third.
+      const act = arg
+      const pick = target
       if (act !== 'retry' && act !== 'nudge') return { text: rescueText(quiet, at, fmtTime) }
       const chosen = pickQuiet(quiet, pick)
       if (!chosen.length) return { text: quiet.length ? `Which one? /tokens rescue ${act} <1-${quiet.length}|all>` : rescueText(quiet, at, fmtTime) }
@@ -7771,14 +8417,18 @@ export const register: Register = (on, options) => {
       const w = await read($, watch)
       const info = await read($, env)
       const out = coachWhatIf(info, await read($, agents), w, st.promptTokens && st.model ? { promptTokens: st.promptTokens, model: st.model } : undefined)
-      return { text: whatIfText(out, fmtCost) }
+      // One tap to turn it on: the best scenario's command waits in the prompt box, Tab to take.
+      const shown = out.best ? await $.prompt.suggest({ text: out.best.cmd }).catch(() => ({ isShown: false })) : { isShown: false }
+      return { text: `${whatIfText(out, fmtCost)}${shown.isShown ? '\n(Tab puts it in the prompt box.)' : ''}` }
     }
     if (verb === 'pr') {
       const crew = crewOf(await read($, agents), await read($, manager))
       const boss = await read($, manager)
       const info = await read($, env)
       const where = await repoAndBranch($)
-      const badge = prBadge({ costUsd: Math.max(0, info.costUsd - (boss.costAtStart ?? info.costUsd)), agents: crew.length, tokens: crew.reduce((n, a) => n + a.tokens, 0), ...where }, fmtCost, fmtTokens)
+      // The tokens are the task's, the main loop's with the crew's, like its cost.
+      const tokens = Math.max(crew.reduce((n, a) => n + a.tokens, 0), sumTokens(info) - (boss.tokensAtStart ?? sumTokens(info)))
+      const badge = prBadge({ costUsd: Math.max(0, info.costUsd - (boss.costAtStart ?? info.costUsd)), agents: crew.length, tokens, ...where }, fmtCost, fmtTokens)
       const copied = await $.ui.copy({ text: badge.text }).catch(() => ({ isCopied: false }))
       return { text: `${badge.text}\n\n${copied.isCopied ? '(Copied: paste it into the PR description.)' : '(Select and copy it from here.)'}` }
     }
@@ -7789,6 +8439,12 @@ export const register: Register = (on, options) => {
       return { text: dollars ? `Daily cap set: ${fmtCost(dollars)} a day (≈${fmtCost(todayCostUsd)} so far today). The Token Manager warns at 80% and 100%.` : 'Daily cap off.' }
     }
     if (verb === 'ultra') {
+      // `/tokens ultra manager|me`: who decides Ultra.
+      const by = parseUltraBy((e.args ?? '').trim().slice('ultra'.length))
+      if (by) {
+        await setUltraBy($, by)
+        return { text: ultraBySaid(by) }
+      }
       const running = (await read($, agents)).filter(a => a.status === 'running' && a.isUltra).length
       const done = ultraCommand(ultraRules, (e.args ?? '').trim().slice('ultra'.length), running)
       ultraRules = done.rules
@@ -7807,7 +8463,11 @@ export const register: Register = (on, options) => {
     }
     if (verb === 'budget') {
       const dollars = arg === 'off' ? 0 : Number(arg.replace(/^\$/, ''))
-      if (!Number.isFinite(dollars) || dollars < 0) return { text: 'Usage: /tokens budget 2  (dollars per task), or /tokens budget off' }
+      // No amount is a question, not "off": it says the budget and leaves it be.
+      if (!arg || !Number.isFinite(dollars) || dollars < 0) {
+        const now = Number(await $.store.get('budgetUsd').catch(() => 0)) || 0
+        return { text: `Usage: /tokens budget 2  (dollars per task), or /tokens budget off${now ? `. Now: ${fmtCost(now)} per task` : ''}` }
+      }
       await setBudget($, dollars)
       return { text: dollars ? `Budget set: ${fmtCost(dollars)} per task. The Token Manager warns at 80% and 100%.` : 'Budget off.' }
     }
@@ -7821,7 +8481,7 @@ export const register: Register = (on, options) => {
         `Token Manager: ${MOOD_WORD[r.mood]}`,
         ...unpriced,
         `Smart staffing ${smartStaffing ? `on${staffSavedText()}` : `off (/tokens staffing on)${staffSavedText()}`} · autopilot ${watched.autopilot ? 'on' : 'off'}`,
-        ultraLine((await read($, agents)).filter(a => a.status === 'running' && a.isUltra).length, ultraRules.length),
+        `${ultraLine((await read($, agents)).filter(a => a.status === 'running' && a.isUltra).length, ultraRules.length)} · decided by ${ultraBy === 'manager' ? 'the Manager (/tokens ultra me)' : 'you (/tokens ultra manager)'}`,
         ...(isApiCredits(BILLING) ? [`${modeChip(BILLING)} · ${spendLine(API_SPEND, dayOf(at), fmtCost)}`] : []),
         `Burn ${fmtTokens(r.burnPerMin)}/min · this task ${fmtTokens(r.taskTokens)} (≈${fmtCost(r.taskCost)})${r.cachedPct === null ? '' : ` · ${r.cachedPct}% cached`}`,
         ...(() => {
@@ -8067,7 +8727,7 @@ export const register: Register = (on, options) => {
     if (isDesktop && 'Svg' in ui && band.hud) {
       const { Svg } = ui
       const hud = { ...band.hud, simple: !SKIN.cast && (await read($, settings)).simple }
-      const outH = hud.simple ? SIMPLE_OUT_H : HUD_OUT_H
+      const outH = themeOf()?.slimBand ? slimHeight() : hud.simple ? SIMPLE_OUT_H : HUD_OUT_H
       // About 8 CSS px per reported column; the rest is the count, the dismiss
       // and their gaps. No floor above the slot: a row wider than it would wrap.
       // The desktop reports cells, not pixels, and its cells are not a fixed width: draw a

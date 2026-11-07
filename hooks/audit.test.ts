@@ -99,7 +99,7 @@ test('a stored currency that is not a string falls back to US dollars instead of
 })
 
 test('a session picked up mid-conversation counts its turns and starts the turn cost at zero', async ($, on) => {
-  base(on, {}, 3.4)
+  base(on, { simpleBand: false }, 3.4) // the TURN counters are on the full band
   on('session.messages', async () =>
     ({
       value: [
